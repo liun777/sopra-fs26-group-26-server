@@ -55,4 +55,12 @@ public class UserController {
 		// convert internal representation of user back to API
 		return DTOMapper.INSTANCE.convertEntityToUserGetDTO(createdUser);
 	}
+
+	@GetMapping("/users/{id}")
+	@ResponseStatus(HttpStatus.OK)
+	@ResponseBody
+	public UserGetDTO getUserById(@PathVariable("id") Long id) {
+		User user = userService.getUser(id);
+		return DTOMapper.INSTANCE.convertEntityToUserGetDTO(user);
+	}
 }

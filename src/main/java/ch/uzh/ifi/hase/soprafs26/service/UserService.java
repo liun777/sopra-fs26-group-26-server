@@ -51,6 +51,11 @@ public class UserService {
 		return newUser;
 	}
 
+	public User getUser(Long id) {
+		return this.userRepository.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "The user with the given ID was not found."));
+	}
+
 	/**
 	 * This is a helper method that will check the uniqueness criteria of the
 	 * username and the name
