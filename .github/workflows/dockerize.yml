@@ -1,5 +1,5 @@
 name: Dockerize
-
+#
 on: 
   push:
     branches: 
@@ -27,7 +27,7 @@ jobs:
       uses: docker/login-action@v3
       with:
         username: ${{ secrets.dockerhub_username }}
-        password: ${{ secrets.dockerhub_password }}
+        password: ${{ secrets.dockerhub_password }} 
         
     # docker build & push amd64
     - name: Build and push for x64_86 processor architecture
