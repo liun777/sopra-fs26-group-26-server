@@ -95,6 +95,14 @@ public class LobbyService {
     // get lobby by id — used by WebSocketController
     public Lobby getLobbyById(Long lobbyId) {
         return lobbyRepository.findById(lobbyId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Session could not be found"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Session could not be found!"));
+    }
+
+    public Lobby getLobbyBySessionId(String sessionId) {
+        Lobby lobby = lobbyRepository.findBySessionId(sessionId);
+        if (lobby == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Session could not be found!");
+        }
+        return lobby;
     }
 }
