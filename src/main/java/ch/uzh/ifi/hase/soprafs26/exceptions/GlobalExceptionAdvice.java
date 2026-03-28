@@ -16,17 +16,21 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
 
 import jakarta.servlet.http.HttpServletRequest;
 
+// basically werden hier Fehler gehandelt, wenn im backend ein Fehler passiert,
+// fängt diese klasse sie auch und schikt eine Fehlermeldung zurück ans frontend
+
 @ControllerAdvice(annotations = RestController.class)
 public class GlobalExceptionAdvice extends ResponseEntityExceptionHandler {
 
 	private final Logger log = LoggerFactory.getLogger(GlobalExceptionAdvice.class);
 
+    // für illegale argumente
 	@ExceptionHandler(value = { IllegalArgumentException.class, IllegalStateException.class })
 	protected ResponseEntity<Object> handleConflict(RuntimeException ex, WebRequest request) {
 		String bodyOfResponse = "This should be application specific";
 		return handleExceptionInternal(ex, bodyOfResponse, new HttpHeaders(), HttpStatus.CONFLICT, request);
 	}
-
+// für Datenbankfehler, wenn zb ein pflichfeld leer ist
 	@ExceptionHandler(TransactionSystemException.class)
 	public ResponseStatusException handleTransactionSystemException(Exception ex, HttpServletRequest request) {
 		log.error("Request: {} raised {}", request.getRequestURL(), ex);
@@ -35,6 +39,7 @@ public class GlobalExceptionAdvice extends ResponseEntityExceptionHandler {
 
 	// Keep this one disable for all testing purposes -> it shows more detail with
 	// this one disabled
+    // für alle unerwarteteten fehler
 	@ExceptionHandler(HttpServerErrorException.InternalServerError.class)
 	public ResponseStatusException handleException(Exception ex) {
 		log.error("Default Exception Handler -> caught:", ex);

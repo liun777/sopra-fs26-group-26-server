@@ -14,6 +14,7 @@ import ch.uzh.ifi.hase.soprafs26.repository.UserRepository;
 
 import java.util.List;
 import java.util.UUID;
+import java.time.LocalDate;
 
 /**
  * User Service
@@ -22,6 +23,10 @@ import java.util.UUID;
  * (e.g., it creates, modifies, deletes, finds). The result will be passed back
  * to the caller.
  */
+
+
+// user service ist sozusagen brain vom backend - enthält die gnaze logik:
+    // COntroller empfängt requests und gibt es dem service und der service macht dann die ganze arbeit
 @Service
 @Transactional
 public class UserService {
@@ -34,26 +39,23 @@ public class UserService {
 		this.userRepository = userRepository;
 	}
 
+    // holt alle user aus Datenbank und gibt sie dem controller
 	public List<User> getUsers() {
 		return this.userRepository.findAll();
 	}
 
 	public User createUser(User newUser) {
-		newUser.setToken(UUID.randomUUID().toString());
-		newUser.setStatus(UserStatus.OFFLINE);
-		checkIfUserExists(newUser);
+		newUser.setToken(UUID.randomUUID().toString()); // generiert einen zufälligen eindeutigen Token
+		newUser.setStatus(UserStatus.ONLINE); // neuer User ist sofort ONLINE
+        newUser.setCreationDate(LocalDate.now()); // setzt heutiges datum
+		checkIfUserExists(newUser); // schaut ob dese user beriets exisiter
 		// saves the given entity but data is only persisted in the database once
-		// flush() is called
+        // speichert in datenbank
 		newUser = userRepository.save(newUser);
 		userRepository.flush();
 
 		log.debug("Created Information for User: {}", newUser);
 		return newUser;
-	}
-
-	public User getUser(Long id) {
-		return this.userRepository.findById(id)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "The user with the given ID was not found."));
 	}
 
 	/**
@@ -66,18 +68,64 @@ public class UserService {
 	 * @throws org.springframework.web.server.ResponseStatusException
 	 * @see User
 	 */
-	private void checkIfUserExists(User userToBeCreated) {
-		User userByUsername = userRepository.findByUsername(userToBeCreated.getUsername());
-		User userByName = userRepository.findByName(userToBeCreated.getName());
+	//private void checkIfUserExists(User userToBeCreated) {
+		//User userByUsername = userRepository.findByUsername(userToBeCreated.getUsername());
+		//User userByName = userRepository.findByName(userToBeCreated.getName());
 
-		String baseErrorMessage = "The %s provided %s not unique. Therefore, the user could not be created!";
-		if (userByUsername != null && userByName != null) {
-			throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-					String.format(baseErrorMessage, "username and the name", "are"));
-		} else if (userByUsername != null) {
-			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, String.format(baseErrorMessage, "username", "is"));
-		} else if (userByName != null) {
-			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, String.format(baseErrorMessage, "name", "is"));
-		}
-	}
+		//String baseErrorMessage = "The %s provided %s not unique. Therefore, the user could not be created!";
+		//if (userByUsername != null && userByName != null) {
+		//	throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+				//	String.format(baseErrorMessage, "username and the name", "are"));
+		//} else if (userByUsername != null) {
+		//	throw new ResponseStatusException(HttpStatus.CONFLICT, "This username is already taken, chose a new one");
+		//} else if (userByName != null) {
+		//	throw new ResponseStatusException(HttpStatus.BAD_REQUEST, String.format(baseErrorMessage, "name", "is"));
+		//}
+	//}
+
+    // name prüfung auskommentiert von mir weil sie nicht mehr gebraucht wird, sondern nur check via username
+    // schauen ob username bereits exisitier, wenn ja conflict error
+    private void checkIfUserExists(User userToBeCreated) {
+        User userByUsername = userRepository.findByUsername(userToBeCreated.getUsername());
+
+        if (userByUsername != null) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Username already taken");
+        }
+    }
+
+
+
+
+    // sucht user anhand von ID falls nicht gefunden not found error
+    public User getUserById(Long userId) { return userRepository.findById(userId).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
+    }
+// änderung des PW in datenbank
+    public void updateUser(Long userId, User userInput) { User user = getUserById(userId);
+        if (userInput.getPassword() != null) {
+            user.setPassword(userInput.getPassword()); // nur updaten wenn neues passwort vorhanden
+        }
+        if (userInput.getStatus() != null) {
+            user.setStatus(userInput.getStatus());
+        }
+        userRepository.save(user);
+        userRepository.flush();
+    }
+// schauen ob username bereits existier und ob PW korrekt ist, wenn nicht unauthorized fehler, falls
+    // alles gut dann wird stauts auf online gesetzet
+    public User loginUser(String username, String password) {User user = userRepository.findByUsername(username);
+        if (user == null || !user.getPassword().equals(password)) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials");
+        }
+// stimmt pw?
+        if (!user.getPassword().equals(password)) {
+        throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
+    }
+
+// falls ja status ändern zu online
+        user.setStatus(UserStatus.ONLINE);
+        userRepository.save(user);
+        userRepository.flush();
+        return user;
+    }
 }
+

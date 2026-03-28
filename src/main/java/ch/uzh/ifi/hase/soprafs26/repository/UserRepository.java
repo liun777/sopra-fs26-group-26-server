@@ -5,9 +5,14 @@ import org.springframework.stereotype.Repository;
 
 import ch.uzh.ifi.hase.soprafs26.entity.User;
 
+// Datenbankzugriffsschicht - verbindung zwischen service und Datenbank
+// Controller empfängt request ->Service macht logik ->Repository greift auf datenbank zu
 @Repository("userRepository")
 public interface UserRepository extends JpaRepository<User, Long> {
 	User findByName(String name);
 
 	User findByUsername(String username);
+
+	User findByToken(String token);  // for the lobby
 }
+
