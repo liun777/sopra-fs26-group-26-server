@@ -34,9 +34,12 @@ public class UserService {
 	private final Logger log = LoggerFactory.getLogger(UserService.class);
 
 	private final UserRepository userRepository;
+	private final OnlineUsersEventPublisher onlineUsersEventPublisher;
 
-	public UserService(@Qualifier("userRepository") UserRepository userRepository) {
+	public UserService(@Qualifier("userRepository") UserRepository userRepository,
+	                   OnlineUsersEventPublisher onlineUsersEventPublisher) {
 		this.userRepository = userRepository;
+		this.onlineUsersEventPublisher = onlineUsersEventPublisher;
 	}
 
     // holt alle user aus Datenbank und gibt sie dem controller
@@ -55,6 +58,7 @@ public class UserService {
 		userRepository.flush();
 
 		log.debug("Created Information for User: {}", newUser);
+		onlineUsersEventPublisher.broadcastOnlineUsers();
 		return newUser;
 	}
 
@@ -109,6 +113,7 @@ public class UserService {
         }
         userRepository.save(user);
         userRepository.flush();
+        onlineUsersEventPublisher.broadcastOnlineUsers();
     }
 // schauen ob username bereits existier und ob PW korrekt ist, wenn nicht unauthorized fehler, falls
     // alles gut dann wird stauts auf online gesetzet
@@ -125,6 +130,7 @@ public class UserService {
         user.setStatus(UserStatus.ONLINE);
         userRepository.save(user);
         userRepository.flush();
+        onlineUsersEventPublisher.broadcastOnlineUsers();
         return user;
     }
 }

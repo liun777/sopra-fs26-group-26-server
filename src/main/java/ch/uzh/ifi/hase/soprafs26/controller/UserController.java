@@ -43,7 +43,9 @@ public class UserController {
 
 		// convert each user to the API representation
 		for (User user : users) { // geht durch alle user und wandelt in dto um und addet sie zur liste
-			userGetDTOs.add(DTOMapper.INSTANCE.convertEntityToUserGetDTO(user)); // siehe dto skripte im rest ordner
+			UserGetDTO dto = DTOMapper.INSTANCE.convertEntityToUserGetDTO(user);
+			dto.setToken(null);
+			userGetDTOs.add(dto); // siehe dto skripte im rest ordner
 		}
 		return userGetDTOs; // fertige liste wird dann ans frontend gesendet
 	}
@@ -67,7 +69,9 @@ public class UserController {
     @ResponseBody
     public UserGetDTO getUserById(@PathVariable Long userId) {User user = userService.getUserById(userId);
         // @PathVariable holt die userid aus url und return schikt user ans Fromtend
-    return DTOMapper.INSTANCE.convertEntityToUserGetDTO(user) ;
+    UserGetDTO dto = DTOMapper.INSTANCE.convertEntityToUserGetDTO(user);
+    dto.setToken(null);
+    return dto;
     }
 
     // PUT /users/{userId}- für Ändern des Passworts

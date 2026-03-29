@@ -1,6 +1,7 @@
 package ch.uzh.ifi.hase.soprafs26.controller;
 
 import ch.uzh.ifi.hase.soprafs26.entity.Lobby;
+import ch.uzh.ifi.hase.soprafs26.rest.dto.WaitingLobbyViewDTO;
 import ch.uzh.ifi.hase.soprafs26.service.LobbyService;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
@@ -39,5 +40,18 @@ public class LobbyController {
     public Lobby joinLobby(@PathVariable String sessionId,
                            @RequestHeader("Authorization") String token) {
         return lobbyService.joinLobby(sessionId, token);
+    }
+
+    @GetMapping("/lobbies/waiting/{sessionId}")
+    @ResponseStatus(HttpStatus.OK)
+    public WaitingLobbyViewDTO getWaitingLobby(@PathVariable String sessionId,
+                                               @RequestHeader("Authorization") String token) {
+        return lobbyService.getWaitingLobbyView(token, sessionId);
+    }
+
+    @GetMapping("/lobbies/my/waiting")
+    @ResponseStatus(HttpStatus.OK)
+    public Lobby getMyWaitingLobby(@RequestHeader("Authorization") String token) {
+        return lobbyService.getMyWaitingLobbyAsHost(token);
     }
 }
