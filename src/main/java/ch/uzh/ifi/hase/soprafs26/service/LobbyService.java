@@ -4,6 +4,7 @@ import ch.uzh.ifi.hase.soprafs26.entity.Lobby;
 import ch.uzh.ifi.hase.soprafs26.entity.User;
 import ch.uzh.ifi.hase.soprafs26.repository.LobbyRepository;
 import ch.uzh.ifi.hase.soprafs26.repository.UserRepository;
+import ch.uzh.ifi.hase.soprafs26.rest.dto.LobbySettingsPatchDTO;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.WaitingLobbyPlayerRowDTO;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.WaitingLobbyViewDTO;
 import org.springframework.http.HttpStatus;
@@ -150,6 +151,7 @@ public class LobbyService {
         WaitingLobbyViewDTO dto = new WaitingLobbyViewDTO();
         dto.setLobbyId(lobby.getId());
         dto.setSessionId(lobby.getSessionId());
+        dto.setIsPublic(lobby.getIsPublic());
         List<WaitingLobbyPlayerRowDTO> rows = new ArrayList<>();
         for (Long pid : orderedIds) {
             User u = userRepository.findById(pid).orElse(null);
@@ -163,6 +165,27 @@ public class LobbyService {
         }
         dto.setPlayers(rows);
         return dto;
+    }
+
+    public Lobby updateLobbySettings(String token, String sessionId, LobbySettingsPatchDTO body) {
+        if (body == null || body.getIsPublic() == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "No settings to update");
+        }
+        User user = getUserByToken(token);
+        Lobby lobby = lobbyRepository.findBySessionId(sessionId);
+        if (lobby == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Session could not be found");
+        }
+        if (!user.getId().equals(lobby.getSessionHostUserId())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only the session host can update lobby settings");
+        }
+        if (!"WAITING".equals(lobby.getStatus())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Invalid lobby settings update");
+        }
+        lobby.setIsPublic(body.getIsPublic());
+        lobby = lobbyRepository.save(lobby);
+        lobbyEventPublisher.broadcastLobbyUpdate(lobby.getId(), lobby);
+        return lobby;
     }
 
     // POST /lobbies/{sessionId}/players — join a lobby

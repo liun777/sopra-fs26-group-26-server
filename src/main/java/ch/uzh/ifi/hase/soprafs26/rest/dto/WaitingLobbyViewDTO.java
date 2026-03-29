@@ -7,6 +7,7 @@ public class WaitingLobbyViewDTO {
 
     private Long lobbyId;
     private String sessionId;
+    private Boolean isPublic;
     private List<WaitingLobbyPlayerRowDTO> players = new ArrayList<>();
 
     public Long getLobbyId() {
@@ -23,6 +24,14 @@ public class WaitingLobbyViewDTO {
 
     public void setSessionId(String sessionId) {
         this.sessionId = sessionId;
+    }
+
+    public Boolean getIsPublic() {
+        return isPublic;
+    }
+
+    public void setIsPublic(Boolean isPublic) {
+        this.isPublic = isPublic;
     }
 
     public List<WaitingLobbyPlayerRowDTO> getPlayers() {

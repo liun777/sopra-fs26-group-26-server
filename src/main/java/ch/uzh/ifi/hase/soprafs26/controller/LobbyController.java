@@ -1,6 +1,7 @@
 package ch.uzh.ifi.hase.soprafs26.controller;
 
 import ch.uzh.ifi.hase.soprafs26.entity.Lobby;
+import ch.uzh.ifi.hase.soprafs26.rest.dto.LobbySettingsPatchDTO;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.WaitingLobbyViewDTO;
 import ch.uzh.ifi.hase.soprafs26.service.LobbyService;
 import org.springframework.http.HttpStatus;
@@ -40,6 +41,14 @@ public class LobbyController {
     public Lobby joinLobby(@PathVariable String sessionId,
                            @RequestHeader("Authorization") String token) {
         return lobbyService.joinLobby(sessionId, token);
+    }
+
+    @PatchMapping("/lobbies/{sessionId}/settings")
+    @ResponseStatus(HttpStatus.OK)
+    public Lobby updateLobbySettings(@PathVariable String sessionId,
+                                     @RequestHeader("Authorization") String token,
+                                     @RequestBody LobbySettingsPatchDTO body) {
+        return lobbyService.updateLobbySettings(token, sessionId, body);
     }
 
     @GetMapping("/lobbies/waiting/{sessionId}")
