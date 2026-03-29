@@ -19,6 +19,9 @@ public class UserServiceTest {
 	@Mock
 	private UserRepository userRepository;
 
+	@Mock
+	private OnlineUsersEventPublisher onlineUsersEventPublisher;
+
 	@InjectMocks
 	private UserService userService;
 

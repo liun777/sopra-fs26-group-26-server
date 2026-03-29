@@ -1,5 +1,6 @@
 package ch.uzh.ifi.hase.soprafs26.service;
 
+import ch.uzh.ifi.hase.soprafs26.entity.Lobby;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 
@@ -21,5 +22,9 @@ public class LobbyEventPublisher {
      */
     public void broadcastLobbyUpdate(Long lobbyId, Object payload) {
         messagingTemplate.convertAndSend("/topic/lobby/" + lobbyId, payload);
+        if (payload instanceof Lobby lobby && lobby.getSessionId() != null) {
+            messagingTemplate.convertAndSend(
+                    "/topic/lobby/session/" + lobby.getSessionId(), payload);
+        }
     }
 }
