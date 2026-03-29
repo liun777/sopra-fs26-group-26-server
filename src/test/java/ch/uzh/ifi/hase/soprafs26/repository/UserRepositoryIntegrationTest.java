@@ -28,6 +28,8 @@ public class UserRepositoryIntegrationTest {
 		user.setUsername("firstname@lastname");
 		user.setStatus(UserStatus.OFFLINE);
 		user.setToken("1");
+		user.setPassword("testPassword");
+		user.setCreationDate(java.time.LocalDate.now());
 
 		entityManager.persist(user);
 		entityManager.flush();

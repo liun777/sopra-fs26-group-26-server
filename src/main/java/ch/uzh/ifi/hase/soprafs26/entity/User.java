@@ -47,7 +47,7 @@ public class User implements Serializable { // public: Klasse kann von überall 
     private String password;
 
     @Column(nullable = false) // added by me for bio S1
-    private String bio;
+    private String bio = "";
 
     @Column(nullable = false) // added by me for creation date S1
     private LocalDate creationDate;
