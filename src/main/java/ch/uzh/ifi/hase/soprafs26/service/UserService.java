@@ -133,5 +133,20 @@ public class UserService {
         onlineUsersEventPublisher.broadcastOnlineUsers();
         return user;
     }
-}
 
+	// logout needs to be authenticated according to REST interface
+	public void logoutUser(String token) {
+		User foundUser = userRepository.findByToken(token);
+
+		if(foundUser == null) {
+			throw new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found!");
+		}
+
+		foundUser.setStatus(UserStatus.OFFLINE);
+		// this saves a random token to the user but the token is never revealed and no-one can use it
+		// acts as a safety feature s.t. a user that is logged out has no valid token saved in the DB
+		foundUser.setToken(UUID.randomUUID().toString());
+		userRepository.save(foundUser);
+		userRepository.flush();
+	}
+}
