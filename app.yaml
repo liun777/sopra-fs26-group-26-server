@@ -11,3 +11,6 @@ automatic_scaling:
 
 env_variables:
   SPRING_PROFILES_ACTIVE: "gcp"
+
+network:
+  session_affinity: true
