@@ -51,6 +51,11 @@ public class GameService {
         return topCard;
     }
 
-
+    //# 8: Implement a global isMyTurn state that disables all buttons and click listeners on the game board when false.
+    // this method says if it is the Users turn or not
+    public boolean isMyTurn(String gameId, Long userId) {
+        Game game = getGameById(gameId);
+        return userId.equals(game.getCurrentPlayerId());
+    }
 
 }
