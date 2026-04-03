@@ -11,7 +11,6 @@ import ch.uzh.ifi.hase.soprafs26.entity.Game;
 import ch.uzh.ifi.hase.soprafs26.entity.Lobby;
 import ch.uzh.ifi.hase.soprafs26.service.GameService;
 import ch.uzh.ifi.hase.soprafs26.service.LobbyService;
-import ch.uzh.ifi.hase.soprafs26.entity.Card;
 
 @RestController
 public class GameController {
@@ -56,5 +55,22 @@ public class GameController {
         return gameService.isMyTurn(gameId, userId);
     }
 
+    // Example empty stubs of move endpoints to demonstrate the interceptor from #30
+
+    @PostMapping("/games/{gameId}/moves/draw")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void moveDrawFromDrawPile(
+            @PathVariable String gameId,
+            @RequestHeader("Authorization") String token) {
+        gameService.moveDrawFromDrawPile(gameId);
+    }
+
+    @PostMapping("/games/{gameId}/moves/cabo")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void moveCallCabo(
+            @PathVariable String gameId,
+            @RequestHeader("Authorization") String token) {
+        gameService.moveCallCabo(gameId);
+    }
 
 }
