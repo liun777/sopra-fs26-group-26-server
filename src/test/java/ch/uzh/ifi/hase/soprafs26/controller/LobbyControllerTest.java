@@ -1,6 +1,7 @@
 package ch.uzh.ifi.hase.soprafs26.controller;
 
 import ch.uzh.ifi.hase.soprafs26.entity.Lobby;
+import ch.uzh.ifi.hase.soprafs26.service.GameService;
 import ch.uzh.ifi.hase.soprafs26.service.LobbyService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -30,6 +31,9 @@ public class LobbyControllerTest {
 
 	@MockitoBean
 	private LobbyService lobbyService;
+
+	@MockitoBean
+	private GameService gameService;
 
 	@Test
 	public void patchLobbySettings_validBody_returnsLobby() throws Exception {
