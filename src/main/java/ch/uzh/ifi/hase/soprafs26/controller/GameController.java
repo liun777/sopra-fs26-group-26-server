@@ -1,5 +1,6 @@
 package ch.uzh.ifi.hase.soprafs26.controller;
 
+import ch.uzh.ifi.hase.soprafs26.entity.Card;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.http.HttpStatus;
 
@@ -10,6 +11,7 @@ import ch.uzh.ifi.hase.soprafs26.entity.Game;
 import ch.uzh.ifi.hase.soprafs26.entity.Lobby;
 import ch.uzh.ifi.hase.soprafs26.service.GameService;
 import ch.uzh.ifi.hase.soprafs26.service.LobbyService;
+import ch.uzh.ifi.hase.soprafs26.entity.Card;
 
 @RestController
 public class GameController {
@@ -36,4 +38,14 @@ public class GameController {
         // return the game to the frontend
         return gameService.startGame(playerIds);
     }
+
+    // Backlog #9: Implement logic to always render the DiscardPile top card with its face-up value
+    @GetMapping("/games/{gameId}/discard-pile/top")
+    @ResponseStatus(HttpStatus.OK)
+    public Card getDiscardPileTopCard(@PathVariable String gameId) {
+        return gameService.getDiscardPileTopCard(gameId);
+
+    }
+
+
 }
