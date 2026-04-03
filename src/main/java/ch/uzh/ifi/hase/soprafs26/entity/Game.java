@@ -58,4 +58,20 @@ public class Game {
     public void setPlayerHands(Map<Long, List<Card>> playerHands) {
         this.playerHands = playerHands;
     }
+
+    //# 8: Implement a global isMyTurn state that disables all buttons and click listeners on the game board when false.
+    @Column(nullable = true)
+    private Long currentPlayerId;
+
+    public Long getCurrentPlayerId() {
+        return currentPlayerId;
+    }
+
+    public void setCurrentPlayerId(Long currentPlayerId) {
+        this.currentPlayerId = currentPlayerId;
+    }
+
+
+
+
 }

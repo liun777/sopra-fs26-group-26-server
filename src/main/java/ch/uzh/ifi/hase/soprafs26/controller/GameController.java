@@ -47,5 +47,14 @@ public class GameController {
 
     }
 
+    //# 8: Implement a global isMyTurn state that disables all buttons and click listeners on the game board when false.
+    @GetMapping("/games/{gameId}/is-my-turn/{userId}")
+    @ResponseStatus(HttpStatus.OK)
+    public boolean isMyTurn(
+            @PathVariable String gameId,
+            @PathVariable Long userId) {
+        return gameService.isMyTurn(gameId, userId);
+    }
+
 
 }
