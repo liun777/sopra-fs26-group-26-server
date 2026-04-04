@@ -1,5 +1,6 @@
 package ch.uzh.ifi.hase.soprafs26.controller;
 
+import ch.uzh.ifi.hase.soprafs26.entity.Card;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.http.HttpStatus;
 
@@ -36,4 +37,40 @@ public class GameController {
         // return the game to the frontend
         return gameService.startGame(playerIds);
     }
+
+    // Backlog #9: Implement logic to always render the DiscardPile top card with its face-up value
+    @GetMapping("/games/{gameId}/discard-pile/top")
+    @ResponseStatus(HttpStatus.OK)
+    public Card getDiscardPileTopCard(@PathVariable String gameId) {
+        return gameService.getDiscardPileTopCard(gameId);
+
+    }
+
+    //# 8: Implement a global isMyTurn state that disables all buttons and click listeners on the game board when false.
+    @GetMapping("/games/{gameId}/is-my-turn/{userId}")
+    @ResponseStatus(HttpStatus.OK)
+    public boolean isMyTurn(
+            @PathVariable String gameId,
+            @PathVariable Long userId) {
+        return gameService.isMyTurn(gameId, userId);
+    }
+
+    // Example empty stubs of move endpoints to demonstrate the interceptor from #30
+
+    @PostMapping("/games/{gameId}/moves/draw")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void moveDrawFromDrawPile(
+            @PathVariable String gameId,
+            @RequestHeader("Authorization") String token) {
+        gameService.moveDrawFromDrawPile(gameId);
+    }
+
+    @PostMapping("/games/{gameId}/moves/cabo")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void moveCallCabo(
+            @PathVariable String gameId,
+            @RequestHeader("Authorization") String token) {
+        gameService.moveCallCabo(gameId);
+    }
+
 }
