@@ -2,11 +2,14 @@ package ch.uzh.ifi.hase.soprafs26.rest.mapper;
 
 import org.mapstruct.*;
 import org.mapstruct.factory.Mappers;
+import java.util.List;
 
 import ch.uzh.ifi.hase.soprafs26.entity.User;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.UserGetDTO;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.UserPostDTO;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.UserPutDTO;
+import ch.uzh.ifi.hase.soprafs26.entity.Card;
+import ch.uzh.ifi.hase.soprafs26.rest.dto.CardDTO;
 
 /**
  * DTOMapper
@@ -55,6 +58,48 @@ public interface DTOMapper {
     User convertUserPutDTOtoEntity(UserPutDTO userPutDTO);
     // für Änderung des Passwortes
 
+    // we cannot use mapping since the api returns a card code but we also need a value and mapping 
+    // doesnt know which value a card code implies or what the visibilit should be so we use this 
+    // default method to overwrite MapStruct. This allows us to inject our game logic for the cards
+    default Card convertCardDTOtoEntity(CardDTO cardDTO) {
+        Card card = new Card();
+        String code = cardDTO.getCode();
+        card.setCode(code);
+        card.setVisibility(false);
+        char firstChar = code.charAt(0);
+        int cardValue = 0;
+
+        switch (firstChar) {
+            case 'X':
+                cardValue = 0;
+                break;
+            case 'A':
+                cardValue = 1;
+                break;
+            case '0':
+                cardValue = 10;
+                break;
+            case 'J':
+                cardValue = 11;
+                break;
+            case 'Q':
+                cardValue = 12;
+                break;
+            case 'K':
+                cardValue = 13;
+                break;
+            default:
+                // if the first character is a number 1-9 we can simply assign that as value
+                cardValue = Character.getNumericValue(firstChar);
+                break;
+        }
+        card.setValue(cardValue);
+        return card;
+    }
+
+    //MapStruct knows how to convert cardDTOs into cards with the above default method so now we 
+    // can simply convert whole lists of cardDTOs into cards
+    List<Card> convertCardDTOListtoEntityList(List<CardDTO> cardDTOs);
 
 }
 

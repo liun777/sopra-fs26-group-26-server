@@ -95,4 +95,12 @@ public class UserController {
         return DTOMapper.INSTANCE.convertEntityToUserGetDTO(user); // eingeloggten user ans frontend senden
     }
 
+	// endpoint according to REST interface table
+    @PostMapping("/auth/logout")
+    @ResponseStatus(HttpStatus.OK)
+    // needs to be authenticated so we request token
+    public void logoutUser(@RequestHeader("Authorization") String token) {
+        userService.logoutUser(token);
+    }
+
 }
