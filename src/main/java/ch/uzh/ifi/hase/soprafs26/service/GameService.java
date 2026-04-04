@@ -30,6 +30,7 @@ public class GameService {
         this.gameRepository = gameRepository;
         this.deckOfCardsAPIService = deckOfCardsAPIService;
         this.userRepository = userRepository;
+    }
 
     public Game startGame(List<Long> playerIds) {
         // create a new game
@@ -92,7 +93,7 @@ public class GameService {
         game.setDrawPile(shuffledCards);
         game.setDiscardPile(remainingCards);
     }
-}
+
     // Backlog #9: Implement logic to always render the DiscardPile top card with its face-up value
     public Game getGameById(String gameId) {
         return gameRepository.findById(gameId)
