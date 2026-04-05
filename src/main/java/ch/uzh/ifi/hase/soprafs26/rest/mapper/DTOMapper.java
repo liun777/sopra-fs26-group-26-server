@@ -10,6 +10,8 @@ import ch.uzh.ifi.hase.soprafs26.rest.dto.UserPostDTO;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.UserPutDTO;
 import ch.uzh.ifi.hase.soprafs26.entity.Card;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.CardDTO;
+import ch.uzh.ifi.hase.soprafs26.entity.Lobby;
+import ch.uzh.ifi.hase.soprafs26.rest.dto.LobbyGetDTO;
 
 /**
  * DTOMapper
@@ -97,9 +99,12 @@ public interface DTOMapper {
         return card;
     }
 
-    //MapStruct knows how to convert cardDTOs into cards with the above default method so now we 
+    // MapStruct knows how to convert cardDTOs into cards with the above default method so now we 
     // can simply convert whole lists of cardDTOs into cards
     List<Card> convertCardDTOListtoEntityList(List<CardDTO> cardDTOs);
 
+    // converts a lobby to a lobby dto
+    LobbyGetDTO convertEntityToLobbyGetDTO(Lobby lobby);
+    List<LobbyGetDTO> convertEntityListToLobbyGetDTOList(List<Lobby> lobbies);
 }
 
