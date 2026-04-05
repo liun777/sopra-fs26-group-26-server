@@ -10,7 +10,6 @@ import ch.uzh.ifi.hase.soprafs26.entity.Card;
 import ch.uzh.ifi.hase.soprafs26.entity.Game;
 import ch.uzh.ifi.hase.soprafs26.entity.User;
 import ch.uzh.ifi.hase.soprafs26.repository.GameRepository;
-import ch.uzh.ifi.hase.soprafs26.entity.Card;
 import ch.uzh.ifi.hase.soprafs26.rest.mapper.DTOMapper;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.CardDTO;
 
@@ -24,12 +23,15 @@ public class GameService {
     private final GameRepository gameRepository;
     private final DeckOfCardsAPIService deckOfCardsAPIService;
     private final UserRepository userRepository;
+    private final GameEventPublisher gameEventPublisher;
 
     // constructor injection
-    public GameService(GameRepository gameRepository, DeckOfCardsAPIService deckOfCardsAPIService, UserRepository userRepository) {
+    public GameService(GameRepository gameRepository, DeckOfCardsAPIService deckOfCardsAPIService,
+                       UserRepository userRepository, GameEventPublisher gameEventPublisher) {
         this.gameRepository = gameRepository;
         this.deckOfCardsAPIService = deckOfCardsAPIService;
         this.userRepository = userRepository;
+        this.gameEventPublisher = gameEventPublisher;
     }
 
     public Game startGame(List<Long> playerIds) {
@@ -68,11 +70,11 @@ public class GameService {
         newGame.setPlayerHands(playerHands);
         newGame.setDiscardPile(discardPile);
         newGame.setDrawPile(drawPile);
-        
-        // save it to the DB
-        Game savedGame = gameRepository.save(newGame);
-        gameRepository.flush();
-        return savedGame;
+        newGame.setOrderedPlayerIds(new ArrayList<>(playerIds));
+
+        // consolidate save and broadcast in one place
+        // so every time a game is saved we don't forget to broadcast
+        return saveGameAndBroadcast(newGame);
     }
 
     // helper method that shuffles the discard pile, called when the draw pile is empty
@@ -136,12 +138,21 @@ public class GameService {
         }
     }
 
-    // Example stub
+    // to save and broadcast: saveGameAndBroadcast(game)
     public void moveDrawFromDrawPile(String gameId) {
     }
 
-    // Example stub
+    // to save and broadcast: saveGameAndBroadcast(game)
     public void moveCallCabo(String gameId) {
+    }
+
+
+    // save in db and send filtered representations to all players 
+    private Game saveGameAndBroadcast(Game game) {
+        Game saved = gameRepository.save(game);
+        gameRepository.flush();
+        gameEventPublisher.publishFilteredState(saved);
+        return saved;
     }
 
 }
