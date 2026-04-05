@@ -12,13 +12,17 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.MockitoAnnotations;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class LobbyServiceTest {
 
@@ -51,7 +55,7 @@ public class LobbyServiceTest {
 		lobby.setSessionHostUserId(1L);
 		lobby.setStatus("WAITING");
 		lobby.setIsPublic(true);
-		lobby.getPlayerIds().add(1L);
+		lobby.setPlayerIds(new ArrayList<>(List.of(1L)));
 		Mockito.when(lobbyRepository.findBySessionId("S1")).thenReturn(lobby);
 		Mockito.when(lobbyRepository.save(Mockito.any(Lobby.class))).thenAnswer(inv -> inv.getArgument(0));
 
@@ -102,8 +106,7 @@ public class LobbyServiceTest {
 		lobby.setSessionHostUserId(1L);
 		lobby.setStatus("WAITING");
 		lobby.setIsPublic(false);
-		lobby.getPlayerIds().add(1L);
-		lobby.getPlayerIds().add(2L);
+		lobby.setPlayerIds(new ArrayList<>(List.of(1L, 2L)));
 		Mockito.when(lobbyRepository.findBySessionId("SID1")).thenReturn(lobby);
 
 		WaitingLobbyViewDTO dto = lobbyService.getWaitingLobbyView("token1", "SID1");
@@ -111,5 +114,44 @@ public class LobbyServiceTest {
 		assertFalse(dto.getIsPublic());
 		assertEquals("SID1", dto.getSessionId());
 		assertEquals(2, dto.getPlayers().size());
+	}
+
+	@Test
+	public void joinLobby_invalidToken_throwsUnauthorized() {
+		Mockito.when(userRepository.findByToken("invalid-token")).thenReturn(null);
+
+		// verify that an exception is thrown upon a lobby join with an invalid token
+		// and save the exception for further verification of its status code
+		ResponseStatusException ex = assertThrows(ResponseStatusException.class,
+				() -> lobbyService.joinLobby("S1", "invalid-token"));
+
+		// verify exception's status code
+		assertEquals(HttpStatus.UNAUTHORIZED, ex.getStatusCode());
+		// lobbyRepository should not be called after an attempt to join lobby with an invalid token
+		Mockito.verify(lobbyRepository, Mockito.never()).findBySessionId(Mockito.anyString());
+	}
+
+	@Test
+	public void joinLobby_validToken_addsUserToLobby() {
+		User joiner = new User();
+		joiner.setId(2L);
+		Mockito.when(userRepository.findByToken("token")).thenReturn(joiner);
+
+		Lobby lobby = new Lobby();
+		lobby.setId(10L);
+		lobby.setSessionId("S1");
+		lobby.setSessionHostUserId(1L);
+		lobby.setStatus("WAITING");
+		lobby.setPlayerIds(new ArrayList<>(List.of(1L)));
+		Mockito.when(lobbyRepository.findBySessionId("S1")).thenReturn(lobby);
+		// upon calling lobbyRepository.save and passing to it an instance of Lobby
+		// return the lobby that's being passed
+		Mockito.when(lobbyRepository.save(Mockito.any(Lobby.class))).thenAnswer(inv -> inv.getArgument(0));
+
+		Lobby result = lobbyService.joinLobby("S1", "token");
+
+		assertTrue(result.getPlayerIds().contains(2L));
+		// verify that broadcastLobbyUpdate was called once within the lobbyEventPublisher for lobby with id 10L
+		Mockito.verify(lobbyEventPublisher, Mockito.times(1)).broadcastLobbyUpdate(Mockito.eq(10L), Mockito.any());
 	}
 }

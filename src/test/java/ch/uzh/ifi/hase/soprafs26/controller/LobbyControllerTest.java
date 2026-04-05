@@ -15,11 +15,15 @@ import org.springframework.web.server.ResponseStatusException;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.ObjectMapper;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import static org.hamcrest.Matchers.is;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -43,7 +47,7 @@ public class LobbyControllerTest {
 		lobby.setSessionHostUserId(1L);
 		lobby.setIsPublic(false);
 		lobby.setStatus("WAITING");
-		lobby.getPlayerIds().add(1L);
+		lobby.setPlayerIds(new ArrayList<>(List.of(1L)));
 
 		given(lobbyService.updateLobbySettings(eq("my-token"), eq("ABCD12EF"), any()))
 				.willReturn(lobby);
@@ -57,6 +61,32 @@ public class LobbyControllerTest {
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.sessionId", is(lobby.getSessionId())))
 				.andExpect(jsonPath("$.isPublic", is(false)));
+	}
+
+	@Test
+	public void postJoinLobby_validAuthorization_returnsLobby() throws Exception {
+		Lobby lobby = new Lobby();
+		lobby.setId(1L);
+		lobby.setSessionId("S1");
+		lobby.setSessionHostUserId(1L);
+		lobby.setIsPublic(true);
+		lobby.setStatus("WAITING");
+		lobby.setPlayerIds(new ArrayList<>(List.of(1L, 2L)));
+
+		given(lobbyService.joinLobby(eq("S1"), eq("token"))).willReturn(lobby);
+
+		mockMvc.perform(post("/lobbies/S1/players").header("Authorization", "token"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.sessionId", is("S1")));
+	}
+
+	@Test
+	public void postJoinLobby_invalidAuthorization_returnsUnauthorized() throws Exception {
+		given(lobbyService.joinLobby(eq("S1"), eq("invalid-token")))
+				.willThrow(new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid token"));
+
+		mockMvc.perform(post("/lobbies/S1/players").header("Authorization", "invalid-token"))
+				.andExpect(status().isUnauthorized());
 	}
 
 	private String asJsonString(final Object object) {
