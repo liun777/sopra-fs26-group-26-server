@@ -21,6 +21,14 @@ public class Game {
     @Column(nullable = false, unique = true)
     private String id;
 
+    public String getId() {
+        return id;
+    }
+
+    public void setId(String id) {
+        this.id = id;
+    }
+
     // the line below is used to save lists and maps to the DB
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(nullable = false, unique = false)
@@ -34,6 +42,11 @@ public class Game {
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(nullable = false, unique = false)
     private Map<Long, List<Card>> playerHands = new HashMap<>();
+
+    // to keep a consistent order of players
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(nullable = false, unique = false)
+    private List<Long> orderedPlayerIds = new ArrayList<>();
 
     public List<Card> getDrawPile() {
         return drawPile;
@@ -57,6 +70,14 @@ public class Game {
 
     public void setPlayerHands(Map<Long, List<Card>> playerHands) {
         this.playerHands = playerHands;
+    }
+
+    public List<Long> getOrderedPlayerIds() {
+        return orderedPlayerIds;
+    }
+
+    public void setOrderedPlayerIds(List<Long> orderedPlayerIds) {
+        this.orderedPlayerIds = orderedPlayerIds;
     }
 
     //# 8: Implement a global isMyTurn state that disables all buttons and click listeners on the game board when false.

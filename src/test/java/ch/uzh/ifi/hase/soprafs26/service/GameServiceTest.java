@@ -29,6 +29,12 @@ public class GameServiceTest {
     @Mock
     private UserRepository userRepository;
 
+    @Mock
+    private DeckOfCardsAPIService deckOfCardsAPIService;
+
+    @Mock
+    private GameEventPublisher gameEventPublisher;
+
     @InjectMocks
     private GameService gameService;
 
