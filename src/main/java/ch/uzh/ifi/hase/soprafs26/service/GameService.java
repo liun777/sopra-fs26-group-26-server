@@ -140,6 +140,18 @@ public class GameService {
 
     // to save and broadcast: saveGameAndBroadcast(game)
     public void moveDrawFromDrawPile(String gameId) {
+    Game game = getGameById(gameId);
+    
+    // trigger reshuffle if draw pile is empty
+    if (game.getDrawPile().isEmpty()) {
+        reshuffleDiscardPile(game);
+    }
+    
+    // draw the top card from the draw pile
+    Card drawnCard = game.getDrawPile().remove(0);
+    drawnCard.setVisibility(true);
+    
+    saveGameAndBroadcast(game);
     }
 
     // to save and broadcast: saveGameAndBroadcast(game)
