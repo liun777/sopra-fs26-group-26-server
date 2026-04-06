@@ -23,6 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 public class LobbyServiceTest {
 
@@ -153,5 +154,73 @@ public class LobbyServiceTest {
 		assertTrue(result.getPlayerIds().contains(2L));
 		// verify that broadcastLobbyUpdate was called once within the lobbyEventPublisher for lobby with id 10L
 		Mockito.verify(lobbyEventPublisher, Mockito.times(1)).broadcastLobbyUpdate(Mockito.eq(10L), Mockito.any());
+	}
+
+	@Test
+	public void joinLobby_invalidSessionId() {
+		// create a user object
+		User joiner = new User();
+		joiner.setId(2L);
+		Mockito.when(userRepository.findByToken("token")).thenReturn(joiner);
+
+		// passing falseSessionId will will result in a null lobby since this sessionId doesnt exist
+		// then we execute the method and assert it throws an exception
+		ResponseStatusException ex = assertThrows(ResponseStatusException.class, 
+										() -> lobbyService.joinLobby("falseSessionId", "token"));
+
+		// we check that the thrown exception is what we expect
+		assertEquals(HttpStatus.NOT_FOUND, ex.getStatusCode);
+
+		// verify that we never saved anything to the DB or broadcast an event
+		Mockito.verify(lobbyRepository, Mockito.never()).save(Mockito.any());
+		Mockito.verify(lobbyEventPublisher, Mockito.never()).broadcastLobbyUpdate(Mockito.anyLong(), Mockito.any());
+	}
+
+	@Test
+	public void joinLobby_lobbyFull() {
+		// create user to join
+		User joiner = new User();
+		joiner.setId(2L);
+		Mockito.when(userRepository.findByToken("token")).thenReturn(joiner);
+
+		// create lobby
+		Lobby lobby = new Lobby();
+		lobby.setId(10L);
+		lobby.setSessionId("S1");
+		lobby.setSessionHostUserId(1L);
+		lobby.setStatus("WAITING");
+		lobby.setPlayerIds(new ArrayList<>(List.of(1L, 3L, 4L, 5L)));
+		// mock finding the lobby by session id to return the desired lobby
+		Mockito.when(lobbyRepository.findBySessionId("S1")).thenReturn(lobby);
+		// call joinLobby method and assert it throws an exception
+		ResponseStatusException ex = assertThrows(ResponseStatusException.class,
+										() -> lobbyService.joinLobby("S1", "token"));
+		// make sure the exception is what we expect
+		assertEquals(HttpStatus.CONFLICT, ex.getStatusCode);
+		// verify external methods were called 
+		Mockito.verify(lobbyRepository, Mockito.never()).save(Mockito.any());
+		Mockito.verify(lobbyEventPublisher, Mockito.never()).broadcastLobbyUpdate(Mockito.anyLong(), Mockito.any());
+	}
+
+	@Test
+	public void createLobby_validUser() {
+		// setup creator
+		User creator = new User();
+		creator.setId(2L);
+		Mockito.when(userRepository.findByToken("token")).thenReturn(creator);
+		// mock active lobby check to return empty list meaning this user does not have an active lobby yet
+		Mockito.when(lobbyRepository.findBySessionHostUserId(2L)).thenReturn(new ArrayList<>());
+		// mock save method
+		Mockito.when(lobbyRepository.save(Mockito.any(Lobby.class))).thenAnswer(inv -> inv.getArgument(0));
+
+		Lobby result = lobbyService.createLobby("token", true);
+
+		assertNotNull(result.getSessionId());
+		assertTrue(2L, result.getSessionHostUserId());
+		assertTrue(result.getIsPublic());
+		assertTrue(result.getPlayerIds.contains(2L));
+		// verify that external tools were called
+		Mockito.verify(lobbyRepository, Mockito.times(1)).save(Mockito.any(Lobby.class));
+		Mockito.verify(lobbyEventPublisher, Mockito.times(1)).broadcastLobbyUpdate(Mockito.any(), Mockito.any());
 	}
 }

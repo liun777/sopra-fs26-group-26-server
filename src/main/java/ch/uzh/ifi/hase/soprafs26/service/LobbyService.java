@@ -133,9 +133,7 @@ public class LobbyService {
         if (lobby == null) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Session could not be found");
         }
-        if (!"WAITING".equals(lobby.getStatus())) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Lobby is not in waiting state");
-        }
+        requireLobbyWaitingState(lobby);
         if (!lobby.getPlayerIds().contains(user.getId())) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Not a member of this lobby");
         }
