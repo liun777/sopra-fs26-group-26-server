@@ -169,7 +169,7 @@ public class LobbyServiceTest {
 										() -> lobbyService.joinLobby("falseSessionId", "token"));
 
 		// we check that the thrown exception is what we expect
-		assertEquals(HttpStatus.NOT_FOUND, ex.getStatusCode);
+		assertEquals(HttpStatus.NOT_FOUND, ex.getStatusCode());
 
 		// verify that we never saved anything to the DB or broadcast an event
 		Mockito.verify(lobbyRepository, Mockito.never()).save(Mockito.any());
@@ -196,7 +196,7 @@ public class LobbyServiceTest {
 		ResponseStatusException ex = assertThrows(ResponseStatusException.class,
 										() -> lobbyService.joinLobby("S1", "token"));
 		// make sure the exception is what we expect
-		assertEquals(HttpStatus.CONFLICT, ex.getStatusCode);
+		assertEquals(HttpStatus.CONFLICT, ex.getStatusCode());
 		// verify external methods were called 
 		Mockito.verify(lobbyRepository, Mockito.never()).save(Mockito.any());
 		Mockito.verify(lobbyEventPublisher, Mockito.never()).broadcastLobbyUpdate(Mockito.anyLong(), Mockito.any());
@@ -216,9 +216,9 @@ public class LobbyServiceTest {
 		Lobby result = lobbyService.createLobby("token", true);
 
 		assertNotNull(result.getSessionId());
-		assertTrue(2L, result.getSessionHostUserId());
+		assertEquals(2L, result.getSessionHostUserId());
 		assertTrue(result.getIsPublic());
-		assertTrue(result.getPlayerIds.contains(2L));
+		assertTrue(result.getPlayerIds().contains(2L));
 		// verify that external tools were called
 		Mockito.verify(lobbyRepository, Mockito.times(1)).save(Mockito.any(Lobby.class));
 		Mockito.verify(lobbyEventPublisher, Mockito.times(1)).broadcastLobbyUpdate(Mockito.any(), Mockito.any());
