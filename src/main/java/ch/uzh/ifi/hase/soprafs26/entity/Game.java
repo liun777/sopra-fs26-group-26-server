@@ -21,14 +21,6 @@ public class Game {
     @Column(nullable = false, unique = true)
     private String id;
 
-    public String getId() {
-        return id;
-    }
-
-    public void setId(String id) {
-        this.id = id;
-    }
-
     // the line below is used to save lists and maps to the DB
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(nullable = false, unique = false)
@@ -47,6 +39,20 @@ public class Game {
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(nullable = false, unique = false)
     private List<Long> orderedPlayerIds = new ArrayList<>();
+
+    // this always stores the card that was drawn last by any player
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(nullable = true, unique = false)
+    private Card drawnCard;
+
+
+    public String getId() {
+        return id;
+    }
+
+    public void setId(String id) {
+        this.id = id;
+    }
 
     public List<Card> getDrawPile() {
         return drawPile;
@@ -92,7 +98,12 @@ public class Game {
         this.currentPlayerId = currentPlayerId;
     }
 
+    public Card getDrawnCard() {
+        return drawnCard;
+    }
 
-
+    public void setDrawnCard(Card drawnCard) {
+        this.drawnCard = drawnCard;
+    }
 
 }

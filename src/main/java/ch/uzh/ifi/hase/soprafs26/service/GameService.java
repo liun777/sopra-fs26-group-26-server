@@ -4,7 +4,13 @@ import org.springframework.stereotype.Service;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.HashMap;
+
 
 import ch.uzh.ifi.hase.soprafs26.entity.Card;
 import ch.uzh.ifi.hase.soprafs26.entity.Game;
@@ -15,6 +21,7 @@ import ch.uzh.ifi.hase.soprafs26.rest.dto.CardDTO;
 
 import ch.uzh.ifi.hase.soprafs26.repository.UserRepository;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.web.server.ResponseStatusException;
 
 @Service
@@ -24,6 +31,10 @@ public class GameService {
     private final DeckOfCardsAPIService deckOfCardsAPIService;
     private final UserRepository userRepository;
     private final GameEventPublisher gameEventPublisher;
+    // clock that runs tasks in the background
+    private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(10);
+    // map to store tasks - key: gameId, value: scheduled task
+    private final Map<String, ScheduledFuture<?>> gameTimers = new ConcurrentHashMap<>();
 
     // constructor injection
     public GameService(GameRepository gameRepository, DeckOfCardsAPIService deckOfCardsAPIService,
@@ -71,6 +82,9 @@ public class GameService {
         newGame.setDiscardPile(discardPile);
         newGame.setDrawPile(drawPile);
         newGame.setOrderedPlayerIds(new ArrayList<>(playerIds));
+        newGame.setCurrentPlayerId(playerIds.get(0));
+
+        startTurnTimer(newGame.getId(), newGame.getCurrentPlayerId());
 
         // consolidate save and broadcast in one place
         // so every time a game is saved we don't forget to broadcast
@@ -78,7 +92,8 @@ public class GameService {
     }
 
     // helper method that shuffles the discard pile, called when the draw pile is empty
-    private void reshuffleDiscardPile(Game game) {
+    private void reshuffleDiscardPile(String gameId) {
+        Game game = getGameById(gameId);
         List<Card> discardPile = game.getDiscardPile();
         // leave the last card in the discard pile
         Card topCard = discardPile.remove(0);
@@ -102,6 +117,8 @@ public class GameService {
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.NOT_FOUND, "Game not found"));
     }
+
+
     public Card getDiscardPileTopCard(String gameId) {
         Game game = getGameById(gameId);
         List<Card> discardPile = game.getDiscardPile();
@@ -144,14 +161,29 @@ public class GameService {
     
     // trigger reshuffle if draw pile is empty
     if (game.getDrawPile().isEmpty()) {
-        reshuffleDiscardPile(game);
+        reshuffleDiscardPile(gameId);
     }
     
     // draw the top card from the draw pile
     Card drawnCard = game.getDrawPile().remove(0);
-    drawnCard.setVisibility(true);
-    
+    // drawnCard.setVisibility(true);
+    game.setDrawnCard(drawnCard);
     saveGameAndBroadcast(game);
+    }
+
+    // the equivalent to moveDrawFromDrawPile - takes the current drawn card and places it on the 
+    // discard pile
+    public void moveCardToDiscardPile(String gameId) {
+        Game game = getGameById(gameId);
+        Card drawnCard = game.getDrawnCard();
+        List<Card> discardPile = game.getDiscardPile();
+
+        if (drawnCard != null) {
+            drawnCard.setVisibility(true);
+            discardPile.add(drawnCard);
+            game.setDrawnCard(null);
+            advanceTurnToNextPlayer(gameId);
+        }
     }
 
     // to save and broadcast: saveGameAndBroadcast(game)
@@ -165,6 +197,65 @@ public class GameService {
         gameRepository.flush();
         gameEventPublisher.publishFilteredState(saved);
         return saved;
+    }
+
+    // this is used to automatically end a players turn by drawing and instantly discarding a card 
+    // if they are AFK
+    public void executeTimoutMove(String gameId, Long userId) {
+        Game game = getGameById(gameId);
+        Card cardToDiscard = game.getDrawnCard();
+        
+        if (!userId.equals(game.getCurrentPlayerId())) {
+            return;
+        }
+
+        if (cardToDiscard == null) {
+            moveDrawFromDrawPile(gameId);
+        }
+
+        moveCardToDiscardPile(gameId);
+    }
+
+    // pass the turn to the next player
+    public void advanceTurnToNextPlayer(String gameId) {
+        Game game = getGameById(gameId);
+        List<Long> players = game.getOrderedPlayerIds();
+        Long currentPlayerId = game.getCurrentPlayerId();
+
+        int currentIndex = players.indexOf(currentPlayerId);
+        int nextIndex = (currentIndex+1)%players.size();
+
+        game.setCurrentPlayerId(players.get(nextIndex));
+        startTurnTimer(gameId, game.getCurrentPlayerId());
+        saveGameAndBroadcast(game);
+    }
+
+    // start new 30 sec alarm for specified player
+    private void startTurnTimer(String gameId, Long playerId) {
+        // always cancel running timers first
+        cancelTurnTimer(gameId);
+        // tell the alarm what to run and when to run it
+        ScheduledFuture<?> future = scheduler.schedule(() -> {
+            try {
+                // this runs when the 30 sec are over
+                executeTimoutMove(gameId, playerId);
+            } catch (Exception e) {
+                // catch errors such that bug doesnt permanently crash timer
+                System.err.println("Timeout execution failed for game " + gameId + ": " + e.getMessage());
+            }
+        }, 30, TimeUnit.SECONDS);
+        // save it to our tasks
+        gameTimers.put(gameId, future);
+    }
+
+    // cancels current alarm if player makes a move
+    private void cancelTurnTimer(String gameId) {
+        ScheduledFuture<?> future = gameTimers.get(gameId);
+        if (future != null) {
+            // cancel timer
+            future.cancel(false);
+            gameTimers.remove(gameId);
+        }
     }
 
 }
