@@ -10,6 +10,8 @@ import java.util.ArrayList;
 import java.util.Map;
 import java.util.HashMap;
 
+import ch.uzh.ifi.hase.soprafs26.constant.GameStatus;
+
 @Entity
 // create a table with name games in the DB
 @Table(name = "games" )
@@ -44,6 +46,10 @@ public class Game {
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(nullable = true, unique = false)
     private Card drawnCard;
+
+    // game always starts with peeking
+    @Column(nullable = false)
+    private GameStatus status = GameStatus.INITIAL_PEEK;
 
 
     public String getId() {
@@ -104,6 +110,15 @@ public class Game {
 
     public void setDrawnCard(Card drawnCard) {
         this.drawnCard = drawnCard;
+    }
+
+    // peeking at the beginning of the game
+    public GameStatus getStatus() {
+    return status;
+    }
+
+    public void setStatus(GameStatus status) {
+        this.status = status;
     }
 
 }

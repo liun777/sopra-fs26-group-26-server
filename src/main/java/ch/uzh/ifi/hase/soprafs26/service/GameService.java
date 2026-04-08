@@ -18,6 +18,7 @@ import ch.uzh.ifi.hase.soprafs26.entity.User;
 import ch.uzh.ifi.hase.soprafs26.repository.GameRepository;
 import ch.uzh.ifi.hase.soprafs26.rest.mapper.DTOMapper;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.CardDTO;
+import ch.uzh.ifi.hase.soprafs26.constant.GameStatus;
 
 import ch.uzh.ifi.hase.soprafs26.repository.UserRepository;
 import org.springframework.http.HttpStatus;
@@ -157,18 +158,24 @@ public class GameService {
 
     // to save and broadcast: saveGameAndBroadcast(game)
     public void moveDrawFromDrawPile(String gameId) {
-    Game game = getGameById(gameId);
-    
-    // trigger reshuffle if draw pile is empty
-    if (game.getDrawPile().isEmpty()) {
-        reshuffleDiscardPile(gameId);
-    }
-    
-    // draw the top card from the draw pile
-    Card drawnCard = game.getDrawPile().remove(0);
-    // drawnCard.setVisibility(true);
-    game.setDrawnCard(drawnCard);
-    saveGameAndBroadcast(game);
+        Game game = getGameById(gameId);
+
+        // block drawing during initial peek phase
+        if (game.getStatus() != GameStatus.ROUND_ACTIVE) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Cannot draw a card right now");
+        }
+
+        // trigger reshuffle if draw pile is empty
+        if (game.getDrawPile().isEmpty()) {
+            reshuffleDiscardPile(gameId);
+            game = getGameById(gameId); // reload game after reshuffle
+        }       
+
+        // draw the top card from the draw pile
+        Card drawnCard = game.getDrawPile().remove(0);
+        drawnCard.setVisibility(true);
+
+        saveGameAndBroadcast(game);
     }
 
     // the equivalent to moveDrawFromDrawPile - takes the current drawn card and places it on the 
