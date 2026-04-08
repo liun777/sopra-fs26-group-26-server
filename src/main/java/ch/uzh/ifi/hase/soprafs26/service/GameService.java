@@ -193,6 +193,45 @@ public class GameService {
         }
     }
 
+    // swap drawn card with one of the player's hand cards
+    public void moveSwapDrawnCard(String gameId, String token, int targetCardIndex) {
+        // verify it's the player's turn
+        verifyMoveCallerIsCurrentPlayer(gameId, token);
+
+        Game game = getGameById(gameId);
+        Card drawnCard = game.getDrawnCard();
+
+        // check there is actually a drawn card
+        if (drawnCard == null) {
+        throw new ResponseStatusException(HttpStatus.CONFLICT, "No drawn card available for swapping");
+        }
+
+        // get the current player's hand
+        Long currentPlayerId = game.getCurrentPlayerId();
+        List<Card> playerHand = game.getPlayerHands().get(currentPlayerId);
+
+        // validate the target index
+        if (targetCardIndex < 0 || targetCardIndex >= playerHand.size()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid card index");
+        }
+
+        // remove the card at the target index from the hand
+        Card replacedCard = playerHand.remove(targetCardIndex);
+
+        // put the drawn card in its place, face-down
+        drawnCard.setVisibility(false);
+        playerHand.add(targetCardIndex, drawnCard);
+
+        // put the replaced card face-up on the discard pile
+        replacedCard.setVisibility(true);
+        game.getDiscardPile().add(replacedCard);
+
+        // clear the drawn card and advance turn
+        game.setDrawnCard(null);
+        saveGameAndBroadcast(game);
+        advanceTurnToNextPlayer(gameId);
+    }
+
     // to save and broadcast: saveGameAndBroadcast(game)
     public void moveCallCabo(String gameId) {
     }

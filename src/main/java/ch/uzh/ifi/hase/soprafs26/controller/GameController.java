@@ -65,6 +65,17 @@ public class GameController {
         gameService.moveDrawFromDrawPile(gameId);
     }
 
+    // swap drawn card with one of the player's hand cards
+    @PostMapping("/games/{gameId}/drawn-card/swap")
+    @ResponseStatus(HttpStatus.OK)
+    public void moveSwapDrawnCard(
+            @PathVariable String gameId,
+            @RequestHeader("Authorization") String token,
+            @RequestBody Map<String, Integer> body) {
+        int targetCardIndex = body.get("targetCardIndex");
+        gameService.moveSwapDrawnCard(gameId, token, targetCardIndex);
+    }
+
     @PostMapping("/games/{gameId}/moves/cabo")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void moveCallCabo(
