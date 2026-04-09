@@ -2,8 +2,9 @@ package ch.uzh.ifi.hase.soprafs26.rest.mapper;
 
 import ch.uzh.ifi.hase.soprafs26.entity.Card;
 import ch.uzh.ifi.hase.soprafs26.entity.Game;
+import ch.uzh.ifi.hase.soprafs26.rest.dto.CardViewDTO;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.GameStateBroadcastDTO;
-import ch.uzh.ifi.hase.soprafs26.rest.dto.PlayerBoardViewDTO;
+import ch.uzh.ifi.hase.soprafs26.rest.dto.PlayerHandViewDTO;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -54,15 +55,63 @@ class GameStateBroadcastMapperTest {
         GameStateBroadcastDTO for1 = mapper.toBroadcastForViewer(game, 1L);
         assertEquals(1, for1.getDrawPileCount());
         // own card - but visibility is false
-        assertNull(findBoard(for1, 1L).getCards().get(0).getValue());
+        assertNull(findPlayerHand(for1, 1L).getCards().get(0).getValue());
         // other player's card
-        assertNull(findBoard(for1, 2L).getCards().get(0).getValue());
+        assertNull(findPlayerHand(for1, 2L).getCards().get(0).getValue());
 
         GameStateBroadcastDTO for2 = mapper.toBroadcastForViewer(game, 2L);
         // other player's card
-        assertNull(findBoard(for2, 1L).getCards().get(0).getValue());
+        assertNull(findPlayerHand(for2, 1L).getCards().get(0).getValue());
         // own card - but visibility is false
-        assertNull(findBoard(for2, 2L).getCards().get(0).getValue());
+        assertNull(findPlayerHand(for2, 2L).getCards().get(0).getValue());
+    }
+
+    // #47: player 1 sees values only on their two peeked cards; player 2 never sees player 1's values.
+    @Test
+    void twoVisibleCardsOnPlayer1Hand_player2SeesNoValues() {
+        Game game = new Game();
+        game.setId("game-peek");
+
+        Map<Long, List<Card>> hands = new HashMap<>();
+
+        List<Card> hand1 = new ArrayList<>();
+        for (int i = 0; i < 4; i++) {
+            Card c = new Card();
+            c.setValue(i);
+            c.setCode(i + "-hearts");
+            c.setVisibility(i == 0 || i == 2);
+            hand1.add(c);
+        }
+        hands.put(1L, hand1);
+
+        List<Card> hand2 = new ArrayList<>();
+        for (int i = 0; i < 4; i++) {
+            Card c = new Card();
+            c.setValue(i);
+            c.setCode(i + "-clubs");
+            c.setVisibility(false);
+            hand2.add(c);
+        }
+        hands.put(2L, hand2);
+
+        game.setPlayerHands(hands);
+        game.setOrderedPlayerIds(List.of(1L, 2L));
+
+        GameStateBroadcastDTO gameStateForPlayer1 = mapper.toBroadcastForViewer(game, 1L);
+        List<CardViewDTO> player1HandPlayer1View = findPlayerHand(gameStateForPlayer1, 1L).getCards();
+        assertEquals(0, player1HandPlayer1View.get(0).getValue().intValue());
+        assertEquals("0-hearts", player1HandPlayer1View.get(0).getCode());
+        assertNull(player1HandPlayer1View.get(1).getValue());
+        assertEquals(2, player1HandPlayer1View.get(2).getValue().intValue());
+        assertEquals("2-hearts", player1HandPlayer1View.get(2).getCode());
+        assertNull(player1HandPlayer1View.get(3).getValue());
+
+        GameStateBroadcastDTO gameStateForPlayer2 = mapper.toBroadcastForViewer(game, 2L);
+        List<CardViewDTO> player1HandPlayer2View = findPlayerHand(gameStateForPlayer2, 1L).getCards();
+        for (int i = 0; i < 4; i++) {
+            assertNull(player1HandPlayer2View.get(i).getValue());
+            assertNull(player1HandPlayer2View.get(i).getCode());
+        }
     }
 
     @Test
@@ -79,17 +128,17 @@ class GameStateBroadcastMapperTest {
         game.setOrderedPlayerIds(List.of(1L, 2L));
 
         GameStateBroadcastDTO for1 = mapper.toBroadcastForViewer(game, 1L);
-        assertEquals(1, findBoard(for1, 1L).getCards().get(0).getValue().intValue());
-        assertEquals("C1", findBoard(for1, 1L).getCards().get(0).getCode());
+        assertEquals(1, findPlayerHand(for1, 1L).getCards().get(0).getValue().intValue());
+        assertEquals("C1", findPlayerHand(for1, 1L).getCards().get(0).getCode());
 
         GameStateBroadcastDTO for2 = mapper.toBroadcastForViewer(game, 2L);
         // as 2nd player, access cards from 1st player (no data displayed)
-        assertNull(findBoard(for2, 1L).getCards().get(0).getValue());
-        assertNull(findBoard(for2, 1L).getCards().get(0).getCode());
+        assertNull(findPlayerHand(for2, 1L).getCards().get(0).getValue());
+        assertNull(findPlayerHand(for2, 1L).getCards().get(0).getCode());
     }
 
-    // helper to get the PlayerBoardViewDTO instance from GameStateBroadcastDTO instance based on userId match
-    private static PlayerBoardViewDTO findBoard(GameStateBroadcastDTO dto, long userId) {
+    // helper to get the PlayerHandViewDTO instance from GameStateBroadcastDTO instance based on userId match
+    private static PlayerHandViewDTO findPlayerHand(GameStateBroadcastDTO dto, long userId) {
         return dto.getPlayers().stream()
                 .filter(p -> p.getUserId() == userId)
                 .findFirst()

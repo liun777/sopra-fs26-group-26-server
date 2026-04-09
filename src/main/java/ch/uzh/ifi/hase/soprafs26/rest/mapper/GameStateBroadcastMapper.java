@@ -5,7 +5,7 @@ import ch.uzh.ifi.hase.soprafs26.entity.Game;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.CardViewDTO;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.DiscardTopDTO;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.GameStateBroadcastDTO;
-import ch.uzh.ifi.hase.soprafs26.rest.dto.PlayerBoardViewDTO;
+import ch.uzh.ifi.hase.soprafs26.rest.dto.PlayerHandViewDTO;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -40,25 +40,25 @@ public class GameStateBroadcastMapper {
             hands = Map.of();
         }
         List<Long> ordered = game.getOrderedPlayerIds();
-        // if null - no boards
+        // if null -> no hands filled 
         if (ordered == null) {
             ordered = List.of();
         }
 
-        List<PlayerBoardViewDTO> boards = new ArrayList<>();
+        List<PlayerHandViewDTO> playerHands = new ArrayList<>();
         for (Long ownerId : ordered) {
-            PlayerBoardViewDTO board = new PlayerBoardViewDTO();
-            board.setUserId(ownerId);
+            PlayerHandViewDTO handView = new PlayerHandViewDTO();
+            handView.setUserId(ownerId);
             // if hands is empty map or no key in map for this player -> empty list of cards
             List<Card> hand = hands.getOrDefault(ownerId, List.of());
             List<CardViewDTO> views = new ArrayList<>();
             for (int i = 0; i < hand.size(); i++) {
                 views.add(toCardView(i, hand.get(i), ownerId, viewerUserId));
             }
-            board.setCards(views);
-            boards.add(board);
+            handView.setCards(views);
+            playerHands.add(handView);
         }
-        dto.setPlayers(boards);
+        dto.setPlayers(playerHands);
         return dto;
     }
 

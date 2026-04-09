@@ -3,9 +3,9 @@ package ch.uzh.ifi.hase.soprafs26.rest.dto;
 import java.util.ArrayList;
 import java.util.List;
 
-// representation for a response to the client, used by GameStateBroadcastDTO
-// card visibility based on what user will see this object
-public class PlayerBoardViewDTO {
+// player's hand as seen by some viewer 
+// used by GameStateBroadcastDTO, which is filtered per player
+public class PlayerHandViewDTO {
 
     private Long userId;
     private List<CardViewDTO> cards = new ArrayList<>();

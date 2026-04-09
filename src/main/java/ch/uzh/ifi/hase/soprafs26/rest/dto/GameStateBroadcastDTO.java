@@ -13,7 +13,7 @@ public class GameStateBroadcastDTO {
     private int drawPileCount;
     private Long currentTurnUserId;
     private DiscardTopDTO discardPileTop;
-    private List<PlayerBoardViewDTO> players = new ArrayList<>();
+    private List<PlayerHandViewDTO> players = new ArrayList<>();
 
     public String getGameId() {
         return gameId;
@@ -47,11 +47,11 @@ public class GameStateBroadcastDTO {
         this.discardPileTop = discardPileTop;
     }
 
-    public List<PlayerBoardViewDTO> getPlayers() {
+    public List<PlayerHandViewDTO> getPlayers() {
         return players;
     }
 
-    public void setPlayers(List<PlayerBoardViewDTO> players) {
+    public void setPlayers(List<PlayerHandViewDTO> players) {
         this.players = players;
     }
 }

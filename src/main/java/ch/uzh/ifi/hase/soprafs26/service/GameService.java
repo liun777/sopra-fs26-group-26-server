@@ -156,6 +156,56 @@ public class GameService {
         }
     }
 
+    /**
+     * #47 apply player's peek selection to their own hand and broadcast
+     * needs exactly two distinct hand positions, 400 bad request otherwise
+     * per-user WebSocket filtering ensures opponents never receive the revealed values
+     */
+    public void applyPeekSelection(String gameId, String token, List<Integer> indices) {
+        if (token == null || token.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid token");
+        }
+        User user = userRepository.findByToken(token);
+        if (user == null) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid token");
+        }
+        if (indices == null || indices.size() != 2) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Exactly two card indices required");
+        }
+        Integer a = indices.get(0);
+        Integer b = indices.get(1);
+        if (a == null || b == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Indices cannot be null");
+        }
+        if (a.equals(b)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Indices must be distinct");
+        }
+
+        Game game = getGameById(gameId);
+        if (game.getStatus() != GameStatus.INITIAL_PEEK) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Not in initial peek phase");
+        }
+
+        List<Card> hand = game.getPlayerHands().get(user.getId());
+        if (hand == null) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Not a player in this game");
+        }
+        if (a < 0 || a >= hand.size() || b < 0 || b >= hand.size()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Index out of range");
+        }
+
+        // reset visibility, then reveal two selected cards
+        for (Card c : hand) {
+            if (c != null) {
+                c.setVisibility(false);
+            }
+        }
+        hand.get(a).setVisibility(true);
+        hand.get(b).setVisibility(true);
+
+        saveGameAndBroadcast(game);
+    }
+
     // to save and broadcast: saveGameAndBroadcast(game)
     public void moveDrawFromDrawPile(String gameId) {
         Game game = getGameById(gameId);

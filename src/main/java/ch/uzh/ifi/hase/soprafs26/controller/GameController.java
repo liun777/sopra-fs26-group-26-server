@@ -1,6 +1,7 @@
 package ch.uzh.ifi.hase.soprafs26.controller;
 
 import ch.uzh.ifi.hase.soprafs26.entity.Card;
+import ch.uzh.ifi.hase.soprafs26.rest.dto.PeekSelectionDTO;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.http.HttpStatus;
 
@@ -82,6 +83,16 @@ public class GameController {
             @PathVariable String gameId,
             @RequestHeader("Authorization") String token) {
         gameService.moveCallCabo(gameId);
+    }
+
+    // #47: client sends exactly two indices; server reveals these cards and broadcasts per-user with WebSocket
+    @PostMapping("/games/{gameId}/peek")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void selectPeekCards(
+            @PathVariable String gameId,
+            @RequestHeader("Authorization") String token,
+            @RequestBody PeekSelectionDTO body) {
+        gameService.applyPeekSelection(gameId, token, body == null ? null : body.getIndices());
     }
 
 }
