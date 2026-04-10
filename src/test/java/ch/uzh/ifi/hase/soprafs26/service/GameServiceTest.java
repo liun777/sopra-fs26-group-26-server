@@ -6,6 +6,7 @@ import ch.uzh.ifi.hase.soprafs26.entity.Game;
 import ch.uzh.ifi.hase.soprafs26.entity.User;
 import ch.uzh.ifi.hase.soprafs26.repository.GameRepository;
 import ch.uzh.ifi.hase.soprafs26.repository.UserRepository;
+import ch.uzh.ifi.hase.soprafs26.rest.dto.CardDTO;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.PeekSelectionDTO;
 import ch.uzh.ifi.hase.soprafs26.util.PeekType;
 import org.junit.jupiter.api.BeforeEach;
@@ -25,6 +26,7 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -170,5 +172,63 @@ public class GameServiceTest {
         assertEquals("Initial peek already used", ex.getReason());
         // verify gameEventPublisher.publishFilteredState was called once during first successful peek only
         Mockito.verify(gameEventPublisher, Mockito.times(1)).publishFilteredState(game);
+    }
+
+    // placeholder testing 1/3
+    @Test
+    void startGame_validPlayers_returnsSavedGameWithId() {
+        List<CardDTO> deck = new ArrayList<>();
+        for (int i = 0; i < 52; i++) {
+            CardDTO dto = new CardDTO();
+            dto.setCode("AS");
+            deck.add(dto);
+        }
+        Mockito.when(deckOfCardsAPIService.getNewCaboDeck()).thenReturn(deck);
+        Mockito.when(gameRepository.save(any(Game.class))).thenAnswer(inv -> {
+            Game g = inv.getArgument(0);
+            g.setId("game-1");
+            return g;
+        });
+        Mockito.doNothing().when(gameRepository).flush();
+
+        Game result = gameService.startGame(List.of(1L, 2L));
+
+        assertNotNull(result);
+        assertEquals("game-1", result.getId());
+        assertEquals(2, result.getOrderedPlayerIds().size());
+        Mockito.verify(gameEventPublisher, Mockito.times(1)).publishFilteredState(result);
+    }
+    // placeholder testing 2/3  
+    @Test
+    void startGame_whenDeckApiFails_usesFallbackDeckAndStillStarts() {
+        Mockito.when(deckOfCardsAPIService.getNewCaboDeck()).thenThrow(new RuntimeException("Deck API down"));
+        Mockito.when(gameRepository.save(any(Game.class))).thenAnswer(inv -> {
+            Game g = inv.getArgument(0);
+            g.setId("game-fallback");
+            return g;
+        });
+        Mockito.doNothing().when(gameRepository).flush();
+
+        Game result = gameService.startGame(List.of(1L, 2L));
+
+        assertNotNull(result);
+        assertEquals("game-fallback", result.getId());
+        assertEquals(2, result.getPlayerHands().size());
+        assertEquals(4, result.getPlayerHands().get(1L).size());
+        assertEquals(4, result.getPlayerHands().get(2L).size());
+        assertEquals(43, result.getDrawPile().size());
+        assertEquals(1, result.getDiscardPile().size());
+        Mockito.verify(gameEventPublisher, Mockito.times(1)).publishFilteredState(result);
+    }
+    // placeholder testing 3/3
+    @Test
+    void startGame_withTooFewPlayers_throwsConflict() {
+        ResponseStatusException ex = assertThrows(
+                ResponseStatusException.class,
+                () -> gameService.startGame(List.of(1L))
+        );
+
+        assertEquals(HttpStatus.CONFLICT, ex.getStatusCode());
+        assertEquals("Lobby requires 2 to 4 players", ex.getReason());
     }
 }

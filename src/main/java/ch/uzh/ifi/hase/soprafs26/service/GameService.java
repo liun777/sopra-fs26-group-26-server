@@ -11,6 +11,10 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.HashMap;
+import java.util.Collections;
+import java.util.LinkedHashSet;
+import java.util.Set;
+import java.util.Arrays;
 
 
 import ch.uzh.ifi.hase.soprafs26.entity.Card;
@@ -25,11 +29,30 @@ import ch.uzh.ifi.hase.soprafs26.util.PeekType;
 
 import ch.uzh.ifi.hase.soprafs26.repository.UserRepository;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.HttpStatusCode;
 import org.springframework.web.server.ResponseStatusException;
 
+// added TEMPORARY FALLBACK, SINCE DECKAPI IS UNRELIABLE FOR TESTING
 @Service
 public class GameService {
+
+    private static final int MIN_PLAYERS = 2;
+    private static final int MAX_PLAYERS = 4;
+    private static final int STARTER_CARDS_PER_PLAYER = 4;
+    private static final List<String> FALLBACK_CABO_CARD_CODES = Arrays.asList(
+            "AS", "AD", "AC", "AH",
+            "2S", "2D", "2C", "2H",
+            "3S", "3D", "3C", "3H",
+            "4S", "4D", "4C", "4H",
+            "5S", "5D", "5C", "5H",
+            "6S", "6D", "6C", "6H",
+            "7S", "7D", "7C", "7H",
+            "8S", "8D", "8C", "8H",
+            "9S", "9D", "9C", "9H",
+            "0S", "0D", "0C", "0H",
+            "JS", "JD", "JC", "JH",
+            "QS", "QD", "QC", "QH",
+            "KS", "KC", "X1", "X2"
+    );
 
     private final GameRepository gameRepository;
     private final DeckOfCardsAPIService deckOfCardsAPIService;
@@ -50,25 +73,31 @@ public class GameService {
     }
 
     public Game startGame(List<Long> playerIds) {
+        List<Long> sanitizedPlayerIds = sanitizePlayerIds(playerIds);
+        validatePlayerCount(sanitizedPlayerIds);
+
         // create a new game
         Game newGame = new Game();
-        // get a deck of cards from the api
-        List<CardDTO> apiCards = deckOfCardsAPIService.getNewCaboDeck();
-        // convert it into our card entities
-        List<Card> drawPile = DTOMapper.INSTANCE.convertCardDTOListtoEntityList(apiCards);
+        // TEMP??? get card deck from api, use fallback to local deck if api unavailable
+        List<Card> drawPile = buildInitialDrawPile();
         // assign it to the draw pile
         newGame.setDrawPile(drawPile);
         // initialize the player hands
         Map<Long, List<Card>> playerHands = new HashMap<>();
 
         // give each player an empty hand
-        for (Long id:playerIds) {
+        for (Long id:sanitizedPlayerIds) {
             playerHands.put(id, new ArrayList<>());
         }
 
+        int cardsNeeded = (STARTER_CARDS_PER_PLAYER * sanitizedPlayerIds.size()) + 1;
+        if (drawPile.size() < cardsNeeded) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Could not initialize deck");
+        }
+
         // do four rounds of dealing each player one card from the draw pile
-        for (int i=0; i<4; i++) {
-            for (Long id:playerIds) {
+        for (int i=0; i<STARTER_CARDS_PER_PLAYER; i++) {
+            for (Long id:sanitizedPlayerIds) {
                 Card card = drawPile.remove(0);
                 playerHands.get(id).add(card);
             }
@@ -85,14 +114,79 @@ public class GameService {
         newGame.setPlayerHands(playerHands);
         newGame.setDiscardPile(discardPile);
         newGame.setDrawPile(drawPile);
-        newGame.setOrderedPlayerIds(new ArrayList<>(playerIds));
-        newGame.setCurrentPlayerId(playerIds.get(0));
+        newGame.setOrderedPlayerIds(new ArrayList<>(sanitizedPlayerIds));
+        newGame.setCurrentPlayerId(sanitizedPlayerIds.get(0));
 
-        startTurnTimer(newGame.getId(), newGame.getCurrentPlayerId());
+        // Save first to get a generated game id, then start the timer.
+        Game saved = saveGameAndBroadcast(newGame);
+        startTurnTimer(saved.getId(), saved.getCurrentPlayerId());
+        return saved;
+    }
 
-        // consolidate save and broadcast in one place
-        // so every time a game is saved we don't forget to broadcast
-        return saveGameAndBroadcast(newGame);
+    private List<Long> sanitizePlayerIds(List<Long> playerIds) {
+        if (playerIds == null) {
+            return List.of();
+        }
+        Set<Long> unique = new LinkedHashSet<>();
+        for (Long playerId : playerIds) {
+            if (playerId != null) {
+                unique.add(playerId);
+            }
+        }
+        return new ArrayList<>(unique);
+    }
+    
+    // EXCEPTION FOR PLAYER AMOUNT REQUIREMENTS
+    private void validatePlayerCount(List<Long> playerIds) {
+        if (playerIds.size() < MIN_PLAYERS || playerIds.size() > MAX_PLAYERS) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Lobby requires 2 to 4 players");
+        }
+    }
+
+    // ALSO HAS TEMP??? FALLBACK IN IT for building deck
+    private List<Card> buildInitialDrawPile() {
+        try {
+            List<CardDTO> apiCards = deckOfCardsAPIService.getNewCaboDeck();
+            if (apiCards != null && !apiCards.isEmpty()) {
+                List<Card> converted = DTOMapper.INSTANCE.convertCardDTOListtoEntityList(apiCards);
+                if (converted != null && !converted.isEmpty()) {
+                    return new ArrayList<>(converted);
+                }
+            }
+        } catch (Exception ex) {
+            System.err.println("Deck API unavailable for startGame; using fallback deck: " + ex.getMessage());
+        }
+        return buildFallbackDeck();
+    }
+
+    // TEMP??? FALLBACK for building deck
+    private List<Card> buildFallbackDeck() {
+        List<Card> fallback = new ArrayList<>();
+        for (String code : FALLBACK_CABO_CARD_CODES) {
+            Card card = new Card();
+            card.setCode(code);
+            card.setVisibility(false);
+            card.setValue(mapCardCodeToValue(code));
+            fallback.add(card);
+        }
+        Collections.shuffle(fallback);
+        return fallback;
+    }
+
+    private int mapCardCodeToValue(String code) {
+        if (code == null || code.isBlank()) {
+            return 0;
+        }
+        char firstChar = code.charAt(0);
+        return switch (firstChar) {
+            case 'X' -> 0;
+            case 'A' -> 1;
+            case '0' -> 10;
+            case 'J' -> 11;
+            case 'Q' -> 12;
+            case 'K' -> 13;
+            default -> Character.getNumericValue(firstChar);
+        };
     }
 
     // helper method that shuffles the discard pile, called when the draw pile is empty
@@ -375,6 +469,9 @@ public class GameService {
 
     // start new 30 sec alarm for specified player
     private void startTurnTimer(String gameId, Long playerId) {
+        if (gameId == null || gameId.isBlank() || playerId == null) {
+            return;
+        }
         // always cancel running timers first
         cancelTurnTimer(gameId);
         // tell the alarm what to run and when to run it
@@ -393,6 +490,9 @@ public class GameService {
 
     // cancels current alarm if player makes a move
     private void cancelTurnTimer(String gameId) {
+        if (gameId == null || gameId.isBlank()) {
+            return;
+        }
         ScheduledFuture<?> future = gameTimers.get(gameId);
         if (future != null) {
             // cancel timer

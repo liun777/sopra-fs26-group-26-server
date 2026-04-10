@@ -1,5 +1,6 @@
 package ch.uzh.ifi.hase.soprafs26.service;
 
+import ch.uzh.ifi.hase.soprafs26.constant.UserStatus;
 import ch.uzh.ifi.hase.soprafs26.entity.Lobby;
 import ch.uzh.ifi.hase.soprafs26.entity.User;
 import ch.uzh.ifi.hase.soprafs26.repository.LobbyRepository;
@@ -35,6 +36,9 @@ public class LobbyServiceTest {
 
 	@Mock
 	private LobbyEventPublisher lobbyEventPublisher;
+
+	@Mock
+	private OnlineUsersEventPublisher onlineUsersEventPublisher;
 
 	@InjectMocks
 	private LobbyService lobbyService;
@@ -154,6 +158,7 @@ public class LobbyServiceTest {
 		assertTrue(result.getPlayerIds().contains(2L));
 		// verify that broadcastLobbyUpdate was called once within the lobbyEventPublisher for lobby with id 10L
 		Mockito.verify(lobbyEventPublisher, Mockito.times(1)).broadcastLobbyUpdate(Mockito.eq(10L), Mockito.any());
+		Mockito.verify(onlineUsersEventPublisher, Mockito.times(1)).broadcastOnlineUsers();
 	}
 
 	@Test
@@ -222,5 +227,52 @@ public class LobbyServiceTest {
 		// verify that external tools were called
 		Mockito.verify(lobbyRepository, Mockito.times(1)).save(Mockito.any(Lobby.class));
 		Mockito.verify(lobbyEventPublisher, Mockito.times(1)).broadcastLobbyUpdate(Mockito.any(), Mockito.any());
+		Mockito.verify(onlineUsersEventPublisher, Mockito.times(1)).broadcastOnlineUsers();
+	}
+
+	@Test
+	public void verifyLobbyCanStart_notHost_throwsForbidden() {
+		User guest = new User();
+		guest.setId(2L);
+		Mockito.when(userRepository.findByToken("guest-token")).thenReturn(guest);
+
+		Lobby lobby = new Lobby();
+		lobby.setSessionId("S1");
+		lobby.setSessionHostUserId(1L);
+		lobby.setStatus("WAITING");
+		Mockito.when(lobbyRepository.findBySessionId("S1")).thenReturn(lobby);
+
+		ResponseStatusException ex = assertThrows(ResponseStatusException.class,
+				() -> lobbyService.verifyLobbyCanStart("guest-token", "S1"));
+		assertEquals(HttpStatus.FORBIDDEN, ex.getStatusCode());
+	}
+
+	@Test
+	public void markLobbyAsPlaying_setsLobbyAndPlayersToPlaying() {
+		Lobby lobby = new Lobby();
+		lobby.setId(22L);
+		lobby.setSessionId("S1");
+		lobby.setStatus("WAITING");
+		lobby.setPlayerIds(new ArrayList<>(List.of(1L, 2L)));
+		Mockito.when(lobbyRepository.findBySessionId("S1")).thenReturn(lobby);
+		Mockito.when(lobbyRepository.save(Mockito.any(Lobby.class))).thenAnswer(inv -> inv.getArgument(0));
+
+		User u1 = new User();
+		u1.setId(1L);
+		u1.setStatus(UserStatus.LOBBY);
+		User u2 = new User();
+		u2.setId(2L);
+		u2.setStatus(UserStatus.LOBBY);
+		Mockito.when(userRepository.findById(1L)).thenReturn(Optional.of(u1));
+		Mockito.when(userRepository.findById(2L)).thenReturn(Optional.of(u2));
+		Mockito.when(userRepository.save(Mockito.any(User.class))).thenAnswer(inv -> inv.getArgument(0));
+
+		lobbyService.markLobbyAsPlaying("S1");
+
+		assertEquals("PLAYING", lobby.getStatus());
+		assertEquals(UserStatus.PLAYING, u1.getStatus());
+		assertEquals(UserStatus.PLAYING, u2.getStatus());
+		Mockito.verify(lobbyEventPublisher, Mockito.times(1)).broadcastLobbyUpdate(Mockito.eq(22L), Mockito.any());
+		Mockito.verify(onlineUsersEventPublisher, Mockito.times(1)).broadcastOnlineUsers();
 	}
 }

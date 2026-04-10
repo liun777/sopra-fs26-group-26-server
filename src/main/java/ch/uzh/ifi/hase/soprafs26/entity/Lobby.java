@@ -31,7 +31,7 @@ public class Lobby implements Serializable {
     private Integer currentRound = 0;
 
     @Column(nullable = false)
-    private String status = "WAITING"; // WAITING or IN_GAME
+    private String status = "WAITING"; // WAITING or PLAYING // prob later SPECTATING
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }

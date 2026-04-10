@@ -30,13 +30,12 @@ public class GameController {
     public Game startGame(  @RequestHeader("Authorization") String token,
                             @PathVariable String sessionId,
                             @RequestBody Map<String, Integer> requestBody) {
-        
-        // get lobby by the lobbyId, this assumes that sessionId and lobbyId are equivalent
-        Lobby currentLobby = lobbyService.getLobbyBySessionId(sessionId);
-        // retrieve playerIds of players currently in the lobby
+        Lobby currentLobby = lobbyService.verifyLobbyCanStart(token, sessionId);
+        // retrieve playerIds of players currently in lobby
         List<Long> playerIds = currentLobby.getPlayerIds();
-        // return the game to the frontend
-        return gameService.startGame(playerIds);
+        Game startedGame = gameService.startGame(playerIds);
+        lobbyService.markLobbyAsPlaying(sessionId);
+        return startedGame;
     }
 
     // Backlog #9: Implement logic to always render the DiscardPile top card with its face-up value

@@ -25,11 +25,11 @@ public class OnlineUsersEventPublisher {
         this.userRepository = userRepository;
     }
 
-    /** Pushes current online users to subscribers. */
+    /** Pushes current active users to subscribers (all non-offline statuses). */
     public void broadcastOnlineUsers() {
         Runnable send = () -> {
             List<UserGetDTO> online = userRepository.findAll().stream()
-                    .filter(u -> u.getStatus() == UserStatus.ONLINE)
+                    .filter(u -> u.getStatus() != UserStatus.OFFLINE)
                     .map(DTOMapper.INSTANCE::convertEntityToUserGetDTO)
                     .peek(d -> d.setToken(null))
                     .toList();

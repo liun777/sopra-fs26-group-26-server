@@ -1,5 +1,6 @@
 package ch.uzh.ifi.hase.soprafs26.service;
 
+import ch.uzh.ifi.hase.soprafs26.constant.UserStatus;
 import ch.uzh.ifi.hase.soprafs26.entity.Lobby;
 import ch.uzh.ifi.hase.soprafs26.entity.User;
 import ch.uzh.ifi.hase.soprafs26.repository.LobbyRepository;
@@ -25,13 +26,16 @@ public class LobbyService {
     private final LobbyRepository lobbyRepository;
     private final UserRepository userRepository;
     private final LobbyEventPublisher lobbyEventPublisher;
+    private final OnlineUsersEventPublisher onlineUsersEventPublisher;
 
     public LobbyService(LobbyRepository lobbyRepository,
                         UserRepository userRepository,
-                        LobbyEventPublisher lobbyEventPublisher) {
+                        LobbyEventPublisher lobbyEventPublisher,
+                        OnlineUsersEventPublisher onlineUsersEventPublisher) {
         this.lobbyRepository = lobbyRepository;
         this.userRepository = userRepository;
         this.lobbyEventPublisher = lobbyEventPublisher;
+        this.onlineUsersEventPublisher = onlineUsersEventPublisher;
     }
 
     // helper: look up user by token, throw 401 if invalid
@@ -41,6 +45,26 @@ public class LobbyService {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid token");
         }
         return user;
+    }
+
+    private void setUserStatus(Long userId, UserStatus status) {
+        if (userId == null || status == null) {
+            return;
+        }
+        userRepository.findById(userId).ifPresent(user -> {
+            user.setStatus(status);
+            userRepository.save(user);
+        });
+    }
+
+    // same as setUserStatus but multiple userIds
+    private void setUsersStatus(List<Long> userIds, UserStatus status) {
+        if (userIds == null || status == null) {
+            return;
+        }
+        for (Long userId : userIds) {
+            setUserStatus(userId, status);
+        }
     }
 
     // generates a unique sessionId
@@ -57,7 +81,7 @@ public class LobbyService {
         User host = getUserByToken(token);
 
         boolean hasActiveLobby = lobbyRepository.findBySessionHostUserId(host.getId()).stream()
-                .anyMatch(l -> "WAITING".equals(l.getStatus()) || "IN_GAME".equals(l.getStatus()));
+                .anyMatch(l -> "WAITING".equals(l.getStatus()) || "PLAYING".equals(l.getStatus()));
         if (hasActiveLobby) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "You already have an active lobby");
         }
@@ -69,7 +93,9 @@ public class LobbyService {
         lobby.getPlayerIds().add(host.getId());
 
         lobby = lobbyRepository.save(lobby);
+        setUserStatus(host.getId(), UserStatus.LOBBY);  // set host user status to LOBBY after joining lobby
         lobbyEventPublisher.broadcastLobbyUpdate(lobby.getId(), lobby);
+        onlineUsersEventPublisher.broadcastOnlineUsers();
         return lobby;
     }
 
@@ -108,7 +134,9 @@ public class LobbyService {
         if (!lobby.getPlayerIds().contains(guestUserId)) {
             lobby.getPlayerIds().add(guestUserId);
             lobbyRepository.save(lobby);
+            setUserStatus(guestUserId, UserStatus.LOBBY);  // set user status to LOBBY after joining lobby
             lobbyEventPublisher.broadcastLobbyUpdate(lobby.getId(), lobby);
+            onlineUsersEventPublisher.broadcastOnlineUsers();
         }
     }
 
@@ -205,8 +233,39 @@ public class LobbyService {
 
         lobby.getPlayerIds().add(user.getId());
         lobby = lobbyRepository.save(lobby);
+        setUserStatus(user.getId(), UserStatus.LOBBY); // set user status to LOBBY after joining lobby
         lobbyEventPublisher.broadcastLobbyUpdate(lobby.getId(), lobby);
+        onlineUsersEventPublisher.broadcastOnlineUsers();
         return lobby;
+    }
+
+    public Lobby verifyLobbyCanStart(String token, String sessionId) {
+        User requester = getUserByToken(token);
+        Lobby lobby = lobbyRepository.findBySessionId(sessionId);
+        if (lobby == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Session could not be found");
+        }
+        if (!requester.getId().equals(lobby.getSessionHostUserId())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only the session host can start the game");
+        }
+        if (!"WAITING".equals(lobby.getStatus())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Lobby is not in waiting state");
+        }
+        return lobby;
+    }
+
+    // set players as PLAYING
+    public void markLobbyAsPlaying(String sessionId) {
+        Lobby lobby = lobbyRepository.findBySessionId(sessionId);
+        if (lobby == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Session could not be found");
+        }
+
+        lobby.setStatus("PLAYING");
+        lobbyRepository.save(lobby);
+        setUsersStatus(lobby.getPlayerIds(), UserStatus.PLAYING);
+        lobbyEventPublisher.broadcastLobbyUpdate(lobby.getId(), lobby);
+        onlineUsersEventPublisher.broadcastOnlineUsers();
     }
 
     // GET /lobbies — get all public lobbies
