@@ -51,6 +51,10 @@ public class Game {
     @Column(nullable = false)
     private GameStatus status = GameStatus.INITIAL_PEEK;
 
+    // Per user: true after successful initial peek (no second initial peek)
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(nullable = false, unique = false)
+    private Map<Long, Boolean> initialPeekDoneByUserId = new HashMap<>();
 
     public String getId() {
         return id;
@@ -119,6 +123,15 @@ public class Game {
 
     public void setStatus(GameStatus status) {
         this.status = status;
+    }
+
+    public Map<Long, Boolean> getInitialPeekDoneByUserId() {
+        return initialPeekDoneByUserId;
+    }
+
+    public void setInitialPeekDoneByUserId(Map<Long, Boolean> initialPeekDoneByUserId) {
+        this.initialPeekDoneByUserId =
+                initialPeekDoneByUserId != null ? initialPeekDoneByUserId : new HashMap<>();
     }
 
 }

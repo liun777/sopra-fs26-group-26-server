@@ -85,14 +85,14 @@ public class GameController {
         gameService.moveCallCabo(gameId);
     }
 
-    // #47: client sends exactly two indices; server reveals these cards and broadcasts per-user with WebSocket
+    // #47 and #49
     @PostMapping("/games/{gameId}/peek")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void selectPeekCards(
             @PathVariable String gameId,
             @RequestHeader("Authorization") String token,
             @RequestBody PeekSelectionDTO body) {
-        gameService.applyPeekSelection(gameId, token, body == null ? null : body.getIndices());
+        gameService.applyPeek(gameId, token, body);
     }
 
 }

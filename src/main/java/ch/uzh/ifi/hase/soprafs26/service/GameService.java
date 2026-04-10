@@ -3,6 +3,7 @@ package ch.uzh.ifi.hase.soprafs26.service;
 import org.springframework.stereotype.Service;
 import java.util.List;
 import java.util.ArrayList;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
@@ -18,7 +19,9 @@ import ch.uzh.ifi.hase.soprafs26.entity.User;
 import ch.uzh.ifi.hase.soprafs26.repository.GameRepository;
 import ch.uzh.ifi.hase.soprafs26.rest.mapper.DTOMapper;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.CardDTO;
+import ch.uzh.ifi.hase.soprafs26.rest.dto.PeekSelectionDTO;
 import ch.uzh.ifi.hase.soprafs26.constant.GameStatus;
+import ch.uzh.ifi.hase.soprafs26.util.PeekType;
 
 import ch.uzh.ifi.hase.soprafs26.repository.UserRepository;
 import org.springframework.http.HttpStatus;
@@ -156,20 +159,49 @@ public class GameService {
         }
     }
 
-    /**
-     * #47 apply player's peek selection to their own hand and broadcast
-     * needs exactly two distinct hand positions, 400 bad request otherwise
-     * per-user WebSocket filtering ensures opponents never receive the revealed values
-     */
-    public void applyPeekSelection(String gameId, String token, List<Integer> indices) {
+
+     // #47 initial peek + per-user broadcast 
+     // #49 authentication guards.
+    public void applyPeek(String gameId, String token, PeekSelectionDTO body) {
         if (token == null || token.isBlank()) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid token");
         }
-        User user = userRepository.findByToken(token);
-        if (user == null) {
+        User authenticatedUser = userRepository.findByToken(token);
+        if (authenticatedUser == null) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid token");
         }
-        if (indices == null || indices.size() != 2) {
+        if (body == null || body.getPeekType() == null || body.getPeekType().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "peekType is required");
+        }
+        // Locale.ROOT ensures consistent character manipulation regardless of server's language settings 
+        String peekType = body.getPeekType().trim().toLowerCase(Locale.ROOT);
+        if (!PeekType.INITIAL.equals(peekType) && !PeekType.SPECIAL.equals(peekType)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "peekType must be \"initial\" or \"special\"");
+        }
+
+        Game game = getGameById(gameId);
+
+        if (PeekType.SPECIAL.equals(peekType)) {
+            // implement
+            applySpecialPeek();
+            return;
+        }
+
+        applyInitialPeek(game, authenticatedUser, body);
+    }
+
+    private void applyInitialPeek(Game game, User authenticatedUser, PeekSelectionDTO body) {
+        Long authenticatedUserId = authenticatedUser.getId();
+        Long handUserId = body.getHandUserId();
+        if (handUserId != null && !handUserId.equals(authenticatedUserId)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Cannot peek another player's hand");
+        }
+
+        List<Integer> indices = body.getIndices();
+        if (indices == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Indices required");
+        }
+        if (indices.size() != 2) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Exactly two card indices required");
         }
         Integer a = indices.get(0);
@@ -181,12 +213,21 @@ public class GameService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Indices must be distinct");
         }
 
-        Game game = getGameById(gameId);
         if (game.getStatus() != GameStatus.INITIAL_PEEK) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Not in initial peek phase");
         }
 
-        List<Card> hand = game.getPlayerHands().get(user.getId());
+        Map<Long, Boolean> performedInitialPeek = game.getInitialPeekDoneByUserId();
+        if (performedInitialPeek == null) {
+            performedInitialPeek = new HashMap<>();
+            game.setInitialPeekDoneByUserId(performedInitialPeek);
+        }
+        // use Boolean.TRUE cause .get() may return a null
+        if (Boolean.TRUE.equals(performedInitialPeek.get(authenticatedUserId))) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Initial peek already used");
+        }
+
+        List<Card> hand = game.getPlayerHands().get(authenticatedUserId);
         if (hand == null) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Not a player in this game");
         }
@@ -203,7 +244,13 @@ public class GameService {
         hand.get(a).setVisibility(true);
         hand.get(b).setVisibility(true);
 
+        performedInitialPeek.put(authenticatedUserId, true);
         saveGameAndBroadcast(game);
+    }
+
+    // future work
+    private void applySpecialPeek() {
+
     }
 
     // to save and broadcast: saveGameAndBroadcast(game)

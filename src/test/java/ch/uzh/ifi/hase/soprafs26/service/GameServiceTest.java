@@ -6,6 +6,8 @@ import ch.uzh.ifi.hase.soprafs26.entity.Game;
 import ch.uzh.ifi.hase.soprafs26.entity.User;
 import ch.uzh.ifi.hase.soprafs26.repository.GameRepository;
 import ch.uzh.ifi.hase.soprafs26.repository.UserRepository;
+import ch.uzh.ifi.hase.soprafs26.rest.dto.PeekSelectionDTO;
+import ch.uzh.ifi.hase.soprafs26.util.PeekType;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.InjectMocks;
@@ -70,7 +72,7 @@ public class GameServiceTest {
     }
 
     @Test
-    void applyPeekSelection_validTwoIndices_revealsOnlyThoseAndPublishesFilteredState() {
+    void applyInitialPeek_validTwoIndices_revealsOnlyThoseMarksPeekDoneAndPublishes() {
         User player = new User();
         player.setId(1L);
         Mockito.when(userRepository.findByToken("token")).thenReturn(player);
@@ -108,13 +110,65 @@ public class GameServiceTest {
         Mockito.when(gameRepository.save(any(Game.class))).thenAnswer(inv -> inv.getArgument(0));
         Mockito.doNothing().when(gameRepository).flush();
 
-        gameService.applyPeekSelection(GAME_ID, "token", List.of(0, 2));
+        PeekSelectionDTO body = new PeekSelectionDTO();
+        body.setPeekType(PeekType.INITIAL);
+        body.setIndices(List.of(0, 2));
+        gameService.applyPeek(GAME_ID, "token", body);
 
         assertTrue(hand1.get(0).getVisibility());
         assertFalse(hand1.get(1).getVisibility());
         assertTrue(hand1.get(2).getVisibility());
         assertFalse(hand1.get(3).getVisibility());
-        // verify gameEventPublisher was called with game as argument
+        assertTrue(game.getInitialPeekDoneByUserId().get(1L));
         Mockito.verify(gameEventPublisher).publishFilteredState(game);
+    }
+
+    @Test
+    void duplicateInitialPeek_throwsForbidden() {
+        User player = new User();
+        player.setId(1L);
+        Mockito.when(userRepository.findByToken("token")).thenReturn(player);
+
+        List<Card> hand1 = new ArrayList<>();
+        for (int i = 0; i < 4; i++) {
+            Card c = new Card();
+            c.setVisibility(false);
+            c.setValue(i);
+            hand1.add(c);
+        }
+        Map<Long, List<Card>> hands = new HashMap<>();
+        hands.put(1L, hand1);
+
+        Game game = new Game();
+        game.setId(GAME_ID);
+        game.setStatus(GameStatus.INITIAL_PEEK);
+        game.setPlayerHands(hands);
+
+        // Optional.of() used because gameRepository.findById() returns Optional<Game>
+        Mockito.when(gameRepository.findById(GAME_ID)).thenReturn(Optional.of(game));
+        // when we call gameRepository.save() and pass it an instance of type Game
+        // return the game instance that was passed as the argument
+        Mockito.when(gameRepository.save(any(Game.class))).thenAnswer(inv -> inv.getArgument(0));
+        Mockito.doNothing().when(gameRepository).flush();
+
+        PeekSelectionDTO first = new PeekSelectionDTO();
+        first.setPeekType(PeekType.INITIAL);
+        first.setIndices(List.of(0, 1));
+        gameService.applyPeek(GAME_ID, "token", first);
+
+        assertTrue(Boolean.TRUE.equals(game.getInitialPeekDoneByUserId().get(1L)));
+
+        PeekSelectionDTO second = new PeekSelectionDTO();
+        second.setPeekType(PeekType.INITIAL);
+        second.setIndices(List.of(2, 3));
+
+        // assert an exception is thrown on the second "initial peek" attempt
+        // save the exception instance for further checks
+        ResponseStatusException ex = assertThrows(ResponseStatusException.class,
+                () -> gameService.applyPeek(GAME_ID, "token", second));
+        assertEquals(HttpStatus.FORBIDDEN, ex.getStatusCode());
+        assertEquals("Initial peek already used", ex.getReason());
+        // verify gameEventPublisher.publishFilteredState was called once during first successful peek only
+        Mockito.verify(gameEventPublisher, Mockito.times(1)).publishFilteredState(game);
     }
 }
