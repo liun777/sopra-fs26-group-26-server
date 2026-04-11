@@ -116,10 +116,12 @@ public class GameService {
         newGame.setDrawPile(drawPile);
         newGame.setOrderedPlayerIds(new ArrayList<>(sanitizedPlayerIds));
         newGame.setCurrentPlayerId(sanitizedPlayerIds.get(0));
-
+        newGame.setStatus(GameStatus.INITIAL_PEEK);
         // Save first to get a generated game id, then start the timer.
         Game saved = saveGameAndBroadcast(newGame);
-        startTurnTimer(saved.getId(), saved.getCurrentPlayerId());
+        startPeekingTimer(saved.getId());
+
+        // startTurnTimer(saved.getId(), saved.getCurrentPlayerId());
         return saved;
     }
 
@@ -499,6 +501,62 @@ public class GameService {
             future.cancel(false);
             gameTimers.remove(gameId);
         }
+    }
+
+    private void startPeekingTimer(String gameId) {
+        if (gameId == null || gameId.isBlank()) {
+            return;
+        }
+        // make sure no other timer runs
+        cancelTurnTimer(gameId);
+        // start timer that allows players to do intial peek
+        ScheduledFuture<?> future = scheduler.schedule( () -> {
+            endPeekingTimer(gameId);
+        }, 10, TimeUnit.SECONDS);
+        gameTimers.put(gameId, future);
+    }
+
+    private void endPeekingTimer(String gameId) {
+        Game game = getGameById(gameId);
+
+        List<Integer> randomIndices = new ArrayList<>(Arrays.asList(0, 1, 2, 3));
+        Map<Long, Boolean> performedInitialPeek = game.getInitialPeekDoneByUserId();
+        List<Long> players = game.getOrderedPlayerIds();
+
+        if (performedInitialPeek == null) {
+            performedInitialPeek = new HashMap<>();
+            game.setInitialPeekDoneByUserId(performedInitialPeek);
+        }
+
+        // iterate through players to make sure all of them made initial peek
+        for (Long id : players) {
+            if (!Boolean.TRUE.equals(performedInitialPeek.get(id))) {
+                // if a player didnt do their initial peek select two random cards and reveal them
+                Collections.shuffle(randomIndices);
+                // select the two random cards
+                int firstIndex = randomIndices.get(0);
+                int secondIndex = randomIndices.get(1);
+                List<Card> hand = game.getPlayerHands().get(id);
+                // reveal them
+                hand.get(firstIndex).setVisibility(true);
+                hand.get(secondIndex).setVisibility(true);
+                // state that the players did their initial peek
+                performedInitialPeek.put(id, true);
+            }
+        }
+
+        // randomly select who starts with the first move
+        int randomStarterIndex = new java.util.Random().nextInt(players.size());
+        Long starterId = players.get(randomStarterIndex);
+        // set that player as the first one to move 
+        game.setCurrentPlayerId(starterId);
+        // set game status
+        game.setStatus(GameStatus.ROUND_ACTIVE);
+        // broadcast changes
+        saveGameAndBroadcast(game);
+        // initialize timer for turns
+        startTurnTimer(gameId, starterId);
+
     }
 
 }
