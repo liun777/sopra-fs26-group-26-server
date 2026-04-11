@@ -34,6 +34,25 @@ public class GameStateBroadcastMapper {
             dto.setDiscardPileTop(topDto);
         }
 
+        Card drawnCard = game.getDrawnCard();
+        if (drawnCard != null) {
+            
+            CardViewDTO drawnCardDTO = new CardViewDTO();
+            // allow the user that drew the card to see its fields
+            if (viewerUserId.equals(game.getCurrentPlayerId())) {
+                drawnCardDTO.setValue(drawnCard.getValue());
+                drawnCardDTO.setCode(drawnCard.getCode());
+                drawnCardDTO.setFaceDown(false);
+            }
+            // everyone else is not allowed to see it
+            else {
+                drawnCardDTO.setValue(null);
+                drawnCardDTO.setCode(null);
+                drawnCardDTO.setFaceDown(true);
+            }
+            dto.setDrawnCard(drawnCardDTO);
+        }
+
         Map<Long, List<Card>> hands = game.getPlayerHands();
         // if hands is null -> empty map
         if (hands == null) {
