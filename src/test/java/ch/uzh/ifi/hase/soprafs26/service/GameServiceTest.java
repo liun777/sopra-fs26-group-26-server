@@ -183,7 +183,10 @@ public class GameServiceTest {
             dto.setCode("AS");
             deck.add(dto);
         }
-        Mockito.when(deckOfCardsAPIService.getNewCaboDeck()).thenReturn(deck);
+        Mockito.when(deckOfCardsAPIService.createNewDeckId()).thenReturn("test-deck-id");
+        // doNothing because method is void
+        Mockito.doNothing().when(deckOfCardsAPIService).shuffleDeck(Mockito.anyString());
+        Mockito.when(deckOfCardsAPIService.drawFromDeck(Mockito.eq("test-deck-id"), Mockito.eq(52))).thenReturn(deck);
         Mockito.when(gameRepository.save(any(Game.class))).thenAnswer(inv -> {
             Game g = inv.getArgument(0);
             g.setId("game-1");
@@ -201,7 +204,7 @@ public class GameServiceTest {
     // placeholder testing 2/3  
     @Test
     void startGame_whenDeckApiFails_usesFallbackDeckAndStillStarts() {
-        Mockito.when(deckOfCardsAPIService.getNewCaboDeck()).thenThrow(new RuntimeException("Deck API down"));
+        Mockito.when(deckOfCardsAPIService.createNewDeckId()).thenThrow(new RuntimeException("Deck API down"));
         Mockito.when(gameRepository.save(any(Game.class))).thenAnswer(inv -> {
             Game g = inv.getArgument(0);
             g.setId("game-fallback");

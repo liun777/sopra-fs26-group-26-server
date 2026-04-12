@@ -2,6 +2,8 @@ package ch.uzh.ifi.hase.soprafs26.entity;
 
 import jakarta.persistence.*;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
@@ -22,6 +24,10 @@ public class Game {
     @GeneratedValue(strategy = GenerationType.UUID)
     @Column(nullable = false, unique = true)
     private String id;
+
+    // deckofcards API id. null for fallback
+    @Column(nullable = true)
+    private String deckApiId;
 
     // the line below is used to save lists and maps to the DB
     @JdbcTypeCode(SqlTypes.JSON)
@@ -62,6 +68,16 @@ public class Game {
 
     public void setId(String id) {
         this.id = id;
+    }
+
+    // do not send to client
+    @JsonIgnore
+    public String getDeckApiId() {
+        return deckApiId;
+    }
+
+    public void setDeckApiId(String deckApiId) {
+        this.deckApiId = deckApiId;
     }
 
     public List<Card> getDrawPile() {

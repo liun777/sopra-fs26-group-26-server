@@ -78,10 +78,8 @@ public class GameService {
 
         // create a new game
         Game newGame = new Game();
-        // TEMP??? get card deck from api, use fallback to local deck if api unavailable
-        List<Card> drawPile = buildInitialDrawPile();
-        // assign it to the draw pile
-        newGame.setDrawPile(drawPile);
+        buildInitialDrawPile(newGame);
+        List<Card> drawPile = newGame.getDrawPile();
         // initialize the player hands
         Map<Long, List<Card>> playerHands = new HashMap<>();
 
@@ -146,19 +144,31 @@ public class GameService {
     }
 
     // ALSO HAS TEMP??? FALLBACK IN IT for building deck
-    private List<Card> buildInitialDrawPile() {
+    private void buildInitialDrawPile(Game newGame) {
         try {
-            List<CardDTO> apiCards = deckOfCardsAPIService.getNewCaboDeck();
-            if (apiCards != null && !apiCards.isEmpty()) {
-                List<Card> converted = DTOMapper.INSTANCE.convertCardDTOListtoEntityList(apiCards);
-                if (converted != null && !converted.isEmpty()) {
-                    return new ArrayList<>(converted);
-                }
+            // create new deck at the api and get its id
+            String deckId = deckOfCardsAPIService.createNewDeckId();
+            // shuffle the api deck
+            deckOfCardsAPIService.shuffleDeck(deckId);
+            // draw all cards from the api deck 
+            List<CardDTO> apiCards = deckOfCardsAPIService.drawFromDeck(deckId, 52);
+            if (apiCards == null || apiCards.isEmpty()) {
+                throw new IllegalStateException("Deck API draw returned no cards");
             }
+            // convert DTO representation to Entity representation for cards
+            List<Card> converted = DTOMapper.INSTANCE.convertCardDTOListtoEntityList(apiCards);
+            if (converted == null || converted.isEmpty()) {
+                throw new IllegalStateException("Card conversion produced empty list");
+            }
+            // set the deckId and the DrawPile
+            newGame.setDeckApiId(deckId);
+            newGame.setDrawPile(new ArrayList<>(converted));
         } catch (Exception ex) {
             System.err.println("Deck API unavailable for startGame; using fallback deck: " + ex.getMessage());
+            // if api didnt work and we fallback, DeckApiId is null
+            newGame.setDeckApiId(null);
+            newGame.setDrawPile(buildFallbackDeck());
         }
-        return buildFallbackDeck();
     }
 
     // TEMP??? FALLBACK for building deck
@@ -195,20 +205,56 @@ public class GameService {
     private void reshuffleDiscardPile(String gameId) {
         Game game = getGameById(gameId);
         List<Card> discardPile = game.getDiscardPile();
-        // leave the last card in the discard pile
-        Card topCard = discardPile.remove(0);
-        List<Card> remainingCards = new ArrayList<>();
-        remainingCards.add(topCard);
-        // this converts the card entities into a list of strings containing the codes of the cards 
-        // since the method we want to call expects such a list as input
-        List<String> unshuffledCards = discardPile.stream().map(Card::getCode).toList();
-        // call the method that lets the api shuffle our deck
-        List<CardDTO> shuffledCardDTOs = deckOfCardsAPIService.shuffleCaboDeck(unshuffledCards);
-        // convert the api response back into our card entities
-        List<Card> shuffledCards = DTOMapper.INSTANCE.convertCardDTOListtoEntityList(shuffledCardDTOs);
-        // update the piles
-        game.setDrawPile(shuffledCards);
-        game.setDiscardPile(remainingCards);
+        if (discardPile.isEmpty()) {
+            return;
+        }
+        // Keep the top card (same logic as in getDiscardPileTopCard) in the discard pile
+        // put the rest into draw pile
+
+        // index of top card from discard pile
+        int topIdx = discardPile.size() - 1;
+        // remove top card from discard pile
+        Card topCard = discardPile.remove(topIdx);
+
+        // use the rest of the discard pile to put into draw pile
+        List<Card> toPutIntoDrawPile = new ArrayList<>(discardPile);
+
+        // empty discard pile and put only the top card there
+        discardPile.clear();
+        discardPile.add(topCard);
+
+        // edge case: nothing to put into draw pile
+        // set empty draw pile and save
+        if (toPutIntoDrawPile.isEmpty()) {
+            game.setDrawPile(new ArrayList<>());
+            saveGameAndBroadcast(game);
+            return;
+        }
+
+        // get the deck id from the game
+        String deckId = game.getDeckApiId();
+        try {
+            if (deckId != null) {
+                // return cards to the deck at the api
+                deckOfCardsAPIService.returnDrawnCardsToDeck(deckId, toPutIntoDrawPile);
+                // shuffle the deck
+                deckOfCardsAPIService.shuffleDeck(deckId);
+                // draw from the deck
+                List<CardDTO> dtos = deckOfCardsAPIService.drawFromDeck(deckId, toPutIntoDrawPile.size());
+                // set the draw pile, converting from CardDTO to Card Entity representation
+                game.setDrawPile(new ArrayList<>(DTOMapper.INSTANCE.convertCardDTOListtoEntityList(dtos)));
+            } else {
+                // if deck id is null (setting the deckId has initially failed) and we have been using a fallback deck
+                Collections.shuffle(toPutIntoDrawPile);
+                game.setDrawPile(toPutIntoDrawPile);
+            }
+        } catch (Exception ex) {
+            // if there was an error while talking to the api - fallback to Java's shuffle 
+            System.err.println("Deck API reshuffle failed; using Java's shuffle: " + ex.getMessage());
+            Collections.shuffle(toPutIntoDrawPile);
+            game.setDrawPile(toPutIntoDrawPile);
+        }
+        saveGameAndBroadcast(game);
     }
 
     // Backlog #9: Implement logic to always render the DiscardPile top card with its face-up value
