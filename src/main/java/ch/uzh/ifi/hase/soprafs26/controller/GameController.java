@@ -55,6 +55,15 @@ public class GameController {
         return gameService.isMyTurn(gameId, userId);
     }
 
+    // get the players own hand aka only the visible cards are being shown
+    @GetMapping("/games/{gameId}/my-hand")
+    @ResponseStatus(HttpStatus.OK)
+    public List<Card> getMyHand(
+            @PathVariable String gameId,
+            @RequestHeader("Authorization") String token) {
+        return gameService.getMyHand(gameId, token);
+    }
+
     // Example empty stubs of move endpoints to demonstrate the interceptor from #30
 
     @PostMapping("/games/{gameId}/moves/draw")
