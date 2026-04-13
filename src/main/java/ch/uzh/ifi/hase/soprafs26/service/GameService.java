@@ -286,6 +286,24 @@ public class GameService {
         return userId.equals(game.getCurrentPlayerId());
     }
 
+    // get the player's own hand
+    public List<Card> getMyHand(String gameId, String token) {
+        if (token == null || token.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid token");
+        }
+        User user = userRepository.findByToken(token);
+        if (user == null) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid token");
+        }
+        Game game = getGameById(gameId);
+        List<Card> hand = game.getPlayerHands().get(user.getId());
+        if (hand == null) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Not a player in this game");
+        }
+        return hand;
+    }
+
+
     // Add a "Current Player" check to all incoming move requests; return a 403 Forbidden if it's not their turn. #30
     public void verifyMoveCallerIsCurrentPlayer(String gameId, String authorizationToken) {
         if (authorizationToken == null || authorizationToken.isBlank()) {
