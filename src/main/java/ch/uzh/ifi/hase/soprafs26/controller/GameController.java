@@ -96,6 +96,19 @@ public class GameController {
         gameService.moveSwapWithDiscardPile(gameId, token, targetCardIndex);
     }
 
+    // swap cards between two players as special ability
+    @PostMapping("/games/{gameId}/abilities/swap")
+    @ResponseStatus(HttpStatus.OK)
+    public void moveAbilitySwap(
+            @PathVariable String gameId,
+            @RequestHeader("Authorization") String token,
+            @RequestBody Map<String, Object> body) {
+        int ownCardIndex = (int) body.get("ownCardIndex");
+        Long targetUserId = Long.valueOf(body.get("targetUserId").toString());
+        int targetCardIndex = (int) body.get("targetCardIndex");
+        gameService.moveAbilitySwap(gameId, token, ownCardIndex, targetUserId, targetCardIndex);
+    }
+
     @PostMapping("/games/{gameId}/moves/cabo")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void moveCallCabo(

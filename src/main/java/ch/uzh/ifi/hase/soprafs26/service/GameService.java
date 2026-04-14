@@ -548,6 +548,57 @@ public class GameService {
         gameTimers.put(gameId, future);
     }
 
+    // swap one card from current player's hand with a card from opponent's hand
+    public void moveAbilitySwap(String gameId, String token, int ownCardIndex, Long targetUserId, int targetCardIndex) {
+        // verify it's the player's turn
+        verifyMoveCallerIsCurrentPlayer(gameId, token);
+
+        Game game = getGameById(gameId);
+
+        // verify game is in ability swap phase
+        if (game.getStatus() != GameStatus.ABILITY_SWAP) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Swap ability is not available");
+        }
+
+        // get both hands
+        Long currentPlayerId = game.getCurrentPlayerId();
+        List<Card> ownHand = game.getPlayerHands().get(currentPlayerId);
+        List<Card> targetHand = game.getPlayerHands().get(targetUserId);
+
+        // validate target player exists
+        if (targetHand == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Target player not found");
+        }
+
+        // cannot swap with yourself
+        if (currentPlayerId.equals(targetUserId)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Cannot swap with yourself");
+        }
+
+        // validate indices
+        if (ownCardIndex < 0 || ownCardIndex >= ownHand.size()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid card index");
+        }
+        if (targetCardIndex < 0 || targetCardIndex >= targetHand.size()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid target card index");
+        }
+
+        // swap the cards — neither card's visibility changes
+        Card ownCard = ownHand.remove(ownCardIndex);
+        Card targetCard = targetHand.remove(targetCardIndex);
+
+        ownCard.setVisibility(false);
+        targetCard.setVisibility(false);
+
+        ownHand.add(ownCardIndex, targetCard);
+        targetHand.add(targetCardIndex, ownCard);
+
+        // end ability phase, go back to next player's turn
+        game.setStatus(GameStatus.ROUND_ACTIVE);
+        saveGameAndBroadcast(game);
+        advanceTurnToNextPlayer(gameId);
+    }
+
     // swap top card of discard pile with one of the player's hand cards
     public void moveSwapWithDiscardPile(String gameId, String token, int targetCardIndex) {
     // guard 1: verify it's the player's turn
