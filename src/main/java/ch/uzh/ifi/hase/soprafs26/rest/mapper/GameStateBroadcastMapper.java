@@ -20,6 +20,7 @@ public class GameStateBroadcastMapper {
         GameStateBroadcastDTO dto = new GameStateBroadcastDTO();
 
         dto.setGameId(game.getId());
+        dto.setStatus(game.getStatus());
         dto.setCurrentTurnUserId(game.getCurrentPlayerId());
 
         List<Card> draw = game.getDrawPile();
@@ -72,7 +73,7 @@ public class GameStateBroadcastMapper {
             List<Card> hand = hands.getOrDefault(ownerId, List.of());
             List<CardViewDTO> views = new ArrayList<>();
             for (int i = 0; i < hand.size(); i++) {
-                views.add(toCardView(i, hand.get(i), ownerId, viewerUserId));
+                views.add(toCardView(i, hand.get(i), ownerId, viewerUserId, game.getCurrentPlayerId()));
             }
             handView.setCards(views);
             playerHands.add(handView);
@@ -81,14 +82,21 @@ public class GameStateBroadcastMapper {
         return dto;
     }
 
-    private CardViewDTO toCardView(int position, Card card, Long handOwnerId, Long viewerUserId) {
+    private CardViewDTO toCardView(int position, Card card, Long handOwnerId, Long viewerUserId, Long currentPlayerId) {
         // create a representation for the card
         CardViewDTO v = new CardViewDTO();
         v.setPosition(position);
         boolean isOwner = handOwnerId.equals(viewerUserId);
-        boolean show = isOwner && card.getVisibility();
-        v.setFaceDown(!show);
-        if (show) {
+        boolean isViewerCurrentPlayer = viewerUserId.equals(currentPlayerId);
+
+        // LOGIK-UPDATE:
+        // Zeige Karte, wenn:
+        // 1. Der Betrachter der Besitzer ist UND die Karte sichtbar ist (Initial Peek / 7,8)
+        // 2. ODER: Der Betrachter NICHT der Besitzer ist, aber gerade dran ist UND die Karte sichtbar ist (9,10)
+        boolean canSee = (isOwner && card.getVisibility()) || (!isOwner && isViewerCurrentPlayer && card.getVisibility());
+
+        v.setFaceDown(!canSee);
+        if (canSee) {
             v.setValue(card.getValue());
             v.setCode(card.getCode());
         } else {

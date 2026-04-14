@@ -3,6 +3,7 @@ package ch.uzh.ifi.hase.soprafs26.rest.dto;
 import java.util.ArrayList;
 import java.util.List;
 
+import ch.uzh.ifi.hase.soprafs26.constant.GameStatus;
 
 // representation for a response to the client
 // filled based on filtering: draw pile represented with a number of cards left; hands of cards are filtered per player
@@ -10,6 +11,7 @@ import java.util.List;
 public class GameStateBroadcastDTO {
 
     private String gameId;
+    private GameStatus status;
     private int drawPileCount;
     private Long currentTurnUserId;
     private DiscardTopDTO discardPileTop;
@@ -22,6 +24,14 @@ public class GameStateBroadcastDTO {
 
     public void setGameId(String gameId) {
         this.gameId = gameId;
+    }
+
+    public GameStatus getStatus() {
+        return status;
+    }
+
+    public void setStatus(GameStatus status) {
+        this.status = status;
     }
 
     public int getDrawPileCount() {

@@ -738,7 +738,6 @@ public class GameService {
 
     private void endPeekingTimer(String gameId) {
         Game game = getGameById(gameId);
-
         List<Integer> randomIndices = new ArrayList<>(Arrays.asList(0, 1, 2, 3));
         Map<Long, Boolean> performedInitialPeek = game.getInitialPeekDoneByUserId();
         List<Long> players = game.getOrderedPlayerIds();
@@ -762,6 +761,16 @@ public class GameService {
                 hand.get(secondIndex).setVisibility(true);
                 // state that the players did their initial peek
                 performedInitialPeek.put(id, true);
+            }
+        }
+
+        // Bevor die Runde startet, alle Karten für alle Spieler wieder auf unsichtbar setzen
+        for (Long id : players) {
+            List<Card> hand = game.getPlayerHands().get(id);
+            if (hand != null) {
+                for (Card c : hand) {
+                    c.setVisibility(false);
+                }
             }
         }
 
