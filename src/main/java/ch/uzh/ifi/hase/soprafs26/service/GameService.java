@@ -29,6 +29,7 @@ import ch.uzh.ifi.hase.soprafs26.util.PeekType;
 
 import ch.uzh.ifi.hase.soprafs26.repository.UserRepository;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.web.server.ResponseStatusException;
 
 // added TEMPORARY FALLBACK, SINCE DECKAPI IS UNRELIABLE FOR TESTING
@@ -433,6 +434,25 @@ public class GameService {
         drawnCard.setVisibility(true);
         game.setDrawnCard(drawnCard);
         game.setDrawnFromDeck(true); // mark that this card came from the deck
+
+        saveGameAndBroadcast(game);
+    }
+    // allows to pick a card from the discard pile and safe it into the field drawn card
+    public void moveDrawFromDiscardPile(String gameId, String token) {
+        verifyMoveCallerIsCurrentPlayer(gameId, token);
+        Game game = getGameById(gameId);
+        List<Card> discardPile = game.getDiscardPile();
+        if (!game.getStatus().equals(GameStatus.ROUND_ACTIVE)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Round is not active.");
+        }
+        if (game.getDrawnCard() != null) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "You have already drawn a card!");
+        }
+        if (discardPile.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Discard pile is empty.");
+        }
+        Card drawnCard = discardPile.remove(discardPile.size()-1);
+        game.setDrawnCard(drawnCard);
 
         saveGameAndBroadcast(game);
     }
