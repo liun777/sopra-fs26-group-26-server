@@ -62,6 +62,11 @@ public class Game {
     @Column(nullable = false, unique = false)
     private Map<Long, Boolean> initialPeekDoneByUserId = new HashMap<>();
 
+    // tracks whether the current drawn card was drawn from the deck (not from hand)
+    // needed to determine if special abilities can be triggered
+    @Column(nullable = false)
+    private boolean drawnFromDeck = false;
+
     public String getId() {
         return id;
     }
@@ -148,6 +153,14 @@ public class Game {
     public void setInitialPeekDoneByUserId(Map<Long, Boolean> initialPeekDoneByUserId) {
         this.initialPeekDoneByUserId =
                 initialPeekDoneByUserId != null ? initialPeekDoneByUserId : new HashMap<>();
+    }
+
+    public boolean isDrawnFromDeck() {
+        return drawnFromDeck;
+    }
+
+    public void setDrawnFromDeck(boolean drawnFromDeck) {
+        this.drawnFromDeck = drawnFromDeck;
     }
 
 }

@@ -431,6 +431,8 @@ public class GameService {
         // draw the top card from the draw pile
         Card drawnCard = game.getDrawPile().remove(0);
         drawnCard.setVisibility(true);
+        game.setDrawnCard(drawnCard);
+        game.setDrawnFromDeck(true); // mark that this card came from the deck
 
         saveGameAndBroadcast(game);
     }
@@ -443,12 +445,21 @@ public class GameService {
         List<Card> discardPile = game.getDiscardPile();
 
         if (drawnCard != null) {
+            boolean wasDrawnFromDeck = game.isDrawnFromDeck(); // save before reset
             drawnCard.setVisibility(true);
             discardPile.add(drawnCard);
             game.setDrawnCard(null);
-            advanceTurnToNextPlayer(gameId);
+            game.setDrawnFromDeck(false); // reset flag
+
+            // only trigger ability if card came from draw pile
+            if (wasDrawnFromDeck) {
+                triggerAbilityIfApplicable(game, drawnCard);
+            } else {
+                saveGameAndBroadcast(game);
+                advanceTurnToNextPlayer(gameId);
+            }
         }
-    }
+    } 
 
     // swap drawn card with one of the player's hand cards
     public void moveSwapDrawnCard(String gameId, String token, int targetCardIndex) {
@@ -485,8 +496,56 @@ public class GameService {
 
         // clear the drawn card and advance turn
         game.setDrawnCard(null);
+        game.setDrawnFromDeck(false); // reset flag after swap
         saveGameAndBroadcast(game);
         advanceTurnToNextPlayer(gameId);
+    }
+
+    // check card value and trigger ability phase if applicable
+    private void triggerAbilityIfApplicable(Game game, Card discardedCard) {
+        int value = discardedCard.getValue();
+        if (value == 7 || value == 8) {
+            // peek at own card
+            game.setStatus(GameStatus.ABILITY_PEEK_SELF);
+            saveGameAndBroadcast(game);
+            // start 30 sec timer to auto-end ability phase
+            startAbilityTimer(game.getId());
+        } else if (value == 9 || value == 10) {
+            // peek at opponent's card
+            game.setStatus(GameStatus.ABILITY_PEEK_OPPONENT);
+            saveGameAndBroadcast(game);
+            startAbilityTimer(game.getId());
+        } else if (value == 11 || value == 12) {
+            // swap cards with opponent
+            game.setStatus(GameStatus.ABILITY_SWAP);
+            saveGameAndBroadcast(game);
+            startAbilityTimer(game.getId());
+        } else {
+            // no ability — just advance turn normally
+            saveGameAndBroadcast(game);
+            advanceTurnToNextPlayer(game.getId());
+        }
+    }
+
+    // auto-end ability phase after 30 seconds if player doesn't act
+    private void startAbilityTimer(String gameId) {
+        cancelTurnTimer(gameId);
+        ScheduledFuture<?> future = scheduler.schedule(() -> {
+            try {
+                Game game = getGameById(gameId);
+                // only end if still in an ability phase
+                if (game.getStatus() == GameStatus.ABILITY_PEEK_SELF ||
+                    game.getStatus() == GameStatus.ABILITY_PEEK_OPPONENT ||
+                    game.getStatus() == GameStatus.ABILITY_SWAP) {
+                    game.setStatus(GameStatus.ROUND_ACTIVE);
+                    saveGameAndBroadcast(game);
+                    advanceTurnToNextPlayer(gameId);
+                }
+            } catch (Exception e) {
+                System.err.println("Ability timer failed for game " + gameId + ": " + e.getMessage());
+            }
+        }, 30, TimeUnit.SECONDS);
+        gameTimers.put(gameId, future);
     }
 
     // swap top card of discard pile with one of the player's hand cards
