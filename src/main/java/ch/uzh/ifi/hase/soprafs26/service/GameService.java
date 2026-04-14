@@ -489,6 +489,52 @@ public class GameService {
         advanceTurnToNextPlayer(gameId);
     }
 
+    // swap top card of discard pile with one of the player's hand cards
+    public void moveSwapWithDiscardPile(String gameId, String token, int targetCardIndex) {
+    // guard 1: verify it's the player's turn
+    verifyMoveCallerIsCurrentPlayer(gameId, token);
+
+    Game game = getGameById(gameId);
+
+    // guard 2: player must not have already drawn a card from the draw pile
+    if (game.getDrawnCard() != null) {
+        throw new ResponseStatusException(HttpStatus.CONFLICT, "Cannot swap with discard pile after drawing a card");
+    }
+
+    // guard 3: discard pile must not be empty
+    List<Card> discardPile = game.getDiscardPile();
+    if (discardPile.isEmpty()) {
+        throw new ResponseStatusException(HttpStatus.CONFLICT, "Discard pile is empty");
+    }
+
+    // get the player's hand
+    Long currentPlayerId = game.getCurrentPlayerId();
+    List<Card> playerHand = game.getPlayerHands().get(currentPlayerId);
+
+    // validate the target index
+    if (targetCardIndex < 0 || targetCardIndex >= playerHand.size()) {
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid card index");
+    }
+
+    // take the top card from the discard pile
+    Card topDiscardCard = discardPile.remove(discardPile.size() - 1);
+
+    // remove the player's selected card from their hand
+    Card replacedCard = playerHand.remove(targetCardIndex);
+
+    // put the discard pile card into the player's hand face-down
+    topDiscardCard.setVisibility(false);
+    playerHand.add(targetCardIndex, topDiscardCard);
+
+    // put the replaced card face-up on the discard pile
+    replacedCard.setVisibility(true);
+    discardPile.add(replacedCard);
+
+    // advance turn
+    saveGameAndBroadcast(game);
+    advanceTurnToNextPlayer(gameId);
+    }
+    
     // to save and broadcast: saveGameAndBroadcast(game)
     public void moveCallCabo(String gameId) {
     }
