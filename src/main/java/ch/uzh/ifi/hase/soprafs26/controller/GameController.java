@@ -126,5 +126,13 @@ public class GameController {
             @RequestBody PeekSelectionDTO body) {
         gameService.applyPeek(gameId, token, body);
     }
+    // 20 Drawn card that only reveals value to the active player
+    @GetMapping("/games/{gameId}/drawn-card")
+    @ResponseStatus(HttpStatus.OK)
+    public Card getDrawnCard(
+            @PathVariable String gameId,
+            @RequestHeader("Authorization") String token) {
+        return gameService.getDrawnCard(gameId, token);
+    }
 
 }

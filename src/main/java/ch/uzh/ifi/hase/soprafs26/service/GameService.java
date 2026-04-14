@@ -778,5 +778,25 @@ public class GameService {
         startTurnTimer(gameId, starterId);
 
     }
+    // #20 drawn card only reveals value to the right player
+    public Card getDrawnCard(String gameId, String token) {
+        if (token == null || token.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid token");
+        }
+
+        User user = userRepository.findByToken(token);
+        if (user == null) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid token");
+        }
+
+        Game game = getGameById(gameId);
+
+        // Nur aktueller Spieler darf Karte sehen
+        if (!user.getId().equals(game.getCurrentPlayerId())) {
+            return null;
+        }
+
+        return game.getDrawnCard();
+    }
 
 }
