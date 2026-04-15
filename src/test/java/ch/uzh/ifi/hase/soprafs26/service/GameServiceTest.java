@@ -27,6 +27,7 @@ import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -233,5 +234,115 @@ public class GameServiceTest {
 
         assertEquals(HttpStatus.CONFLICT, ex.getStatusCode());
         assertEquals("Lobby requires 2 to 4 players", ex.getReason());
+    }
+
+    // this tests that no ability is triggered if the card should not trigger one and that the 
+    // turn is immediately passed to the next player
+    @Test
+    void testCardAbility_cardWithoutAbility_doesNothing() {
+        // create a game which is in an active round and a card without ability is drawn from the draw pile
+        Game game = new Game();
+        game.setId("testGameId");
+        game.setStatus(GameStatus.ROUND_ACTIVE);
+        List<Long> orderedPlayerIds = List.of(1L, 2L);
+        game.setDiscardPile(new ArrayList<>());
+        game.setOrderedPlayerIds(orderedPlayerIds);
+        game.setCurrentPlayerId(1L);
+        Card cardWithoutAbility = new Card();
+        cardWithoutAbility.setValue(5);
+        game.setDrawnCard(cardWithoutAbility);
+        game.setDrawnFromDeck(true);
+
+        Mockito.when(gameRepository.findById("testGameId")).thenReturn(Optional.of(game));
+        Mockito.when(gameRepository.save(Mockito.any(Game.class))).thenReturn(game);
+
+        // call the method to apply the card ability
+        gameService.moveCardToDiscardPile("testGameId");
+
+        // make sure the outcome is as we expect for a card without ability
+        assertNull(game.getDrawnCard());
+        assertTrue(game.getDiscardPile().contains(cardWithoutAbility));
+        assertEquals(GameStatus.ROUND_ACTIVE, game.getStatus());
+        assertEquals(2L, game.getCurrentPlayerId());
+
+        // make sure game was saved and state was published
+        Mockito.verify(gameRepository, Mockito.times(2)).save(game);
+        Mockito.verify(gameEventPublisher, Mockito.times(2)).publishFilteredState(game);
+    }
+
+    // this tests that the correct ability is triggered if the card has an ability and that the 
+    // turn is not advanced
+    @Test
+    void testCardAbility_peekCard_setsNewStatus() {
+        Game game = new Game();
+        game.setId("testGameId");
+        game.setStatus(GameStatus.ROUND_ACTIVE);
+        game.setDiscardPile(new ArrayList<>());
+        List<Long> orderedPlayerIds = List.of(1L, 2L, 3L);
+        game.setOrderedPlayerIds(orderedPlayerIds);
+        game.setCurrentPlayerId(1L);
+        Card peekCard = new Card();
+        peekCard.setValue(10);
+        game.setDrawnCard(peekCard);
+        game.setDrawnFromDeck(true);
+
+        Mockito.when(gameRepository.findById("testGameId")).thenReturn(Optional.of(game));
+        Mockito.when(gameRepository.save(Mockito.any(Game.class))).thenReturn(game);
+
+        gameService.moveCardToDiscardPile("testGameId");
+
+        assertNull(game.getDrawnCard());
+        assertTrue(game.getDiscardPile().contains(peekCard));
+        assertEquals(GameStatus.ABILITY_PEEK_OPPONENT, game.getStatus());
+        assertEquals(1L, game.getCurrentPlayerId());
+
+        Mockito.verify(gameRepository, Mockito.times(1)).save(game);
+        Mockito.verify(gameEventPublisher, Mockito.times(1)).publishFilteredState(game);
+    }
+
+    // this tests that the that no ability is triggered if the card does not come from the draw 
+    // pile and that the turn is advanced to the next player
+    @Test
+    void testCardAility_swapCardFromDiscardPile_noNewStatus() {
+        // set the game up
+        Game game = new Game();
+        game.setId("testGameId");
+        game.setStatus(GameStatus.ROUND_ACTIVE);
+        game.setDiscardPile(new ArrayList<>());
+        List<Long> orderedPlayerIds = List.of(1L, 2L, 3L);
+        game.setOrderedPlayerIds(orderedPlayerIds);
+        game.setCurrentPlayerId(1L);
+        Card swapCard = new Card();
+        swapCard.setValue(11);
+        Card topDiscard = new Card();
+        topDiscard.setValue(5);
+        game.setDrawnCard(topDiscard);
+        game.setPlayerHands(Map.of(
+                1L, new ArrayList<>(List.of(swapCard, new Card(), new Card(), new Card())),
+                2L, new ArrayList<>(List.of(new Card(), new Card(), new Card(), new Card())),
+                3L, new ArrayList<>(List.of(new Card(), new Card(), new Card(), new Card()))
+        ));
+        game.setDrawnFromDeck(false);
+        game.setDiscardPile(new ArrayList<>());
+
+        // set up the user
+        User user = new User();
+        user.setId(1L);
+        user.setToken("testToken");
+
+        Mockito.when(gameRepository.findById("testGameId")).thenReturn(Optional.of(game));
+        Mockito.when(gameRepository.save(Mockito.any(Game.class))).thenReturn(game);
+        Mockito.when(userRepository.findByToken("testToken")).thenReturn(user);
+        
+        // apply the move
+        gameService.moveSwapDrawnCard("testGameId", "testToken", 0);
+
+        assertNull(game.getDrawnCard());
+        assertTrue(game.getDiscardPile().contains(swapCard));
+        assertEquals(GameStatus.ROUND_ACTIVE, game.getStatus());
+        assertEquals(2L, game.getCurrentPlayerId());
+
+        Mockito.verify(gameRepository, Mockito.times(2)).save(game);
+        Mockito.verify(gameEventPublisher, Mockito.times(2)).publishFilteredState(game);
     }
 }

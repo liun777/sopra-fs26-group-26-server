@@ -437,6 +437,7 @@ public class GameService {
 
         saveGameAndBroadcast(game);
     }
+    
     // allows to pick a card from the discard pile and safe it into the field drawn card
     public void moveDrawFromDiscardPile(String gameId, String token) {
         verifyMoveCallerIsCurrentPlayer(gameId, token);
@@ -683,16 +684,27 @@ public class GameService {
     public void executeTimoutMove(String gameId, Long userId) {
         Game game = getGameById(gameId);
         Card cardToDiscard = game.getDrawnCard();
+        List<Card> discardPile = game.getDiscardPile();
         
         if (!userId.equals(game.getCurrentPlayerId())) {
             return;
         }
-
+        // make sure a card is drawn - if not, draw one from the draw pile (triggering reshuffle if necessary)
         if (cardToDiscard == null) {
-            moveDrawFromDrawPile(gameId);
+            if (game.getDrawPile().isEmpty()) {
+                reshuffleDiscardPile(gameId);
+                game = getGameById(gameId);
+            }
+            cardToDiscard = game.getDrawPile().remove(0);
         }
-
-        moveCardToDiscardPile(gameId);
+        // discard the card (it is visible since it is being discarded)
+        cardToDiscard.setVisibility(true);
+        discardPile.add(cardToDiscard);
+        game.setDrawnCard(null);
+        game.setDrawnFromDeck(false);
+        // save changes and advance turn
+        saveGameAndBroadcast(game);
+        advanceTurnToNextPlayer(gameId);
     }
 
     // pass the turn to the next player
