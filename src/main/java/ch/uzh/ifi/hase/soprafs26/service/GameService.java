@@ -23,13 +23,13 @@ import ch.uzh.ifi.hase.soprafs26.entity.User;
 import ch.uzh.ifi.hase.soprafs26.repository.GameRepository;
 import ch.uzh.ifi.hase.soprafs26.rest.mapper.DTOMapper;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.CardDTO;
-import ch.uzh.ifi.hase.soprafs26.rest.dto.PeekResultDTO;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.PeekSelectionDTO;
 import ch.uzh.ifi.hase.soprafs26.constant.GameStatus;
 import ch.uzh.ifi.hase.soprafs26.util.PeekType;
 
 import ch.uzh.ifi.hase.soprafs26.repository.UserRepository;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.web.server.ResponseStatusException;
 
 // added TEMPORARY FALLBACK, SINCE DECKAPI IS UNRELIABLE FOR TESTING
@@ -343,8 +343,7 @@ public class GameService {
         Game game = getGameById(gameId);
 
         if (PeekType.SPECIAL.equals(peekType)) {
-            // implement
-            applySpecialPeek();
+            applySpecialPeek(game, authenticatedUser, body);
             return;
         }
 
@@ -409,9 +408,76 @@ public class GameService {
         saveGameAndBroadcast(game);
     }
 
-    // future work
-    private void applySpecialPeek() {
+    // 7/8 (own card) or 9/10 (opponent card)
+    // reveal exactly one card for one filtered broadcast
+    // then clear visibility and end the ability (same pattern #moveAbilitySwap)
+    private void applySpecialPeek(Game game, User authenticatedUser, PeekSelectionDTO body) {
+        Long currentId = game.getCurrentPlayerId();
+        if (currentId == null || !authenticatedUser.getId().equals(currentId)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Not your turn");
+        }
+        GameStatus status = game.getStatus();
+        if (status != GameStatus.ABILITY_PEEK_SELF && status != GameStatus.ABILITY_PEEK_OPPONENT) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "No special peek ability active");
+        }
 
+        List<Integer> indices = body.getIndices();
+        if (indices == null || indices.size() != 1) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Exactly one card index required");
+        }
+        Integer idx = indices.get(0);
+        if (idx == null || idx < 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid index");
+        }
+
+        Long handOwnerId;
+        if (status == GameStatus.ABILITY_PEEK_SELF) {
+            Long handUserId = body.getHandUserId();
+            if (handUserId != null && !handUserId.equals(currentId)) {
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Can only peek your own hand");
+            }
+            handOwnerId = currentId;
+        } else {
+            Long handUserId = body.getHandUserId();
+            if (handUserId == null) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "handUserId required for opponent peek");
+            }
+            if (handUserId.equals(currentId)) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Cannot peek your own hand in opponent peek");
+            }
+            List<Long> ordered = game.getOrderedPlayerIds();
+            if (ordered == null || !ordered.contains(handUserId)) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Target player is not in this game");
+            }
+            handOwnerId = handUserId;
+        }
+
+        Map<Long, List<Card>> hands = game.getPlayerHands();
+        List<Card> hand = hands == null ? null : hands.get(handOwnerId);
+        if (hand == null || idx >= hand.size()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Index out of range");
+        }
+
+        String gameId = game.getId();
+
+        for (Card c : hand) {
+            if (c != null) {
+                c.setVisibility(false);
+            }
+        }
+        hand.get(idx).setVisibility(true);
+        saveGameAndBroadcast(game);
+        //either publish to this topic or block the next saveGameAndBroadcast() few lines below by a timer
+        gameEventPublisher.publishAbilityPeekReveal(currentId, gameId, status, hand.get(idx));
+
+        for (Card c : hand) {
+            if (c != null) {
+                c.setVisibility(false);
+            }
+        }
+        game.setStatus(GameStatus.ROUND_ACTIVE);
+        saveGameAndBroadcast(game);
+        advanceTurnToNextPlayer(gameId);
     }
 
     // to save and broadcast: saveGameAndBroadcast(game)
@@ -819,77 +885,6 @@ public class GameService {
         startTurnTimer(gameId, starterId);
 
     }
-
-    private static Card copyCardForReveal(Card source) {
-        Card copy = new Card();
-        copy.setCode(source.getCode());
-        copy.setValue(source.getValue());
-        copy.setVisibility(true);
-        return copy;
-    }
-
-    // 7/8 discard ability: reveal one own hand card to the current player only (HTTP body), then end ability
-    public PeekResultDTO useAbilityPeekSelf(String gameId, String token, Long userId, Integer targetCardIndex) {
-        verifyMoveCallerIsCurrentPlayer(gameId, token);
-        Game game = getGameById(gameId);
-        if (game.getStatus() != GameStatus.ABILITY_PEEK_SELF) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Peek ability is not available");
-        }
-        if (userId == null || targetCardIndex == null) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "userId and targetCardIndex are required");
-        }
-        Long currentPlayerId = game.getCurrentPlayerId();
-        if (!userId.equals(currentPlayerId)) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "userId must match current player");
-        }
-        List<Card> hand = game.getPlayerHands().get(currentPlayerId);
-        if (hand == null || targetCardIndex < 0 || targetCardIndex >= hand.size()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid card index");
-        }
-        Card revealed = copyCardForReveal(hand.get(targetCardIndex));
-
-        game.setStatus(GameStatus.ROUND_ACTIVE);
-        saveGameAndBroadcast(game);
-        advanceTurnToNextPlayer(gameId);
-
-        PeekResultDTO out = new PeekResultDTO();
-        out.setRevealedCards(List.of(revealed));
-        return out;
-    }
-
-
-    // 9/10 discard ability: reveal one opponent hand card to the current player only (HTTP body), then end ability
-    public PeekResultDTO useAbilitySpyOpponent(String gameId, String token, Long targetUserId, Integer targetCardIndex) {
-        verifyMoveCallerIsCurrentPlayer(gameId, token);
-        Game game = getGameById(gameId);
-        if (game.getStatus() != GameStatus.ABILITY_PEEK_OPPONENT) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Spy ability is not available");
-        }
-        if (targetUserId == null || targetCardIndex == null) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "userId and targetCardIndex are required");
-        }
-        Long currentPlayerId = game.getCurrentPlayerId();
-        if (targetUserId.equals(currentPlayerId)) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid target");
-        }
-        List<Card> targetHand = game.getPlayerHands().get(targetUserId);
-        if (targetHand == null) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "UserId could not be found");
-        }
-        if (targetCardIndex < 0 || targetCardIndex >= targetHand.size()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid target");
-        }
-        Card revealed = copyCardForReveal(targetHand.get(targetCardIndex));
-
-        game.setStatus(GameStatus.ROUND_ACTIVE);
-        saveGameAndBroadcast(game);
-        advanceTurnToNextPlayer(gameId);
-
-        PeekResultDTO out = new PeekResultDTO();
-        out.setRevealedCards(List.of(revealed));
-        return out;
-    }
-
     // #20 drawn card only reveals value to the right player
     public Card getDrawnCard(String gameId, String token) {
         if (token == null || token.isBlank()) {

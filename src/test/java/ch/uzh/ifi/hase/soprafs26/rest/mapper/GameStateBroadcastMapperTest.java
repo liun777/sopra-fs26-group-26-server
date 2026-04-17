@@ -1,5 +1,6 @@
 package ch.uzh.ifi.hase.soprafs26.rest.mapper;
 
+import ch.uzh.ifi.hase.soprafs26.constant.GameStatus;
 import ch.uzh.ifi.hase.soprafs26.entity.Card;
 import ch.uzh.ifi.hase.soprafs26.entity.Game;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.CardViewDTO;
@@ -99,6 +100,7 @@ class GameStateBroadcastMapperTest {
         // current player viewing as player 2 must not see player 1's peeked cards during INITIAL_PEEK
         // old mapper leaked when isViewerCurrentPlayer && !isOwner && card.getVisibility()
         game.setCurrentPlayerId(2L);
+        game.setStatus(GameStatus.INITIAL_PEEK);
 
         GameStateBroadcastDTO gameStateForPlayer1 = mapper.toBroadcastForViewer(game, 1L);
         List<CardViewDTO> player1HandPlayer1View = findPlayerHand(gameStateForPlayer1, 1L).getCards();
