@@ -6,7 +6,6 @@ import java.util.ArrayList;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
@@ -39,6 +38,8 @@ public class GameService {
     private static final int MIN_PLAYERS = 2;
     private static final int MAX_PLAYERS = 4;
     private static final int STARTER_CARDS_PER_PLAYER = 4;
+    // delay before clearing peek visibility and advancing turn (lets clients render filtered game-state)
+    static final int SPECIAL_PEEK_DISPLAY_SECONDS = 30;
     private static final List<String> FALLBACK_CABO_CARD_CODES = Arrays.asList(
             "AS", "AD", "AC", "AH",
             "2S", "2D", "2C", "2H",
@@ -59,18 +60,19 @@ public class GameService {
     private final DeckOfCardsAPIService deckOfCardsAPIService;
     private final UserRepository userRepository;
     private final GameEventPublisher gameEventPublisher;
-    // clock that runs tasks in the background
-    private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(10);
+    private final ScheduledExecutorService scheduler;
     // map to store tasks - key: gameId, value: scheduled task
     private final Map<String, ScheduledFuture<?>> gameTimers = new ConcurrentHashMap<>();
 
     // constructor injection
     public GameService(GameRepository gameRepository, DeckOfCardsAPIService deckOfCardsAPIService,
-                       UserRepository userRepository, GameEventPublisher gameEventPublisher) {
+                       UserRepository userRepository, GameEventPublisher gameEventPublisher,
+                       ScheduledExecutorService scheduler) {
         this.gameRepository = gameRepository;
         this.deckOfCardsAPIService = deckOfCardsAPIService;
         this.userRepository = userRepository;
         this.gameEventPublisher = gameEventPublisher;
+        this.scheduler = scheduler;
     }
 
     public Game startGame(List<Long> playerIds) {
@@ -408,9 +410,8 @@ public class GameService {
         saveGameAndBroadcast(game);
     }
 
-    // 7/8 (own card) or 9/10 (opponent card)
-    // reveal exactly one card for one filtered broadcast
-    // then clear visibility and end the ability (same pattern #moveAbilitySwap)
+    // 7/8 (own card) or 9/10 (opponent card): reveal one card, broadcast, then after a delay clear and advance
+    // (same timer pattern as startAbilityTimer; avoids relying on a second STOMP destination)
     private void applySpecialPeek(Game game, User authenticatedUser, PeekSelectionDTO body) {
         Long currentId = game.getCurrentPlayerId();
         if (currentId == null || !authenticatedUser.getId().equals(currentId)) {
@@ -467,17 +468,38 @@ public class GameService {
         }
         hand.get(idx).setVisibility(true);
         saveGameAndBroadcast(game);
-        //either publish to this topic or block the next saveGameAndBroadcast() few lines below by a timer
-        gameEventPublisher.publishAbilityPeekReveal(currentId, gameId, status, hand.get(idx));
 
-        for (Card c : hand) {
-            if (c != null) {
-                c.setVisibility(false);
+        final Long handOwnerForClear = handOwnerId;
+        scheduleSpecialPeekClear(gameId, handOwnerForClear);
+    }
+
+    // after SPECIAL_PEEK_DISPLAY_SECONDS clears peek and advances
+    private void scheduleSpecialPeekClear(String gameId, Long handOwnerId) {
+        cancelTurnTimer(gameId);
+        ScheduledFuture<?> future = scheduler.schedule(() -> {
+            try {
+                Game g = getGameById(gameId);
+                if (g.getStatus() != GameStatus.ABILITY_PEEK_SELF
+                        && g.getStatus() != GameStatus.ABILITY_PEEK_OPPONENT) {
+                    return;
+                }
+                Map<Long, List<Card>> ph = g.getPlayerHands();
+                List<Card> h = ph == null ? null : ph.get(handOwnerId);
+                if (h != null) {
+                    for (Card c : h) {
+                        if (c != null) {
+                            c.setVisibility(false);
+                        }
+                    }
+                }
+                g.setStatus(GameStatus.ROUND_ACTIVE);
+                saveGameAndBroadcast(g);
+                advanceTurnToNextPlayer(gameId);
+            } catch (Exception e) {
+                System.err.println("Special peek clear timer failed for game " + gameId + ": " + e.getMessage());
             }
-        }
-        game.setStatus(GameStatus.ROUND_ACTIVE);
-        saveGameAndBroadcast(game);
-        advanceTurnToNextPlayer(gameId);
+        }, TimeUnit.SECONDS.toMillis(SPECIAL_PEEK_DISPLAY_SECONDS), TimeUnit.MILLISECONDS);
+        gameTimers.put(gameId, future);
     }
 
     // to save and broadcast: saveGameAndBroadcast(game)

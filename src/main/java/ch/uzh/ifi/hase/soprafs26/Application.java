@@ -3,6 +3,9 @@ package ch.uzh.ifi.hase.soprafs26;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.annotation.Bean;
+
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
@@ -22,6 +25,11 @@ public class Application {
 	@ResponseBody
 	public String helloWorld() {
 		return "The application is running.";
+	}
+
+	@Bean(destroyMethod = "shutdown")
+	public ScheduledExecutorService gameScheduler() {
+		return Executors.newScheduledThreadPool(10);
 	}
 
 	@Bean

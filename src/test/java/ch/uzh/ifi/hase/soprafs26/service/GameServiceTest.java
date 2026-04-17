@@ -23,6 +23,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -49,12 +52,28 @@ public class GameServiceTest {
     @Mock
     private GameEventPublisher gameEventPublisher;
 
+    @Mock
+    private ScheduledExecutorService scheduler;
+
     @InjectMocks
     private GameService gameService;
 
     @BeforeEach
     void setup() {
         MockitoAnnotations.openMocks(this);
+        // mock timer without waiting for it
+        Mockito.when(scheduler.schedule(Mockito.any(Runnable.class), Mockito.anyLong(), Mockito.any(TimeUnit.class)))
+                .thenAnswer(invocation -> {
+                    Runnable command = invocation.getArgument(0);
+                    long delay = invocation.getArgument(1);
+                    TimeUnit unit = invocation.getArgument(2);
+                    // using milliseconds avoid collision with ability/turn timers (30 seconds)
+                    if (unit == TimeUnit.MILLISECONDS
+                            && delay == TimeUnit.SECONDS.toMillis(GameService.SPECIAL_PEEK_DISPLAY_SECONDS)) {
+                        command.run();
+                    }
+                    return Mockito.mock(ScheduledFuture.class);
+                });
     }
 
     @Test
@@ -389,17 +408,12 @@ public class GameServiceTest {
 
         gameService.applyPeek("g-peek-self", "token", body);
 
-        // game state advanced immediately and cleared the peeked card
-        // but we have broadcast it to publishAbilityPeekReveal (see verify below)
         for (Card c : hand1) {
             assertFalse(c.getVisibility());
         }
         assertEquals(GameStatus.ROUND_ACTIVE, game.getStatus());
         assertEquals(2L, game.getCurrentPlayerId());
         Mockito.verify(gameEventPublisher, Mockito.times(3)).publishFilteredState(game);
-        Mockito.verify(gameEventPublisher).publishAbilityPeekReveal(
-                Mockito.eq(1L), Mockito.eq("g-peek-self"), Mockito.eq(GameStatus.ABILITY_PEEK_SELF),
-                Mockito.argThat(card -> card.getValue() == 1));
     }
 
     @Test
@@ -444,17 +458,12 @@ public class GameServiceTest {
 
         gameService.applyPeek("g-spy", "token", body);
 
-        // game state advanced immediately and cleared the peeked card
-        // but we have broadcast it to publishAbilityPeekReveal (see verify below)
         for (Card c : hand2) {
             assertFalse(c.getVisibility());
         }
         assertEquals(GameStatus.ROUND_ACTIVE, game.getStatus());
         assertEquals(2L, game.getCurrentPlayerId());
         Mockito.verify(gameEventPublisher, Mockito.times(3)).publishFilteredState(game);
-        Mockito.verify(gameEventPublisher).publishAbilityPeekReveal(
-                Mockito.eq(1L), Mockito.eq("g-spy"), Mockito.eq(GameStatus.ABILITY_PEEK_OPPONENT),
-                Mockito.argThat(card -> card.getValue() == 2));
     }
 
     @Test
@@ -489,7 +498,5 @@ public class GameServiceTest {
                 () -> gameService.applyPeek("g-peek-conflict", "token", body));
         assertEquals(HttpStatus.CONFLICT, ex.getStatusCode());
         Mockito.verify(gameEventPublisher, Mockito.never()).publishFilteredState(any());
-        Mockito.verify(gameEventPublisher, Mockito.never()).publishAbilityPeekReveal(
-                Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any());
     }
 }
