@@ -60,6 +60,6 @@ public class GameControllerTest {
                         .header("Authorization", "token"))
                 .andExpect(status().isForbidden());
 
-        verify(gameService, never()).moveCallCabo(anyString());
+        verify(gameService, never()).moveCallCabo(anyString(), anyString());
     }
 }

@@ -67,6 +67,14 @@ public class Game {
     @Column(nullable = false)
     private boolean drawnFromDeck = false;
 
+    // tracks whether Cabo has been called
+    @Column
+    private boolean isCaboCalled = false;
+
+    // tracks who called Cabo
+    @Column
+    private Long caboCalledByUserId;
+
     public String getId() {
         return id;
     }
@@ -161,6 +169,22 @@ public class Game {
 
     public void setDrawnFromDeck(boolean drawnFromDeck) {
         this.drawnFromDeck = drawnFromDeck;
+    }
+
+    public boolean isCaboCalled() {
+        return isCaboCalled;
+    }
+
+    public void setCaboCalled(boolean isCaboCalled) {
+        this.isCaboCalled = isCaboCalled;
+    }
+
+    public Long getCaboCalledByUserId() {
+        return caboCalledByUserId;
+    }
+
+    public void setCaboCalledByUserId(Long caboCalledByUserId) {
+        this.caboCalledByUserId = caboCalledByUserId;
     }
 
 }

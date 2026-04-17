@@ -114,7 +114,7 @@ public class GameController {
     public void moveCallCabo(
             @PathVariable String gameId,
             @RequestHeader("Authorization") String token) {
-        gameService.moveCallCabo(gameId);
+        gameService.moveCallCabo(gameId, token);
     }
 
     // #47 and #49
@@ -134,5 +134,4 @@ public class GameController {
             @RequestHeader("Authorization") String token) {
         return gameService.getDrawnCard(gameId, token);
     }
-
 }

@@ -742,8 +742,27 @@ public class GameService {
     advanceTurnToNextPlayer(gameId);
     }
     
-    // to save and broadcast: saveGameAndBroadcast(game)
-    public void moveCallCabo(String gameId) {
+    // handles callind cabo - assumes that cabo is in itself a turn and no card can be drawn if a player wants to call cabo
+    public void moveCallCabo(String gameId, String token) {
+        verifyMoveCallerIsCurrentPlayer(gameId, token);
+        Game game = getGameById(gameId);
+
+        if (game.getStatus() != GameStatus.ROUND_ACTIVE) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Cannot call Cabo right now");
+        }
+
+        if (game.isCaboCalled()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Cabo has already been called");
+        }
+        // a player can either call cabo OR draw a card
+        if (game.getDrawnCard() != null) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Cannot call Cabo after drawing a card");
+        }
+
+        game.setCaboCalled(true);
+        game.setCaboCalledByUserId(game.getCurrentPlayerId());
+        saveGameAndBroadcast(game);
+        advanceTurnToNextPlayer(gameId); 
     }
 
 
@@ -791,8 +810,16 @@ public class GameService {
 
         int currentIndex = players.indexOf(currentPlayerId);
         int nextIndex = (currentIndex+1)%players.size();
+        Long nextPlayerId = players.get(nextIndex);
 
-        game.setCurrentPlayerId(players.get(nextIndex));
+        // makes sure the game only advances one round after cabo is called
+        if (game.isCaboCalled() && nextPlayerId.equals(game.getCaboCalledByUserId())) {
+            game.setStatus(GameStatus.ROUND_ENDED);
+            saveGameAndBroadcast(game);
+            return;
+        }
+
+        game.setCurrentPlayerId(nextPlayerId);
         startTurnTimer(gameId, game.getCurrentPlayerId());
         saveGameAndBroadcast(game);
     }
