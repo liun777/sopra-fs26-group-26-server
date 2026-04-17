@@ -11,6 +11,7 @@ import ch.uzh.ifi.hase.soprafs26.rest.dto.PeekSelectionDTO;
 import ch.uzh.ifi.hase.soprafs26.util.PeekType;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Mockito;
@@ -34,6 +35,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 
 
 public class GameServiceTest {
@@ -63,17 +65,7 @@ public class GameServiceTest {
         MockitoAnnotations.openMocks(this);
         // mock timer without waiting for it
         Mockito.when(scheduler.schedule(Mockito.any(Runnable.class), Mockito.anyLong(), Mockito.any(TimeUnit.class)))
-                .thenAnswer(invocation -> {
-                    Runnable command = invocation.getArgument(0);
-                    long delay = invocation.getArgument(1);
-                    TimeUnit unit = invocation.getArgument(2);
-                    // using milliseconds avoid collision with ability/turn timers (30 seconds)
-                    if (unit == TimeUnit.MILLISECONDS
-                            && delay == TimeUnit.SECONDS.toMillis(GameService.SPECIAL_PEEK_DISPLAY_SECONDS)) {
-                        command.run();
-                    }
-                    return Mockito.mock(ScheduledFuture.class);
-                });
+                .thenAnswer(invocation -> Mockito.mock(ScheduledFuture.class));
     }
 
     @Test
@@ -366,7 +358,7 @@ public class GameServiceTest {
     }
 
     @Test
-    void applySpecialPeek_selfPeek_revealsThenClearsAndAdvancesTurn() {
+    void applySpecialPeek_selfPeek_reveals_staysInAbilityPhase() {
         User user = new User();
         user.setId(1L);
         Mockito.when(userRepository.findByToken("token")).thenReturn(user);
@@ -408,16 +400,15 @@ public class GameServiceTest {
 
         gameService.applyPeek("g-peek-self", "token", body);
 
-        for (Card c : hand1) {
-            assertFalse(c.getVisibility());
-        }
-        assertEquals(GameStatus.ROUND_ACTIVE, game.getStatus());
-        assertEquals(2L, game.getCurrentPlayerId());
-        Mockito.verify(gameEventPublisher, Mockito.times(3)).publishFilteredState(game);
+        assertTrue(hand1.get(1).getVisibility());
+        assertFalse(hand1.get(0).getVisibility());
+        assertEquals(GameStatus.ABILITY_PEEK_SELF, game.getStatus());
+        assertEquals(1L, game.getCurrentPlayerId());
+        Mockito.verify(gameEventPublisher, Mockito.times(1)).publishFilteredState(game);
     }
 
     @Test
-    void applySpecialPeek_opponentPeek_revealsThenClearsAndAdvancesTurn() {
+    void applySpecialPeek_opponentPeek_reveals_staysInAbilityPhase() {
         User user = new User();
         user.setId(1L);
         Mockito.when(userRepository.findByToken("token")).thenReturn(user);
@@ -458,13 +449,12 @@ public class GameServiceTest {
 
         gameService.applyPeek("g-spy", "token", body);
 
-        for (Card c : hand2) {
-            assertFalse(c.getVisibility());
-        }
-        assertEquals(GameStatus.ROUND_ACTIVE, game.getStatus());
-        assertEquals(2L, game.getCurrentPlayerId());
-        Mockito.verify(gameEventPublisher, Mockito.times(3)).publishFilteredState(game);
+        assertTrue(hand2.get(2).getVisibility());
+        assertEquals(GameStatus.ABILITY_PEEK_OPPONENT, game.getStatus());
+        assertEquals(1L, game.getCurrentPlayerId());
+        Mockito.verify(gameEventPublisher, Mockito.times(1)).publishFilteredState(game);
     }
+
 
     @Test
     void applySpecialPeek_whenNotInAbilityPhase_throwsConflict() {

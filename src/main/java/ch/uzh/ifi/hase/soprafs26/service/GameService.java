@@ -38,8 +38,6 @@ public class GameService {
     private static final int MIN_PLAYERS = 2;
     private static final int MAX_PLAYERS = 4;
     private static final int STARTER_CARDS_PER_PLAYER = 4;
-    // delay before clearing peek visibility and advancing turn (lets clients render filtered game-state)
-    static final int SPECIAL_PEEK_DISPLAY_SECONDS = 30;
     private static final List<String> FALLBACK_CABO_CARD_CODES = Arrays.asList(
             "AS", "AD", "AC", "AH",
             "2S", "2D", "2C", "2H",
@@ -410,8 +408,7 @@ public class GameService {
         saveGameAndBroadcast(game);
     }
 
-    // 7/8 (own card) or 9/10 (opponent card): reveal one card, broadcast, then after a delay clear and advance
-    // (same timer pattern as startAbilityTimer; avoids relying on a second STOMP destination)
+    // 7/8 (own card) or 9/10 (opponent card): reveal one card and broadcast; phase ends when the ability timer fires (same idea as initial peek + global timer).
     private void applySpecialPeek(Game game, User authenticatedUser, PeekSelectionDTO body) {
         Long currentId = game.getCurrentPlayerId();
         if (currentId == null || !authenticatedUser.getId().equals(currentId)) {
@@ -459,8 +456,6 @@ public class GameService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Index out of range");
         }
 
-        String gameId = game.getId();
-
         for (Card c : hand) {
             if (c != null) {
                 c.setVisibility(false);
@@ -468,38 +463,27 @@ public class GameService {
         }
         hand.get(idx).setVisibility(true);
         saveGameAndBroadcast(game);
-
-        final Long handOwnerForClear = handOwnerId;
-        scheduleSpecialPeekClear(gameId, handOwnerForClear);
     }
 
-    // after SPECIAL_PEEK_DISPLAY_SECONDS clears peek and advances
-    private void scheduleSpecialPeekClear(String gameId, Long handOwnerId) {
-        cancelTurnTimer(gameId);
-        ScheduledFuture<?> future = scheduler.schedule(() -> {
-            try {
-                Game g = getGameById(gameId);
-                if (g.getStatus() != GameStatus.ABILITY_PEEK_SELF
-                        && g.getStatus() != GameStatus.ABILITY_PEEK_OPPONENT) {
-                    return;
-                }
-                Map<Long, List<Card>> ph = g.getPlayerHands();
-                List<Card> h = ph == null ? null : ph.get(handOwnerId);
-                if (h != null) {
-                    for (Card c : h) {
-                        if (c != null) {
-                            c.setVisibility(false);
-                        }
+    private void clearAllHandVisibility(Game game) {
+        List<Long> players = game.getOrderedPlayerIds();
+        if (players == null) {
+            return;
+        }
+        Map<Long, List<Card>> hands = game.getPlayerHands();
+        if (hands == null) {
+            return;
+        }
+        for (Long id : players) {
+            List<Card> hand = hands.get(id);
+            if (hand != null) {
+                for (Card c : hand) {
+                    if (c != null) {
+                        c.setVisibility(false);
                     }
                 }
-                g.setStatus(GameStatus.ROUND_ACTIVE);
-                saveGameAndBroadcast(g);
-                advanceTurnToNextPlayer(gameId);
-            } catch (Exception e) {
-                System.err.println("Special peek clear timer failed for game " + gameId + ": " + e.getMessage());
             }
-        }, TimeUnit.SECONDS.toMillis(SPECIAL_PEEK_DISPLAY_SECONDS), TimeUnit.MILLISECONDS);
-        gameTimers.put(gameId, future);
+        }
     }
 
     // to save and broadcast: saveGameAndBroadcast(game)
@@ -643,9 +627,13 @@ public class GameService {
             try {
                 Game game = getGameById(gameId);
                 // only end if still in an ability phase
-                if (game.getStatus() == GameStatus.ABILITY_PEEK_SELF ||
-                    game.getStatus() == GameStatus.ABILITY_PEEK_OPPONENT ||
-                    game.getStatus() == GameStatus.ABILITY_SWAP) {
+                GameStatus s = game.getStatus();
+                if (s == GameStatus.ABILITY_PEEK_SELF
+                        || s == GameStatus.ABILITY_PEEK_OPPONENT
+                        || s == GameStatus.ABILITY_SWAP) {
+                    if (s == GameStatus.ABILITY_PEEK_SELF || s == GameStatus.ABILITY_PEEK_OPPONENT) {
+                        clearAllHandVisibility(game);
+                    }
                     game.setStatus(GameStatus.ROUND_ACTIVE);
                     saveGameAndBroadcast(game);
                     advanceTurnToNextPlayer(gameId);
@@ -885,14 +873,7 @@ public class GameService {
         }
 
         // Bevor die Runde startet, alle Karten für alle Spieler wieder auf unsichtbar setzen
-        for (Long id : players) {
-            List<Card> hand = game.getPlayerHands().get(id);
-            if (hand != null) {
-                for (Card c : hand) {
-                    c.setVisibility(false);
-                }
-            }
-        }
+        clearAllHandVisibility(game);
 
         // randomly select who starts with the first move
         int randomStarterIndex = new java.util.Random().nextInt(players.size());
