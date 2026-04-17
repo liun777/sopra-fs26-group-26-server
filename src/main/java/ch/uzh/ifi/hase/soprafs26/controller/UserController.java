@@ -9,6 +9,7 @@ import ch.uzh.ifi.hase.soprafs26.rest.dto.UserPostDTO;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.UserPutDTO;
 import ch.uzh.ifi.hase.soprafs26.rest.mapper.DTOMapper;
 import ch.uzh.ifi.hase.soprafs26.service.UserService;
+import jakarta.validation.Valid;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -53,7 +54,8 @@ public class UserController {
 	@PostMapping("/users")
 	@ResponseStatus(HttpStatus.CREATED)
 	@ResponseBody
-	public UserGetDTO createUser(@RequestBody UserPostDTO userPostDTO) {
+    // @Valid is used to trigger validation of the UserPostDTO based on the annotations in that class (e.g., @Size for username)
+	public UserGetDTO createUser(@Valid @RequestBody UserPostDTO userPostDTO) {
 		// convert API user to internal representation
         // @RequestBody holt die userdaten (username, password, bio) aus dem request body des frontends
 		User userInput = DTOMapper.INSTANCE.convertUserPostDTOtoEntity(userPostDTO); // DTO zu Entity umwandeln

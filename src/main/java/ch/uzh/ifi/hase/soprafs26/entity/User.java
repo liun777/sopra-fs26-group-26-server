@@ -34,7 +34,8 @@ public class User implements Serializable { // public: Klasse kann von überall 
     @Column
     private String name;
 
-    @Column(nullable = false, unique = true)
+    // restrict username length to 16 characters, make sure it's unique and not null
+    @Column(nullable = false, unique = true, length = 16)
     private String username;
 
     @Column(nullable = false, unique = true)

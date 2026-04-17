@@ -1,5 +1,6 @@
 package ch.uzh.ifi.hase.soprafs26.rest.dto;
 import java.time.LocalDate;
+import jakarta.validation.constraints.Size;
 
 // definiert was das frontend ans backend senset, also daten die der user eingegeben hat,
 // enthält alle felder die für registrierung und Login benötigt werden
@@ -9,6 +10,8 @@ public class UserPostDTO {
 
 	private String name;
 
+	// restrict username length to 16 characters
+	@Size(max = 16, message = "Username must be at most 16 characters long")
 	private String username;
 
     private String password;
