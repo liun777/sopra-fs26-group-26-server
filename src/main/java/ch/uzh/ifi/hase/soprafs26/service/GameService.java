@@ -23,13 +23,13 @@ import ch.uzh.ifi.hase.soprafs26.entity.User;
 import ch.uzh.ifi.hase.soprafs26.repository.GameRepository;
 import ch.uzh.ifi.hase.soprafs26.rest.mapper.DTOMapper;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.CardDTO;
+import ch.uzh.ifi.hase.soprafs26.rest.dto.PeekResultDTO;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.PeekSelectionDTO;
 import ch.uzh.ifi.hase.soprafs26.constant.GameStatus;
 import ch.uzh.ifi.hase.soprafs26.util.PeekType;
 
 import ch.uzh.ifi.hase.soprafs26.repository.UserRepository;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.HttpStatusCode;
 import org.springframework.web.server.ResponseStatusException;
 
 // added TEMPORARY FALLBACK, SINCE DECKAPI IS UNRELIABLE FOR TESTING
@@ -819,6 +819,77 @@ public class GameService {
         startTurnTimer(gameId, starterId);
 
     }
+
+    private static Card copyCardForReveal(Card source) {
+        Card copy = new Card();
+        copy.setCode(source.getCode());
+        copy.setValue(source.getValue());
+        copy.setVisibility(true);
+        return copy;
+    }
+
+    // 7/8 discard ability: reveal one own hand card to the current player only (HTTP body), then end ability
+    public PeekResultDTO useAbilityPeekSelf(String gameId, String token, Long userId, Integer targetCardIndex) {
+        verifyMoveCallerIsCurrentPlayer(gameId, token);
+        Game game = getGameById(gameId);
+        if (game.getStatus() != GameStatus.ABILITY_PEEK_SELF) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Peek ability is not available");
+        }
+        if (userId == null || targetCardIndex == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "userId and targetCardIndex are required");
+        }
+        Long currentPlayerId = game.getCurrentPlayerId();
+        if (!userId.equals(currentPlayerId)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "userId must match current player");
+        }
+        List<Card> hand = game.getPlayerHands().get(currentPlayerId);
+        if (hand == null || targetCardIndex < 0 || targetCardIndex >= hand.size()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid card index");
+        }
+        Card revealed = copyCardForReveal(hand.get(targetCardIndex));
+
+        game.setStatus(GameStatus.ROUND_ACTIVE);
+        saveGameAndBroadcast(game);
+        advanceTurnToNextPlayer(gameId);
+
+        PeekResultDTO out = new PeekResultDTO();
+        out.setRevealedCards(List.of(revealed));
+        return out;
+    }
+
+
+    // 9/10 discard ability: reveal one opponent hand card to the current player only (HTTP body), then end ability
+    public PeekResultDTO useAbilitySpyOpponent(String gameId, String token, Long targetUserId, Integer targetCardIndex) {
+        verifyMoveCallerIsCurrentPlayer(gameId, token);
+        Game game = getGameById(gameId);
+        if (game.getStatus() != GameStatus.ABILITY_PEEK_OPPONENT) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Spy ability is not available");
+        }
+        if (targetUserId == null || targetCardIndex == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "userId and targetCardIndex are required");
+        }
+        Long currentPlayerId = game.getCurrentPlayerId();
+        if (targetUserId.equals(currentPlayerId)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid target");
+        }
+        List<Card> targetHand = game.getPlayerHands().get(targetUserId);
+        if (targetHand == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "UserId could not be found");
+        }
+        if (targetCardIndex < 0 || targetCardIndex >= targetHand.size()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid target");
+        }
+        Card revealed = copyCardForReveal(targetHand.get(targetCardIndex));
+
+        game.setStatus(GameStatus.ROUND_ACTIVE);
+        saveGameAndBroadcast(game);
+        advanceTurnToNextPlayer(gameId);
+
+        PeekResultDTO out = new PeekResultDTO();
+        out.setRevealedCards(List.of(revealed));
+        return out;
+    }
+
     // #20 drawn card only reveals value to the right player
     public Card getDrawnCard(String gameId, String token) {
         if (token == null || token.isBlank()) {

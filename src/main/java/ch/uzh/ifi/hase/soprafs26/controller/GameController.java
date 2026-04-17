@@ -1,6 +1,9 @@
 package ch.uzh.ifi.hase.soprafs26.controller;
 
 import ch.uzh.ifi.hase.soprafs26.entity.Card;
+import ch.uzh.ifi.hase.soprafs26.rest.dto.AbilityPeekRequestDTO;
+import ch.uzh.ifi.hase.soprafs26.rest.dto.AbilitySpyRequestDTO;
+import ch.uzh.ifi.hase.soprafs26.rest.dto.PeekResultDTO;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.PeekSelectionDTO;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.http.HttpStatus;
@@ -94,6 +97,26 @@ public class GameController {
             @RequestBody Map<String, Integer> body) {
         int targetCardIndex = body.get("targetCardIndex");
         gameService.moveSwapWithDiscardPile(gameId, token, targetCardIndex);
+    }
+
+    // #73: 7/8 ability — reveal own card (via response only, as defined in M2), then end ability phase
+    @PostMapping("/games/{gameId}/abilities/peek")
+    @ResponseStatus(HttpStatus.OK)
+    public PeekResultDTO useAbilityPeek(
+            @PathVariable String gameId,
+            @RequestHeader("Authorization") String token,
+            @RequestBody AbilityPeekRequestDTO body) {
+        return gameService.useAbilityPeekSelf(gameId, token, body.getUserId(), body.getTargetCardIndex());
+    }
+
+    // #73: 9/10 ability — reveal opponent card (via response only, as defined in M2), then end ability phase
+    @PostMapping("/games/{gameId}/abilities/spy")
+    @ResponseStatus(HttpStatus.OK)
+    public PeekResultDTO useAbilitySpy(
+            @PathVariable String gameId,
+            @RequestHeader("Authorization") String token,
+            @RequestBody AbilitySpyRequestDTO body) {
+        return gameService.useAbilitySpyOpponent(gameId, token, body.getUserId(), body.getTargetCardIndex());
     }
 
     // swap cards between two players as special ability

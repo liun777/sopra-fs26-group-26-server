@@ -96,6 +96,9 @@ class GameStateBroadcastMapperTest {
 
         game.setPlayerHands(hands);
         game.setOrderedPlayerIds(List.of(1L, 2L));
+        // current player viewing as player 2 must not see player 1's peeked cards during INITIAL_PEEK
+        // old mapper leaked when isViewerCurrentPlayer && !isOwner && card.getVisibility()
+        game.setCurrentPlayerId(2L);
 
         GameStateBroadcastDTO gameStateForPlayer1 = mapper.toBroadcastForViewer(game, 1L);
         List<CardViewDTO> player1HandPlayer1View = findPlayerHand(gameStateForPlayer1, 1L).getCards();

@@ -1,5 +1,6 @@
 package ch.uzh.ifi.hase.soprafs26.rest.mapper;
 
+import ch.uzh.ifi.hase.soprafs26.constant.GameStatus;
 import ch.uzh.ifi.hase.soprafs26.entity.Card;
 import ch.uzh.ifi.hase.soprafs26.entity.Game;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.CardViewDTO;
@@ -73,7 +74,7 @@ public class GameStateBroadcastMapper {
             List<Card> hand = hands.getOrDefault(ownerId, List.of());
             List<CardViewDTO> views = new ArrayList<>();
             for (int i = 0; i < hand.size(); i++) {
-                views.add(toCardView(i, hand.get(i), ownerId, viewerUserId, game.getCurrentPlayerId()));
+                views.add(toCardView(i, hand.get(i), ownerId, viewerUserId, game.getCurrentPlayerId(), game.getStatus()));
             }
             handView.setCards(views);
             playerHands.add(handView);
@@ -82,18 +83,18 @@ public class GameStateBroadcastMapper {
         return dto;
     }
 
-    private CardViewDTO toCardView(int position, Card card, Long handOwnerId, Long viewerUserId, Long currentPlayerId) {
-        // create a representation for the card
+    private CardViewDTO toCardView(int position, Card card, Long handOwnerId, Long viewerUserId, Long currentPlayerId,
+            GameStatus gameStatus) {
         CardViewDTO v = new CardViewDTO();
         v.setPosition(position);
         boolean isOwner = handOwnerId.equals(viewerUserId);
         boolean isViewerCurrentPlayer = viewerUserId.equals(currentPlayerId);
 
-        // LOGIK-UPDATE:
-        // Zeige Karte, wenn:
-        // 1. Der Betrachter der Besitzer ist UND die Karte sichtbar ist (Initial Peek / 7,8)
-        // 2. ODER: Der Betrachter NICHT der Besitzer ist, aber gerade dran ist UND die Karte sichtbar ist (9,10)
-        boolean canSee = (isOwner && card.getVisibility()) || (!isOwner && isViewerCurrentPlayer && card.getVisibility());
+        // owner sees own visible cards (initial peek, 7/8 on own hand). 
+        // current player may see a visible card on another hand only during 9/10 opponent-peek — not during INITIAL_PEEK
+        boolean opponentPeekNineTen = gameStatus == GameStatus.ABILITY_PEEK_OPPONENT;
+        boolean canSee = (isOwner && card.getVisibility())
+                || (opponentPeekNineTen && !isOwner && isViewerCurrentPlayer && card.getVisibility());
 
         v.setFaceDown(!canSee);
         if (canSee) {

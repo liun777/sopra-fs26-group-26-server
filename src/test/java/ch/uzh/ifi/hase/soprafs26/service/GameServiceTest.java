@@ -7,6 +7,7 @@ import ch.uzh.ifi.hase.soprafs26.entity.User;
 import ch.uzh.ifi.hase.soprafs26.repository.GameRepository;
 import ch.uzh.ifi.hase.soprafs26.repository.UserRepository;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.CardDTO;
+import ch.uzh.ifi.hase.soprafs26.rest.dto.PeekResultDTO;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.PeekSelectionDTO;
 import ch.uzh.ifi.hase.soprafs26.util.PeekType;
 import org.junit.jupiter.api.BeforeEach;
@@ -344,5 +345,117 @@ public class GameServiceTest {
 
         Mockito.verify(gameRepository, Mockito.times(2)).save(game);
         Mockito.verify(gameEventPublisher, Mockito.times(2)).publishFilteredState(game);
+    }
+
+    @Test
+    void useAbilityPeekSelf_returnsRevealedCardEndsAbilityAndAdvancesTurn() {
+        User user = new User();
+        user.setId(1L);
+        Mockito.when(userRepository.findByToken("token")).thenReturn(user);
+
+        Game game = new Game();
+        game.setId("g-peek-self");
+        game.setStatus(GameStatus.ABILITY_PEEK_SELF);
+        game.setOrderedPlayerIds(List.of(1L, 2L));
+        game.setCurrentPlayerId(1L);
+
+        Card peeked = new Card();
+        peeked.setCode("7H");
+        peeked.setValue(7);
+        peeked.setVisibility(false);
+
+        List<Card> h1 = new ArrayList<>();
+        List<Card> h2 = new ArrayList<>();
+        for (int i = 0; i < 4; i++) {
+            if (i == 2){
+                h1.add(peeked);
+            }
+            else{
+                h1.add(new Card());
+            }
+            h2.add(new Card());
+        }
+
+        Map<Long, List<Card>> hands = new HashMap<>();
+        hands.put(1L, h1);
+        hands.put(2L, h2);
+        game.setPlayerHands(hands);
+
+        Mockito.when(gameRepository.findById("g-peek-self")).thenReturn(Optional.of(game));
+        Mockito.when(gameRepository.save(Mockito.any(Game.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        PeekResultDTO result = gameService.useAbilityPeekSelf("g-peek-self", "token", 1L, 2);
+
+        assertEquals(1, result.getRevealedCards().size());
+        assertEquals(7, result.getRevealedCards().get(0).getValue());
+        assertEquals("7H", result.getRevealedCards().get(0).getCode());
+        assertTrue(result.getRevealedCards().get(0).getVisibility());
+        assertEquals(GameStatus.ROUND_ACTIVE, game.getStatus());
+        // check that we passed the round to the next user
+        assertEquals(2L, game.getCurrentPlayerId());
+        // check gameEventPublisher called publishFilteredState()
+        Mockito.verify(gameEventPublisher, Mockito.atLeastOnce()).publishFilteredState(Mockito.any());
+    }
+
+    @Test
+    void useAbilityPeekSelf_wrongPhase_throwsConflict() {
+        User user = new User();
+        user.setId(1L);
+        Mockito.when(userRepository.findByToken("token")).thenReturn(user);
+        Game game = new Game();
+        game.setCurrentPlayerId(1L);
+        game.setStatus(GameStatus.ROUND_ACTIVE);
+        Mockito.when(gameRepository.findById("g1")).thenReturn(Optional.of(game));
+
+        ResponseStatusException ex = assertThrows(ResponseStatusException.class,
+                () -> gameService.useAbilityPeekSelf("g1", "token", 1L, 0));
+        assertEquals(HttpStatus.CONFLICT, ex.getStatusCode());
+        assertEquals("Peek ability is not available", ex.getReason());
+    }
+
+    @Test
+    void useAbilitySpyOpponent_returnsOpponentCardAndAdvancesTurn() {
+        User user = new User();
+        user.setId(1L);
+        Mockito.when(userRepository.findByToken("token")).thenReturn(user);
+
+        Card opponentCard = new Card();
+        opponentCard.setCode("9S");
+        opponentCard.setValue(9);
+        opponentCard.setVisibility(false);
+
+        List<Card> h1 = new ArrayList<>();
+        List<Card> h2 = new ArrayList<>();
+        for (int i = 0; i < 4; i++) {
+            if (i == 1){
+                h2.add(opponentCard);
+            }
+            else{
+                h2.add(new Card());
+            }
+            h1.add(new Card());
+        }
+
+        Game game = new Game();
+        game.setId("g-spy");
+        game.setStatus(GameStatus.ABILITY_PEEK_OPPONENT);
+        game.setOrderedPlayerIds(List.of(1L, 2L));
+        game.setCurrentPlayerId(1L);
+        Map<Long, List<Card>> hands = new HashMap<>();
+        hands.put(1L, h1);
+        hands.put(2L, h2);
+        game.setPlayerHands(hands);
+
+        Mockito.when(gameRepository.findById("g-spy")).thenReturn(Optional.of(game));
+        Mockito.when(gameRepository.save(Mockito.any(Game.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        PeekResultDTO result = gameService.useAbilitySpyOpponent("g-spy", "token", 2L, 1);
+
+        assertEquals(1, result.getRevealedCards().size());
+        assertEquals(9, result.getRevealedCards().get(0).getValue());
+        assertEquals("9S", result.getRevealedCards().get(0).getCode());
+        assertEquals(GameStatus.ROUND_ACTIVE, game.getStatus());
+        // check that we passed the round to the next user
+        assertEquals(2L, game.getCurrentPlayerId());
     }
 }
