@@ -74,6 +74,16 @@ public class GameController {
         gameService.moveDrawFromDrawPile(gameId);
     }
 
+    // Implement the click-handler to "pick up" the top card from the discard pile.
+    // #25
+    @PostMapping("/games/{gameId}/discard-pile/draw")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void moveDrawFromDiscardPile(
+            @PathVariable String gameId,
+            @RequestHeader("Authorization") String token) {
+        gameService.moveDrawFromDiscardPile(gameId, token);
+    }
+
     // swap drawn card with one of the player's hand cards
     @PostMapping("/games/{gameId}/drawn-card/swap")
     @ResponseStatus(HttpStatus.OK)
