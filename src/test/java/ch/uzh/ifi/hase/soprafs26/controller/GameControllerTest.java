@@ -9,6 +9,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.server.ResponseStatusException;
@@ -61,5 +62,31 @@ public class GameControllerTest {
                 .andExpect(status().isForbidden());
 
         verify(gameService, never()).moveCallCabo(anyString(), anyString());
+    }
+
+    @Test
+    void postDiscardPileDraw_callsService_returns204() throws Exception {
+        String gameId = "g1";
+        doNothing().when(gameService).moveDrawFromDiscardPile(anyString(), anyString());
+
+        mockMvc.perform(post("/games/{gameId}/discard-pile/draw", gameId)
+                        .header("Authorization", "token"))
+                .andExpect(status().isNoContent());
+
+        verify(gameService).moveDrawFromDiscardPile(eq(gameId), eq("token"));
+    }
+
+    @Test
+    void postDiscardPileSwap_callsService_returns200() throws Exception {
+        String gameId = "g1";
+        doNothing().when(gameService).moveSwapWithDiscardPile(anyString(), anyString(), eq(2));
+
+        mockMvc.perform(post("/games/{gameId}/discard-pile/swap", gameId)
+                        .header("Authorization", "token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"targetCardIndex\":2}"))
+                .andExpect(status().isOk());
+
+        verify(gameService).moveSwapWithDiscardPile(eq(gameId), eq("token"), eq(2));
     }
 }

@@ -142,6 +142,46 @@ class GameStateBroadcastMapperTest {
         assertNull(findPlayerHand(for2, 1L).getCards().get(0).getCode());
     }
 
+    // 9/10 spy: current player sees peeked opponent card; opponent (hand owner) does not see it face-up
+    @Test
+    void opponentPeekNineTen_spySeesPeekedCard_ownerDoesNot() {
+        Game game = new Game();
+        game.setId("g-spy");
+        game.setStatus(GameStatus.ABILITY_PEEK_OPPONENT);
+        game.setCurrentPlayerId(1L);
+        game.setOrderedPlayerIds(List.of(1L, 2L));
+
+        List<Card> hand1 = new ArrayList<>();
+        for (int i = 0; i < 4; i++) {
+            Card c = new Card();
+            hand1.add(c);
+        }
+
+        List<Card> hand2 = new ArrayList<>();
+        for (int i = 0; i < 4; i++) {
+            Card c = new Card();
+            c.setValue(i);
+            c.setCode(i + "-clubs");
+            c.setVisibility(i == 2);
+            hand2.add(c);
+        }
+
+        Map<Long, List<Card>> hands = new HashMap<>();
+        hands.put(1L, hand1);
+        hands.put(2L, hand2);
+        game.setPlayerHands(hands);
+
+        GameStateBroadcastDTO asSpy = mapper.toBroadcastForViewer(game, 1L);
+        CardViewDTO peekedAsSpy = findPlayerHand(asSpy, 2L).getCards().get(2);
+        assertEquals(2, peekedAsSpy.getValue().intValue());
+        assertEquals("2-clubs", peekedAsSpy.getCode());
+
+        GameStateBroadcastDTO asOwner = mapper.toBroadcastForViewer(game, 2L);
+        CardViewDTO peekedAsOwner = findPlayerHand(asOwner, 2L).getCards().get(2);
+        assertNull(peekedAsOwner.getValue());
+        assertNull(peekedAsOwner.getCode());
+    }
+
     // helper to get the PlayerHandViewDTO instance from GameStateBroadcastDTO instance based on userId match
     private static PlayerHandViewDTO findPlayerHand(GameStateBroadcastDTO dto, long userId) {
         return dto.getPlayers().stream()

@@ -90,11 +90,15 @@ public class GameStateBroadcastMapper {
         boolean isOwner = handOwnerId.equals(viewerUserId);
         boolean isViewerCurrentPlayer = viewerUserId.equals(currentPlayerId);
 
-        // owner sees own visible cards (initial peek, 7/8 on own hand). 
-        // current player may see a visible card on another hand only during 9/10 opponent-peek — not during INITIAL_PEEK
-        boolean opponentPeekNineTen = gameStatus == GameStatus.ABILITY_PEEK_OPPONENT;
-        boolean canSee = (isOwner && card.getVisibility())
-                || (opponentPeekNineTen && !isOwner && isViewerCurrentPlayer && card.getVisibility());
+        // Default (initial peek, 7/8 self-peek, round play): owner sees own cards marked visible
+        // ABILITY_PEEK_OPPONENT (9/10): only the current player (spy) may see a visible card on another hand
+        // the hand owner must not see that card face-up here, or they would learn what the spy saw
+        boolean canSee;
+        if (gameStatus == GameStatus.ABILITY_PEEK_OPPONENT) {
+            canSee = !isOwner && isViewerCurrentPlayer && card.getVisibility();
+        } else {
+            canSee = isOwner && card.getVisibility();
+        }
 
         v.setFaceDown(!canSee);
         if (canSee) {

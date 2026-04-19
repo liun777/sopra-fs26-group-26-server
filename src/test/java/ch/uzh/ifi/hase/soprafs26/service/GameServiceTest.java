@@ -489,4 +489,243 @@ public class GameServiceTest {
         assertEquals(HttpStatus.CONFLICT, ex.getStatusCode());
         Mockito.verify(gameEventPublisher, Mockito.never()).publishFilteredState(any());
     }
+
+    @Test
+    void moveDrawFromDiscardPile_success_movesTopToDrawnCardAndPublishes() {
+        User user = new User();
+        user.setId(1L);
+        Mockito.when(userRepository.findByToken("token")).thenReturn(user);
+
+        Card top = new Card();
+        top.setValue(9);
+        top.setCode("9H");
+        Game game = new Game();
+        game.setId("g-discard-draw");
+        game.setStatus(GameStatus.ROUND_ACTIVE);
+        game.setCurrentPlayerId(1L);
+        game.setOrderedPlayerIds(List.of(1L, 2L));
+        game.setDiscardPile(new ArrayList<>(List.of(top)));
+        game.setDrawnCard(null);
+        List<Card> handP1 = new ArrayList<>();
+        for (int i = 0; i < 4; i++) {
+            handP1.add(new Card());
+        }
+        game.setPlayerHands(Map.of(1L, handP1));
+
+        Mockito.when(gameRepository.findById("g-discard-draw")).thenReturn(Optional.of(game));
+        Mockito.when(gameRepository.save(any(Game.class))).thenAnswer(inv -> inv.getArgument(0));
+        Mockito.doNothing().when(gameRepository).flush();
+
+        gameService.moveDrawFromDiscardPile("g-discard-draw", "token");
+
+        assertTrue(game.getDiscardPile().isEmpty());
+        assertNotNull(game.getDrawnCard());
+        assertEquals(9, game.getDrawnCard().getValue());
+        assertEquals("9H", game.getDrawnCard().getCode());
+        Mockito.verify(gameRepository, Mockito.times(1)).save(game);
+        Mockito.verify(gameEventPublisher, Mockito.times(1)).publishFilteredState(game);
+    }
+
+    @Test
+    void moveDrawFromDiscardPile_emptyDiscard_throwsConflict() {
+        User user = new User();
+        user.setId(1L);
+        Mockito.when(userRepository.findByToken("token")).thenReturn(user);
+
+        Game game = new Game();
+        game.setId("g-discard-empty");
+        game.setStatus(GameStatus.ROUND_ACTIVE);
+        game.setCurrentPlayerId(1L);
+        game.setDiscardPile(new ArrayList<>());
+        game.setOrderedPlayerIds(List.of(1L, 2L));
+
+        Mockito.when(gameRepository.findById("g-discard-empty")).thenReturn(Optional.of(game));
+
+        ResponseStatusException ex = assertThrows(ResponseStatusException.class,
+                () -> gameService.moveDrawFromDiscardPile("g-discard-empty", "token"));
+        assertEquals(HttpStatus.CONFLICT, ex.getStatusCode());
+        assertEquals("Discard pile is empty.", ex.getReason());
+    }
+
+    @Test
+    void moveDrawFromDiscardPile_alreadyHasDrawnCard_throwsConflict() {
+        User user = new User();
+        user.setId(1L);
+        Mockito.when(userRepository.findByToken("token")).thenReturn(user);
+
+        Card top = new Card();
+        Game game = new Game();
+        game.setId("g-discard-double");
+        game.setStatus(GameStatus.ROUND_ACTIVE);
+        game.setCurrentPlayerId(1L);
+        game.setOrderedPlayerIds(List.of(1L, 2L));
+        game.setDiscardPile(new ArrayList<>(List.of(top)));
+        // this will cause conflict
+        game.setDrawnCard(new Card());
+
+        Mockito.when(gameRepository.findById("g-discard-double")).thenReturn(Optional.of(game));
+
+        ResponseStatusException ex = assertThrows(ResponseStatusException.class,
+                () -> gameService.moveDrawFromDiscardPile("g-discard-double", "token"));
+        assertEquals(HttpStatus.CONFLICT, ex.getStatusCode());
+        assertEquals("You have already drawn a card!", ex.getReason());
+    }
+
+    @Test
+    void moveDrawFromDiscardPile_notRoundActive_throwsConflict() {
+        User user = new User();
+        user.setId(1L);
+        Mockito.when(userRepository.findByToken("token")).thenReturn(user);
+
+        Card top = new Card();
+        Game game = new Game();
+        game.setId("g-discard-phase");
+        game.setStatus(GameStatus.INITIAL_PEEK);
+        game.setCurrentPlayerId(1L);
+        game.setDiscardPile(new ArrayList<>(List.of(top)));
+        game.setOrderedPlayerIds(List.of(1L, 2L));
+
+        Mockito.when(gameRepository.findById("g-discard-phase")).thenReturn(Optional.of(game));
+
+        ResponseStatusException ex = assertThrows(ResponseStatusException.class,
+                () -> gameService.moveDrawFromDiscardPile("g-discard-phase", "token"));
+        assertEquals(HttpStatus.CONFLICT, ex.getStatusCode());
+        assertEquals("Round is not active.", ex.getReason());
+    }
+
+    @Test
+    void moveSwapWithDiscardPile_success_swapsTopWithHandAndAdvancesTurn() {
+        User user = new User();
+        user.setId(1L);
+        Mockito.when(userRepository.findByToken("token")).thenReturn(user);
+
+        Card fromDiscard = new Card();
+        fromDiscard.setValue(7);
+        fromDiscard.setCode("7D");
+        Card handSlot = new Card();
+        handSlot.setValue(3);
+        handSlot.setCode("3C");
+
+        List<Card> p1 = new ArrayList<>();
+        p1.add(handSlot);
+        for (int i = 0; i < 3; i++) {
+            p1.add(new Card());
+        }
+        List<Card> p2 = new ArrayList<>();
+        for (int i = 0; i < 4; i++) {
+            p2.add(new Card());
+        }
+        Game game = new Game();
+        game.setId("g-swap-discard");
+        game.setStatus(GameStatus.ROUND_ACTIVE);
+        game.setCurrentPlayerId(1L);
+        game.setOrderedPlayerIds(List.of(1L, 2L));
+        game.setDiscardPile(new ArrayList<>(List.of(fromDiscard)));
+        game.setDrawnCard(null);
+        game.setPlayerHands(new HashMap<>(Map.of(1L, p1, 2L, p2)));
+
+        Mockito.when(gameRepository.findById("g-swap-discard")).thenReturn(Optional.of(game));
+        Mockito.when(gameRepository.save(any(Game.class))).thenAnswer(inv -> inv.getArgument(0));
+        Mockito.doNothing().when(gameRepository).flush();
+
+        gameService.moveSwapWithDiscardPile("g-swap-discard", "token", 0);
+
+        // swapped directly with hand, drawn card slot not used
+        assertNull(game.getDrawnCard());
+        assertEquals(7, p1.get(0).getValue());
+        assertEquals("7D", p1.get(0).getCode());
+        assertFalse(p1.get(0).getVisibility());
+        assertEquals(1, game.getDiscardPile().size());
+        // get top card from discard pile
+        // do not use getDiscardPileTopCard() to isolate behavior
+        Card newTop = game.getDiscardPile().get(game.getDiscardPile().size() - 1);
+        assertEquals(3, newTop.getValue());
+        assertTrue(newTop.getVisibility());
+        assertEquals(2L, game.getCurrentPlayerId());
+        Mockito.verify(gameRepository, Mockito.times(2)).save(game);
+        Mockito.verify(gameEventPublisher, Mockito.times(2)).publishFilteredState(game);
+    }
+
+    @Test
+    void moveSwapWithDiscardPile_drawnCardAlreadySet_throwsConflict() {
+        User user = new User();
+        user.setId(1L);
+        Mockito.when(userRepository.findByToken("token")).thenReturn(user);
+
+        Card top = new Card();
+        Game game = new Game();
+        game.setId("g-swap-block");
+        game.setStatus(GameStatus.ROUND_ACTIVE);
+        game.setCurrentPlayerId(1L);
+        game.setOrderedPlayerIds(List.of(1L, 2L));
+        game.setDiscardPile(new ArrayList<>(List.of(top)));
+        game.setDrawnCard(new Card());
+        List<Card> hand = new ArrayList<>();
+        for (int i = 0; i < 4; i++) {
+            hand.add(new Card());
+        }
+        game.setPlayerHands(Map.of(1L, hand));
+
+        Mockito.when(gameRepository.findById("g-swap-block")).thenReturn(Optional.of(game));
+
+        ResponseStatusException ex = assertThrows(ResponseStatusException.class,
+                () -> gameService.moveSwapWithDiscardPile("g-swap-block", "token", 0));
+        assertEquals(HttpStatus.CONFLICT, ex.getStatusCode());
+        assertEquals("Cannot swap with discard pile after drawing a card", ex.getReason());
+    }
+
+    @Test
+    void moveSwapWithDiscardPile_emptyDiscard_throwsConflict() {
+        User user = new User();
+        user.setId(1L);
+        Mockito.when(userRepository.findByToken("token")).thenReturn(user);
+
+        Game game = new Game();
+        game.setId("g-swap-empty");
+        game.setStatus(GameStatus.ROUND_ACTIVE);
+        game.setCurrentPlayerId(1L);
+        game.setOrderedPlayerIds(List.of(1L, 2L));
+        game.setDiscardPile(new ArrayList<>());
+        game.setDrawnCard(null);
+        List<Card> hand = new ArrayList<>();
+        for (int i = 0; i < 4; i++) {
+            hand.add(new Card());
+        }
+        game.setPlayerHands(Map.of(1L, hand));
+
+        Mockito.when(gameRepository.findById("g-swap-empty")).thenReturn(Optional.of(game));
+
+        ResponseStatusException ex = assertThrows(ResponseStatusException.class,
+                () -> gameService.moveSwapWithDiscardPile("g-swap-empty", "token", 0));
+        assertEquals(HttpStatus.CONFLICT, ex.getStatusCode());
+        assertEquals("Discard pile is empty", ex.getReason());
+    }
+
+    @Test
+    void moveSwapWithDiscardPile_invalidIndex_throwsBadRequest() {
+        User user = new User();
+        user.setId(1L);
+        Mockito.when(userRepository.findByToken("token")).thenReturn(user);
+
+        Card top = new Card();
+        Game game = new Game();
+        game.setId("g-swap-bad-index");
+        game.setStatus(GameStatus.ROUND_ACTIVE);
+        game.setCurrentPlayerId(1L);
+        game.setOrderedPlayerIds(List.of(1L, 2L));
+        game.setDiscardPile(new ArrayList<>(List.of(top)));
+        game.setDrawnCard(null);
+        List<Card> hand = new ArrayList<>();
+        for (int i = 0; i < 4; i++) {
+            hand.add(new Card());
+        }
+        game.setPlayerHands(Map.of(1L, hand));
+
+        Mockito.when(gameRepository.findById("g-swap-bad-index")).thenReturn(Optional.of(game));
+
+        ResponseStatusException ex = assertThrows(ResponseStatusException.class,
+                () -> gameService.moveSwapWithDiscardPile("g-swap-bad-index", "token", 10));
+        assertEquals(HttpStatus.BAD_REQUEST, ex.getStatusCode());
+        assertEquals("Invalid card index", ex.getReason());
+    }
 }
