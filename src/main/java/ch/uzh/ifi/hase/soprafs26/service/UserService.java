@@ -149,4 +149,11 @@ public class UserService {
 		userRepository.save(foundUser);
 		userRepository.flush();
 	}
+
+	public void heartbeat(String token) {
+    	User user = userRepository.findByToken(token);
+    	if (user == null) return;
+    	user.setLastHeartbeat(java.time.Instant.now());
+   	 	userRepository.save(user);
+	}
 }

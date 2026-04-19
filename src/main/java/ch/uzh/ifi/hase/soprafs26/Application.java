@@ -32,6 +32,7 @@ public class Application {
 		return Executors.newScheduledThreadPool(10);
 	}
 
+	/*
 	@Bean
 	public WebMvcConfigurer corsConfigurer() {
 		return new WebMvcConfigurer() {
@@ -40,5 +41,22 @@ public class Application {
 				registry.addMapping("/**").allowedOrigins("*").allowedMethods("*");
 			}
 		};
+	}
+	*/
+
+	@Bean
+	public WebMvcConfigurer corsConfigurer() {
+    	return new WebMvcConfigurer() {
+     		@Override
+        	public void addCorsMappings(CorsRegistry registry) {
+            	registry.addMapping("/**")
+                    .allowedOrigins(
+                        "http://localhost:3000",
+                        "https://sopra-fs26-group-26-client.vercel.app"
+                    )
+                    .allowedMethods("*")
+                    .allowCredentials(true);
+        	}
+   	 	};
 	}
 }

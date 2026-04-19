@@ -62,6 +62,9 @@ public class User implements Serializable { // public: Klasse kann von überall 
     @Column(nullable = false) // overall rank compared to all other users - global leaderborad
     private Integer overallRank = 0;
 
+    @Column(nullable = true) // for websocket timeout
+    private java.time.Instant lastHeartbeat;
+
 
     // GET  liest die werte und SET setzt die werte,
     // weil alle felder private sind brauch man GET und Set um von aussen zugriff zu haben
@@ -127,6 +130,14 @@ public class User implements Serializable { // public: Klasse kann von überall 
 
     public void setCreationDate(LocalDate creationDate) {
         this.creationDate = creationDate;
+    }
+
+    public java.time.Instant getLastHeartbeat() {
+    return lastHeartbeat;
+}
+
+    public void setLastHeartbeat(java.time.Instant lastHeartbeat) {
+        this.lastHeartbeat = lastHeartbeat;
     }
 
     public Integer getGamesWon() {return gamesWon;}

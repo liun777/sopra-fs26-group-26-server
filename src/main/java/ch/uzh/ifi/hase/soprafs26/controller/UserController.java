@@ -105,4 +105,24 @@ public class UserController {
         userService.logoutUser(token);
     }
 
+    // beacon logout — called when tab closes, token sent in body since sendBeacon can't set headers
+    @PostMapping("/auth/logout/beacon")
+    @ResponseStatus(HttpStatus.OK)
+    public void logoutUserBeacon(@RequestBody(required = false) String body) {
+        if (body == null || body.isBlank()) return;
+        // body comes as raw JSON string: {"token":"..."}
+        String token = body.replace("{", "").replace("}", "")
+                .replace("\"token\":", "").replace("\"", "").trim();
+        if (!token.isBlank()) {
+            userService.logoutUser(token);
+        }
+    }
+
+    // heartbeat — frontend calls this every 30 seconds to signal it's still alive
+    @PostMapping("/heartbeat")
+    @ResponseStatus(HttpStatus.OK)
+    public void heartbeat(@RequestHeader("Authorization") String token) {
+        userService.heartbeat(token);
+    }
+
 }
