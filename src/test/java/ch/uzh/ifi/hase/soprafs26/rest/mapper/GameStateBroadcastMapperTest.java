@@ -4,6 +4,7 @@ import ch.uzh.ifi.hase.soprafs26.constant.GameStatus;
 import ch.uzh.ifi.hase.soprafs26.entity.Card;
 import ch.uzh.ifi.hase.soprafs26.entity.Game;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.CardViewDTO;
+import ch.uzh.ifi.hase.soprafs26.rest.dto.DiscardTopDTO;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.GameStateBroadcastDTO;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.PlayerHandViewDTO;
 import org.junit.jupiter.api.BeforeEach;
@@ -15,7 +16,9 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class GameStateBroadcastMapperTest {
 
@@ -180,6 +183,64 @@ class GameStateBroadcastMapperTest {
         CardViewDTO peekedAsOwner = findPlayerHand(asOwner, 2L).getCards().get(2);
         assertNull(peekedAsOwner.getValue());
         assertNull(peekedAsOwner.getCode());
+    }
+
+    // #67 discard top is public; card taken into hand is not
+    // assumes correct post swap game state and tests broadcast mapper
+    // no need to differentiate between 2 service paths (either swap with discard pile OR draw from discard pile, swap with drawn card),
+    // because correct game state is assumed
+    @Test
+    void gameStateAfterSwapWithDiscard_broadcastGameState_discardTopVisible_handCardFromDiscardHiddenForAllViewers() {
+        Game game = new Game();
+        game.setId("g-swap-broadcast");
+        game.setStatus(GameStatus.ROUND_ACTIVE);
+        game.setCurrentPlayerId(1L);
+        game.setOrderedPlayerIds(List.of(1L, 2L));
+
+        Card newDiscardTop = new Card();
+        newDiscardTop.setValue(3);
+        newDiscardTop.setCode("3C");
+        newDiscardTop.setVisibility(true);
+        game.setDiscardPile(new ArrayList<>(List.of(newDiscardTop)));
+
+        List<Card> hand1 = new ArrayList<>();
+        Card takenFromDiscard = new Card();
+        takenFromDiscard.setValue(7);
+        takenFromDiscard.setCode("7D");
+        takenFromDiscard.setVisibility(false);
+        hand1.add(takenFromDiscard);
+        for (int i = 0; i < 3; i++) {
+            Card c = new Card();
+            c.setValue(10 + i);
+            c.setCode("h" + i);
+            c.setVisibility(false);
+            hand1.add(c);
+        }
+
+        List<Card> hand2 = new ArrayList<>();
+        for (int i = 0; i < 4; i++) {
+            Card c = new Card();
+            c.setVisibility(false);
+            hand2.add(c);
+        }
+
+        Map<Long, List<Card>> hands = new HashMap<>();
+        hands.put(1L, hand1);
+        hands.put(2L, hand2);
+        game.setPlayerHands(hands);
+
+        for (Long viewerId : List.of(1L, 2L)) {
+            GameStateBroadcastDTO dto = mapper.toBroadcastForViewer(game, viewerId);
+            DiscardTopDTO top = dto.getDiscardPileTop();
+            assertNotNull(top);
+            assertEquals(3, top.getValue());
+            assertEquals("3C", top.getCode());
+
+            CardViewDTO slot0 = findPlayerHand(dto, 1L).getCards().get(0);
+            assertTrue(slot0.isFaceDown());
+            assertNull(slot0.getValue());
+            assertNull(slot0.getCode());
+        }
     }
 
     // helper to get the PlayerHandViewDTO instance from GameStateBroadcastDTO instance based on userId match

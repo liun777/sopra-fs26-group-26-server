@@ -18,6 +18,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -88,5 +89,27 @@ public class GameControllerTest {
                 .andExpect(status().isOk());
 
         verify(gameService).moveSwapWithDiscardPile(eq(gameId), eq("token"), eq(2));
+    }
+
+    @Test
+    void postDiscardPileDraw_thenDrawnCardSwap_clientSequence_callsBothHandlersInOrder() throws Exception {
+        String gameId = "g1";
+        doNothing().when(gameService).moveDrawFromDiscardPile(anyString(), anyString());
+        doNothing().when(gameService).moveSwapDrawnCard(anyString(), anyString(), eq(0));
+
+        mockMvc.perform(post("/games/{gameId}/discard-pile/draw", gameId)
+                        .header("Authorization", "token"))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(post("/games/{gameId}/drawn-card/swap", gameId)
+                        .header("Authorization", "token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"targetCardIndex\":0}"))
+                .andExpect(status().isOk());
+
+        // verify that the API calls happened in this order
+        var order = inOrder(gameService);
+        order.verify(gameService).moveDrawFromDiscardPile(eq(gameId), eq("token"));
+        order.verify(gameService).moveSwapDrawnCard(eq(gameId), eq("token"), eq(0));
     }
 }

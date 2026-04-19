@@ -7,7 +7,10 @@ import ch.uzh.ifi.hase.soprafs26.entity.User;
 import ch.uzh.ifi.hase.soprafs26.repository.GameRepository;
 import ch.uzh.ifi.hase.soprafs26.repository.UserRepository;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.CardDTO;
+import ch.uzh.ifi.hase.soprafs26.rest.dto.CardViewDTO;
+import ch.uzh.ifi.hase.soprafs26.rest.dto.GameStateBroadcastDTO;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.PeekSelectionDTO;
+import ch.uzh.ifi.hase.soprafs26.rest.mapper.GameStateBroadcastMapper;
 import ch.uzh.ifi.hase.soprafs26.util.PeekType;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -490,8 +493,9 @@ public class GameServiceTest {
         Mockito.verify(gameEventPublisher, Mockito.never()).publishFilteredState(any());
     }
 
+    // #64: draw from discard then swap drawn card so the top discard lands in playerHands (two service calls)
     @Test
-    void moveDrawFromDiscardPile_success_movesTopToDrawnCardAndPublishes() {
+    void moveDrawFromDiscardPile_success_discardTopEndsUpInHandAfterSwapDrawnCard() {
         User user = new User();
         user.setId(1L);
         Mockito.when(userRepository.findByToken("token")).thenReturn(user);
@@ -499,6 +503,21 @@ public class GameServiceTest {
         Card top = new Card();
         top.setValue(9);
         top.setCode("9H");
+
+        Card handP1CardIndex0 = new Card();
+        handP1CardIndex0.setValue(3);
+        handP1CardIndex0.setCode("3C");
+
+        List<Card> handP1 = new ArrayList<>();
+        handP1.add(handP1CardIndex0);
+        for (int i = 0; i < 3; i++) {
+            handP1.add(new Card());
+        }
+        List<Card> handP2 = new ArrayList<>();
+        for (int i = 0; i < 4; i++) {
+            handP2.add(new Card());
+        }
+
         Game game = new Game();
         game.setId("g-discard-draw");
         game.setStatus(GameStatus.ROUND_ACTIVE);
@@ -506,11 +525,7 @@ public class GameServiceTest {
         game.setOrderedPlayerIds(List.of(1L, 2L));
         game.setDiscardPile(new ArrayList<>(List.of(top)));
         game.setDrawnCard(null);
-        List<Card> handP1 = new ArrayList<>();
-        for (int i = 0; i < 4; i++) {
-            handP1.add(new Card());
-        }
-        game.setPlayerHands(Map.of(1L, handP1));
+        game.setPlayerHands(new HashMap<>(Map.of(1L, handP1, 2L, handP2)));
 
         Mockito.when(gameRepository.findById("g-discard-draw")).thenReturn(Optional.of(game));
         Mockito.when(gameRepository.save(any(Game.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -521,9 +536,22 @@ public class GameServiceTest {
         assertTrue(game.getDiscardPile().isEmpty());
         assertNotNull(game.getDrawnCard());
         assertEquals(9, game.getDrawnCard().getValue());
-        assertEquals("9H", game.getDrawnCard().getCode());
-        Mockito.verify(gameRepository, Mockito.times(1)).save(game);
-        Mockito.verify(gameEventPublisher, Mockito.times(1)).publishFilteredState(game);
+
+        gameService.moveSwapDrawnCard("g-discard-draw", "token", 0);
+
+        assertNull(game.getDrawnCard());
+        assertEquals(9, handP1.get(0).getValue());
+        assertEquals("9H", handP1.get(0).getCode());
+        assertFalse(handP1.get(0).getVisibility());
+        assertEquals(1, game.getDiscardPile().size());
+        Card newTop = game.getDiscardPile().get(game.getDiscardPile().size() - 1);
+        assertEquals(3, newTop.getValue());
+        assertEquals("3C", newTop.getCode());
+        assertTrue(newTop.getVisibility());
+        assertEquals(2L, game.getCurrentPlayerId());
+
+        Mockito.verify(gameRepository, Mockito.times(3)).save(game);
+        Mockito.verify(gameEventPublisher, Mockito.times(3)).publishFilteredState(game);
     }
 
     @Test
@@ -644,6 +672,119 @@ public class GameServiceTest {
         assertEquals(2L, game.getCurrentPlayerId());
         Mockito.verify(gameRepository, Mockito.times(2)).save(game);
         Mockito.verify(gameEventPublisher, Mockito.times(2)).publishFilteredState(game);
+    }
+
+    // #67: tests broadcast mapper in combination with real service logic execution
+    @Test
+    void moveSwapWithDiscardPile_broadcast_showsDiscardTopToAllAndHidesSwappedInHandCard() {
+        User user = new User();
+        user.setId(1L);
+        Mockito.when(userRepository.findByToken("token")).thenReturn(user);
+
+        Card fromDiscard = new Card();
+        fromDiscard.setValue(7);
+        fromDiscard.setCode("7D");
+        Card handSlot = new Card();
+        handSlot.setValue(3);
+        handSlot.setCode("3C");
+
+        List<Card> p1 = new ArrayList<>();
+        p1.add(handSlot);
+        for (int i = 0; i < 3; i++) {
+            p1.add(new Card());
+        }
+        List<Card> p2 = new ArrayList<>();
+        for (int i = 0; i < 4; i++) {
+            p2.add(new Card());
+        }
+        Game game = new Game();
+        game.setId("g-swap-broadcast-chain");
+        game.setStatus(GameStatus.ROUND_ACTIVE);
+        game.setCurrentPlayerId(1L);
+        game.setOrderedPlayerIds(List.of(1L, 2L));
+        game.setDiscardPile(new ArrayList<>(List.of(fromDiscard)));
+        game.setDrawnCard(null);
+        game.setPlayerHands(new HashMap<>(Map.of(1L, p1, 2L, p2)));
+
+        Mockito.when(gameRepository.findById("g-swap-broadcast-chain")).thenReturn(Optional.of(game));
+        Mockito.when(gameRepository.save(any(Game.class))).thenAnswer(inv -> inv.getArgument(0));
+        Mockito.doNothing().when(gameRepository).flush();
+
+        gameService.moveSwapWithDiscardPile("g-swap-broadcast-chain", "token", 0);
+
+        GameStateBroadcastMapper broadcastMapper = new GameStateBroadcastMapper();
+        for (Long viewerId : List.of(1L, 2L)) {
+            GameStateBroadcastDTO dto = broadcastMapper.toBroadcastForViewer(game, viewerId);
+            assertNotNull(dto.getDiscardPileTop());
+            assertEquals(3, dto.getDiscardPileTop().getValue());
+            assertEquals("3C", dto.getDiscardPileTop().getCode());
+            CardViewDTO p1slot0 = dto.getPlayers().stream()
+                    .filter(ph -> ph.getUserId() == 1L)
+                    .findFirst()
+                    .orElseThrow()
+                    .getCards()
+                    .get(0);
+            assertTrue(p1slot0.isFaceDown());
+            assertNull(p1slot0.getValue());
+            assertNull(p1slot0.getCode());
+        }
+    }
+
+    // #67: draw + swap drawn card — same behavior as moveSwapWithDiscardPile_broadcast_showsDiscardTopToAllAndHidesSwappedInHandCard
+    @Test
+    void moveDrawFromDiscardPile_thenSwapDrawnCard_broadcast_showsDiscardTopToAllAndHidesSwappedInHandCard() {
+        User user = new User();
+        user.setId(1L);
+        Mockito.when(userRepository.findByToken("token")).thenReturn(user);
+
+        Card fromDiscard = new Card();
+        fromDiscard.setValue(7);
+        fromDiscard.setCode("7D");
+        Card handSlot = new Card();
+        handSlot.setValue(3);
+        handSlot.setCode("3C");
+
+        List<Card> p1 = new ArrayList<>();
+        p1.add(handSlot);
+        for (int i = 0; i < 3; i++) {
+            p1.add(new Card());
+        }
+        List<Card> p2 = new ArrayList<>();
+        for (int i = 0; i < 4; i++) {
+            p2.add(new Card());
+        }
+        Game game = new Game();
+        game.setId("g-draw-swap-broadcast-chain");
+        game.setStatus(GameStatus.ROUND_ACTIVE);
+        game.setCurrentPlayerId(1L);
+        game.setOrderedPlayerIds(List.of(1L, 2L));
+        game.setDiscardPile(new ArrayList<>(List.of(fromDiscard)));
+        game.setDrawnCard(null);
+        game.setPlayerHands(new HashMap<>(Map.of(1L, p1, 2L, p2)));
+
+        Mockito.when(gameRepository.findById("g-draw-swap-broadcast-chain")).thenReturn(Optional.of(game));
+        Mockito.when(gameRepository.save(any(Game.class))).thenAnswer(inv -> inv.getArgument(0));
+        Mockito.doNothing().when(gameRepository).flush();
+
+        gameService.moveDrawFromDiscardPile("g-draw-swap-broadcast-chain", "token");
+        gameService.moveSwapDrawnCard("g-draw-swap-broadcast-chain", "token", 0);
+
+        GameStateBroadcastMapper broadcastMapper = new GameStateBroadcastMapper();
+        for (Long viewerId : List.of(1L, 2L)) {
+            GameStateBroadcastDTO dto = broadcastMapper.toBroadcastForViewer(game, viewerId);
+            assertNotNull(dto.getDiscardPileTop());
+            assertEquals(3, dto.getDiscardPileTop().getValue());
+            assertEquals("3C", dto.getDiscardPileTop().getCode());
+            CardViewDTO p1slot0 = dto.getPlayers().stream()
+                    .filter(ph -> ph.getUserId() == 1L)
+                    .findFirst()
+                    .orElseThrow()
+                    .getCards()
+                    .get(0);
+            assertTrue(p1slot0.isFaceDown());
+            assertNull(p1slot0.getValue());
+            assertNull(p1slot0.getCode());
+        }
     }
 
     @Test
