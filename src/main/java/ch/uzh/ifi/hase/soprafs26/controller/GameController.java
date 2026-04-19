@@ -127,6 +127,17 @@ public class GameController {
         gameService.moveCallCabo(gameId, token);
     }
 
+    // discard the drawn card — POST /games/{gameId}/drawn-card/discard
+    @PostMapping("/games/{gameId}/drawn-card/discard")
+    @ResponseStatus(HttpStatus.OK)
+    public Game moveCardToDiscardPile(
+            @PathVariable String gameId,
+            @RequestHeader("Authorization") String token) {
+        gameService.verifyMoveCallerIsCurrentPlayer(gameId, token);
+        gameService.moveCardToDiscardPile(gameId);
+        return gameService.getGameById(gameId);
+    }
+
     // #47 and #49
     @PostMapping("/games/{gameId}/peek")
     @ResponseStatus(HttpStatus.NO_CONTENT)
