@@ -778,25 +778,39 @@ public class GameService {
     // if they are AFK
     public void executeTimoutMove(String gameId, Long userId) {
         Game game = getGameById(gameId);
+        GameStatus status = game.getStatus();
         Card cardToDiscard = game.getDrawnCard();
         List<Card> discardPile = game.getDiscardPile();
         
         if (!userId.equals(game.getCurrentPlayerId())) {
             return;
         }
-        // make sure a card is drawn - if not, draw one from the draw pile (triggering reshuffle if necessary)
-        if (cardToDiscard == null) {
-            if (game.getDrawPile().isEmpty()) {
-                reshuffleDiscardPile(gameId);
-                game = getGameById(gameId);
+
+        if(status == GameStatus.ROUND_ACTIVE) {
+
+            // make sure a card is drawn - if not, draw one from the draw pile (triggering reshuffle if necessary)
+            if (cardToDiscard == null) {
+                if (game.getDrawPile().isEmpty()) {
+                    reshuffleDiscardPile(gameId);
+                    game = getGameById(gameId);
+                }
+                cardToDiscard = game.getDrawPile().remove(0);
             }
-            cardToDiscard = game.getDrawPile().remove(0);
+            // discard the card (it is visible since it is being discarded)
+            cardToDiscard.setVisibility(true);
+            discardPile.add(cardToDiscard);
+            game.setDrawnCard(null);
+            game.setDrawnFromDeck(false);
         }
-        // discard the card (it is visible since it is being discarded)
-        cardToDiscard.setVisibility(true);
-        discardPile.add(cardToDiscard);
-        game.setDrawnCard(null);
-        game.setDrawnFromDeck(false);
+
+        if(status == GameStatus.ABILITY_PEEK_SELF 
+            || status == GameStatus.ABILITY_PEEK_OPPONENT
+            || status == GameStatus.ABILITY_SWAP) 
+        {
+            game.setStatus(GameStatus.ROUND_ACTIVE);
+            clearAllHandVisibility(game);
+            cancelTurnTimer(gameId);
+        }
         // save changes and advance turn
         saveGameAndBroadcast(game);
         advanceTurnToNextPlayer(gameId);
@@ -936,4 +950,18 @@ public class GameService {
         return game.getDrawnCard();
     }
 
-}
+    public void skipAbility(String gameId, String token) {
+        verifyMoveCallerIsCurrentPlayer(gameId, token);
+        Game game = getGameById(gameId);
+        GameStatus status = game.getStatus();
+        if (status != GameStatus.ABILITY_PEEK_SELF && status != GameStatus.ABILITY_PEEK_OPPONENT && status != GameStatus.ABILITY_SWAP) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "No ability to skip");
+        }
+        if (status == GameStatus.ABILITY_PEEK_SELF || status == GameStatus.ABILITY_PEEK_OPPONENT) {
+            clearAllHandVisibility(game);
+        }
+        game.setStatus(GameStatus.ROUND_ACTIVE);
+        saveGameAndBroadcast(game);
+        advanceTurnToNextPlayer(gameId);
+    }
+}   

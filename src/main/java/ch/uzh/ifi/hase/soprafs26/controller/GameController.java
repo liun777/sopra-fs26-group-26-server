@@ -119,6 +119,7 @@ public class GameController {
         gameService.moveAbilitySwap(gameId, token, ownCardIndex, targetUserId, targetCardIndex);
     }
 
+    // call cabo in order to end the game
     @PostMapping("/games/{gameId}/moves/cabo")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void moveCallCabo(
@@ -155,4 +156,13 @@ public class GameController {
             @RequestHeader("Authorization") String token) {
         return gameService.getDrawnCard(gameId, token);
     }
+
+    @PostMapping("/games/{gameId}/abilities/skip")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void skipAbility(
+            @PathVariable String gameId,
+            @RequestHeader("Authorization") String token) {
+        gameService.skipAbility(gameId, token);
+    }
+
 }
