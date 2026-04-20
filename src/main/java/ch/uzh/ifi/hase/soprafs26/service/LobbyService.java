@@ -298,4 +298,40 @@ public class LobbyService {
         }
         return lobby;
     }
+
+    // remove player from lobby — self leave or host kick
+    @Transactional
+    public Lobby removePlayerFromLobby(String sessionId, String token, Long targetUserId) {
+        User requester = getUserByToken(token);
+        Lobby lobby = getLobbyBySessionId(sessionId);
+
+        // only the player themselves or the host can remove a player
+        boolean isSelf = requester.getId().equals(targetUserId);
+        boolean isHost = requester.getId().equals(lobby.getSessionHostUserId());
+
+        if (!isSelf && !isHost) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Forbidden!");
+        }
+
+        if (!lobby.getPlayerIds().contains(targetUserId)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "User is not part of this lobby");
+        }
+
+        lobby.getPlayerIds().remove(targetUserId);
+
+        // if no players left — delete the lobby
+        if (lobby.getPlayerIds().isEmpty()) {
+            lobbyRepository.delete(lobby);
+            return null;
+        }
+
+        // if the removed player was the host — migrate to next player
+        if (lobby.getSessionHostUserId().equals(targetUserId)) {
+            lobby.setSessionHostUserId(lobby.getPlayerIds().get(0));
+        }
+
+        lobby = lobbyRepository.save(lobby);
+        lobbyEventPublisher.broadcastLobbyUpdate(lobby.getId(), lobby);
+        return lobby;
+    }
 }

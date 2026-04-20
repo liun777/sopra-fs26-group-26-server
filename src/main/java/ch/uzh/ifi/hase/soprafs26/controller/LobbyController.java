@@ -71,4 +71,23 @@ public class LobbyController {
         Lobby lobby = lobbyService.getMyWaitingLobbyAsHost(token);
         return DTOMapper.INSTANCE.convertEntityToLobbyGetDTO(lobby);
     }
+
+    // DELETE /lobbies/{sessionId}/players/{userId} — self leave or host kick
+    @DeleteMapping("/lobbies/{sessionId}/players/{userId}")
+    @ResponseStatus(HttpStatus.OK)
+    public LobbyGetDTO removePlayerFromLobby(@PathVariable String sessionId,
+                                         @RequestHeader("Authorization") String token,
+                                         @PathVariable Long userId) {
+    
+        Lobby updatedLobby = lobbyService.removePlayerFromLobby(sessionId, token, userId);
+
+        // If the lobby was deleted (last person left), return null 
+        // (Spring will return an empty body)
+        if (updatedLobby == null) {
+            return null; 
+        }
+
+        // Map the updated entity to your existing DTO
+        return DTOMapper.INSTANCE.convertEntityToLobbyGetDTO(updatedLobby);
+    }
 }
