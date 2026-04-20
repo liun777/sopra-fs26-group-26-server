@@ -13,6 +13,8 @@ import ch.uzh.ifi.hase.soprafs26.entity.User;
 import ch.uzh.ifi.hase.soprafs26.repository.UserRepository;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 public class UserServiceTest {
 
@@ -89,6 +91,21 @@ public class UserServiceTest {
 		// then -> attempt to create second user with same user -> check that an error
 		// is thrown
 		assertThrows(ResponseStatusException.class, () -> userService.createUser(testUser));
+	}
+
+	@Test
+	public void logoutUser_changesStatusToOffline_success() {
+		User user = new User();
+		user.setId(1L);
+		user.setToken("token");
+		user.setStatus(UserStatus.ONLINE);
+
+		when(userRepository.findByToken("token")).thenReturn(user);
+
+		userService.logoutUser("token");
+		
+		assertEquals(UserStatus.OFFLINE, user.getStatus());
+		verify(userRepository, Mockito.times(1)).save(user);
 	}
 
 }

@@ -38,7 +38,11 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 
 public class GameServiceTest {
@@ -216,6 +220,7 @@ public class GameServiceTest {
         assertEquals(2, result.getOrderedPlayerIds().size());
         Mockito.verify(gameEventPublisher, Mockito.times(1)).publishFilteredState(result);
     }
+
     // placeholder testing 2/3  
     @Test
     void startGame_whenDeckApiFails_usesFallbackDeckAndStillStarts() {
@@ -238,6 +243,7 @@ public class GameServiceTest {
         assertEquals(1, result.getDiscardPile().size());
         Mockito.verify(gameEventPublisher, Mockito.times(1)).publishFilteredState(result);
     }
+
     // placeholder testing 3/3
     @Test
     void startGame_withTooFewPlayers_throwsConflict() {
@@ -868,5 +874,51 @@ public class GameServiceTest {
                 () -> gameService.moveSwapWithDiscardPile("g-swap-bad-index", "token", 10));
         assertEquals(HttpStatus.BAD_REQUEST, ex.getStatusCode());
         assertEquals("Invalid card index", ex.getReason());
+    }
+
+    @Test
+    public void moveDrawFromDrawPile_emptyDrawPile_triggersAPIShuffleAndDrawsCard() {
+
+        Game game = new Game();
+        game.setId("gameId");
+        game.setStatus(GameStatus.ROUND_ACTIVE);
+        game.setDeckApiId("testId");
+        game.setOrderedPlayerIds(List.of(1L, 2L));
+        game.setCurrentPlayerId(1L);
+        game.setDiscardPile(new ArrayList<>());
+
+        Card bottom1 = new Card();
+        bottom1.setCode("2H");
+        Card bottom2 = new Card();
+        bottom2.setCode("3C");
+        Card bottom3 = new Card();
+        bottom3.setCode("AS");
+        game.setDiscardPile(new ArrayList<>(List.of(bottom1, bottom2, bottom3)));
+
+        when(gameRepository.findById("gameId")).thenReturn(Optional.of(game));
+        when(gameRepository.save(any(Game.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        doNothing().when(deckOfCardsAPIService).returnDrawnCardsToDeck(eq("testId"), anyList());
+        doNothing().when(deckOfCardsAPIService).shuffleDeck(eq("testId"));
+        
+        CardDTO fresh1 = new CardDTO();
+        fresh1.setCode("2H");
+        CardDTO fresh2 = new CardDTO();
+        fresh2.setCode("3C");
+        when(deckOfCardsAPIService.drawFromDeck(eq("testId"), eq(2))).thenReturn(List.of(fresh1, fresh2));
+
+        gameService.moveDrawFromDrawPile("gameId");
+
+        verify(deckOfCardsAPIService).returnDrawnCardsToDeck(eq("testId"), anyList());
+        verify(deckOfCardsAPIService).shuffleDeck(eq("testId"));
+        verify(deckOfCardsAPIService).drawFromDeck(eq("testId"), eq(2));
+
+        assertEquals(1, game.getDiscardPile().size(), "Discard pile should have 1 card left");
+        assertEquals("AS", game.getDiscardPile().get(0).getCode());
+
+        assertNotNull(game.getDrawnCard(), "A card should have been drawn");
+        assertEquals("2H", game.getDrawnCard().getCode());
+
+        assertEquals(1, game.getDrawPile().size(), "Draw pile should have 1 card left");
     }
 }

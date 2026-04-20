@@ -22,6 +22,10 @@ import static org.hamcrest.Matchers.is;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -96,5 +100,22 @@ public class LobbyControllerTest {
 			throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
 					String.format("The request body could not be created.%s", e));
 		}
+	}
+
+	@Test
+	public void postJoinLobby_validRequest_returns200() throws Exception {
+		String sessionId = "testId";
+		String token = "testToken";
+
+		Lobby lobby = new Lobby();
+		lobby.setSessionId(sessionId);
+
+		when(lobbyService.joinLobby(eq(sessionId), eq(token))).thenReturn(lobby);
+
+		mockMvc.perform(post("/lobbies/{sessionId}/players", sessionId)
+						.header("Authorization", token))
+				.andExpect(status().isOk());
+
+		verify(lobbyService, times(1)).joinLobby(eq(sessionId), eq(token));
 	}
 }
