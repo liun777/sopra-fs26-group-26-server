@@ -742,7 +742,7 @@ public class GameService {
     advanceTurnToNextPlayer(gameId);
     }
     
-    // handles callind cabo - assumes that cabo is in itself a turn and no card can be drawn if a player wants to call cabo
+    // handles callindgcabo - assumes that cabo is in itself a turn and no card can be drawn if a player wants to call cabo
     public void moveCallCabo(String gameId, String token) {
         verifyMoveCallerIsCurrentPlayer(gameId, token);
         Game game = getGameById(gameId);
@@ -763,6 +763,19 @@ public class GameService {
         game.setCaboCalledByUserId(game.getCurrentPlayerId());
         saveGameAndBroadcast(game);
         advanceTurnToNextPlayer(gameId); 
+    }
+
+    // Internal method for system-triggered Cabo (no token required)
+    public void forceCallCabo(String gameId, Long userId) {
+        Game game = getGameById(gameId);
+    
+        // Safety checks
+        if (game.getStatus() == GameStatus.ROUND_ACTIVE && !game.isCaboCalled()) {
+            game.setCaboCalled(true);
+            game.setCaboCalledByUserId(userId);
+            saveGameAndBroadcast(game);
+            advanceTurnToNextPlayer(gameId);
+        }
     }
 
 

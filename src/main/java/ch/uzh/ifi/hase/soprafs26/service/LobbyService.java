@@ -12,6 +12,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.context.annotation.Lazy;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -27,15 +28,21 @@ public class LobbyService {
     private final UserRepository userRepository;
     private final LobbyEventPublisher lobbyEventPublisher;
     private final OnlineUsersEventPublisher onlineUsersEventPublisher;
+    private final DisconnectService disconnectService;
+    private final GameService gameService;
 
     public LobbyService(LobbyRepository lobbyRepository,
                         UserRepository userRepository,
                         LobbyEventPublisher lobbyEventPublisher,
-                        OnlineUsersEventPublisher onlineUsersEventPublisher) {
+                        OnlineUsersEventPublisher onlineUsersEventPublisher,
+                        @Lazy DisconnectService disconnectService,
+                        @Lazy GameService gameService) {
         this.lobbyRepository = lobbyRepository;
         this.userRepository = userRepository;
         this.lobbyEventPublisher = lobbyEventPublisher;
         this.onlineUsersEventPublisher = onlineUsersEventPublisher;
+        this.disconnectService = disconnectService;
+        this.gameService = gameService;
     }
 
     // helper: look up user by token, throw 401 if invalid
@@ -158,37 +165,43 @@ public class LobbyService {
     public WaitingLobbyViewDTO getWaitingLobbyView(String token, String sessionId) {
         User user = getUserByToken(token);
         Lobby lobby = lobbyRepository.findBySessionId(sessionId);
-        if (lobby == null) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Session could not be found");
-        }
-        if (!"WAITING".equals(lobby.getStatus())) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Invalid lobby settings update");
-        }
-        if (!lobby.getPlayerIds().contains(user.getId())) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Not a member of this lobby");
-        }
-
+        if (lobby == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Lobby not found");
+    
         Long hostId = lobby.getSessionHostUserId();
+    
+        // Sort players so Host is always at the top
         List<Long> orderedIds = new ArrayList<>();
         orderedIds.add(hostId);
         lobby.getPlayerIds().stream()
                 .filter(id -> !id.equals(hostId))
-                .sorted(Comparator.naturalOrder())
+                .sorted()
                 .forEach(orderedIds::add);
 
         WaitingLobbyViewDTO dto = new WaitingLobbyViewDTO();
         dto.setLobbyId(lobby.getId());
         dto.setSessionId(lobby.getSessionId());
         dto.setIsPublic(lobby.getIsPublic());
+    
         List<WaitingLobbyPlayerRowDTO> rows = new ArrayList<>();
         for (Long pid : orderedIds) {
             User u = userRepository.findById(pid).orElse(null);
-            if (u == null) {
-                continue;
-            }
+            if (u == null) continue;
+
             WaitingLobbyPlayerRowDTO row = new WaitingLobbyPlayerRowDTO();
             row.setUsername(u.getUsername());
-            row.setJoinStatus(pid.equals(user.getId()) ? "you" : "joined");
+
+            // --- THIS IS THE CRITICAL LOGIC FOR THE START BUTTON ---
+            // 1. If this row belongs to the Host, status MUST be "host"
+            // 2. If it's NOT the host but it's "me", status is "you"
+            // 3. Otherwise, it's just "joined"
+            if (pid.equals(hostId)) {
+                row.setJoinStatus("host"); 
+            } else if (pid.equals(user.getId())) {
+                row.setJoinStatus("you");
+            } else {
+                row.setJoinStatus("joined");
+            }
+        
             rows.add(row);
         }
         dto.setPlayers(rows);
@@ -251,6 +264,14 @@ public class LobbyService {
         if (!"WAITING".equals(lobby.getStatus())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Lobby is not in waiting state");
         }
+
+        // Ensure no player is currently in the "60s grace period"
+        for (Long pid : lobby.getPlayerIds()) {
+            if (disconnectService.isPlayerInGracePeriod(pid)) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Player disconnected");
+            }
+        }
+
         return lobby;
     }
 
@@ -333,5 +354,39 @@ public class LobbyService {
         lobby = lobbyRepository.save(lobby);
         lobbyEventPublisher.broadcastLobbyUpdate(lobby.getId(), lobby);
         return lobby;
+    }
+
+    public void handlePermanentDisconnect(Long userId) {
+        // Find the lobby the user was in
+        Lobby lobby = lobbyRepository.findAll().stream()
+            .filter(l -> l.getPlayerIds().contains(userId))
+            .findFirst().orElse(null);
+
+        if (lobby == null) return;
+
+        if ("WAITING".equals(lobby.getStatus())) {
+            // Requirement: In Lobby -> Automatic Removal
+            this.removePlayerFromDisconnect(lobby.getSessionId(), userId);
+        } 
+        else if ("PLAYING".equals(lobby.getStatus())) {
+            // Requirement: In Game -> 60s terminate, call cabo next turn
+            gameService.forceCallCabo(lobby.getSessionId(), userId);
+            this.removePlayerFromDisconnect(lobby.getSessionId(), userId);
+        }
+    }
+
+    public void removePlayerFromDisconnect(String sessionId, Long userId) {
+        Lobby lobby = getLobbyBySessionId(sessionId);
+        lobby.getPlayerIds().remove(userId);
+
+        if (lobby.getPlayerIds().isEmpty()) {
+            lobbyRepository.delete(lobby);
+        } else {
+            if (lobby.getSessionHostUserId().equals(userId)) {
+                lobby.setSessionHostUserId(lobby.getPlayerIds().get(0));
+            }
+            lobbyRepository.save(lobby);
+            lobbyEventPublisher.broadcastLobbyUpdate(lobby.getId(), lobby);
+        }
     }
 }

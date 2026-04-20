@@ -11,10 +11,9 @@ import org.springframework.messaging.support.ChannelInterceptor;
 import org.springframework.messaging.support.MessageHeaderAccessor;
 import org.springframework.stereotype.Component;
 
+import java.time.Instant;
 import java.util.List;
 
-// needed for authenticated communication in the scope of websocket's STOMP
-// the broadcast of game's state will use authentication information for filtering of cards' information
 @Component
 public class StompAuthChannelInterceptor implements ChannelInterceptor {
 
@@ -24,31 +23,54 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
         this.userRepository = userRepository;
     }
 
-    // this is run when the server receives a STOMP message from client
     @Override
     public Message<?> preSend(Message<?> message, MessageChannel channel) {
-
-        // if it is not a CONNECT message - do nothing
         StompHeaderAccessor accessor = MessageHeaderAccessor.getAccessor(message, StompHeaderAccessor.class);
-        if (accessor == null || !StompCommand.CONNECT.equals(accessor.getCommand())) {
+        if (accessor == null) {
             return message;
         }
 
-        // get authorization data from header
-        List<String> headers = accessor.getNativeHeader("Authorization");
-        // if no authorization header: connection is rejected, client gets no access
-        String token = (headers == null || headers.isEmpty()) ? null : headers.get(0).trim();
-        if (token == null || token.isEmpty()) {
-            throw new MessagingException("Missing Authorization token on STOMP CONNECT");
+        // 1. Handle initial CONNECT: Validate token and store userId in session
+        if (StompCommand.CONNECT.equals(accessor.getCommand())) {
+            List<String> authHeaders = accessor.getNativeHeader("Authorization");
+            String token = (authHeaders == null || authHeaders.isEmpty()) ? null : authHeaders.get(0).trim();
+
+            if (token == null || token.isEmpty()) {
+                throw new MessagingException("Missing Authorization token");
+            }
+
+            User user = userRepository.findByToken(token);
+            if (user == null) {
+                throw new MessagingException("Invalid Authorization token");
+            }
+
+            // Important: This is what allows the logic below to work!
+            accessor.getSessionAttributes().put("userId", user.getId());
+            
+            // Set initial heartbeat
+            user.setLastHeartbeat(Instant.now());
+            userRepository.save(user);
         }
-        // invalid token: also rejection
-        User user = userRepository.findByToken(token);
-        if (user == null) {
-            throw new MessagingException("Invalid Authorization token on STOMP CONNECT");
+
+        // 2. Refresh Heartbeat: Resets the 5-minute idle clock every time they do anything
+        Long userId = (Long) accessor.getSessionAttributes().get("userId");
+        if (userId != null) {
+            updateUserHeartbeat(userId);
         }
-        // authorization passed - attach user's identity to this websocket connection
-        // setUser needs an instance of type Principal
-        accessor.setUser(new StompPrincipal(String.valueOf(user.getId())));
+
         return message;
+    }
+
+    /**
+     * Helper to update the lastHeartbeat timestamp in the database.
+     * This keeps the "death clock" from starting while the user is active.
+     */
+    private void updateUserHeartbeat(Long userId) {
+        userRepository.findById(userId).ifPresent(user -> {
+            // Optimization: You could check if lastHeartbeat was > 10s ago before saving 
+            // to reduce DB load, but for now, this ensures the 5-min rule is safe.
+            user.setLastHeartbeat(Instant.now());
+            userRepository.save(user);
+        });
     }
 }

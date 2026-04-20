@@ -3,7 +3,10 @@ package ch.uzh.ifi.hase.soprafs26.controller;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 
+import ch.uzh.ifi.hase.soprafs26.constant.UserStatus;
 import ch.uzh.ifi.hase.soprafs26.entity.User;
+import ch.uzh.ifi.hase.soprafs26.repository.UserRepository;
+import java.time.Instant;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.UserGetDTO;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.UserPostDTO;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.UserPutDTO;
@@ -28,9 +31,11 @@ import java.util.List;
 public class UserController {
 
 	private final UserService userService; // zugriff auf den userService für Logik
+    private final UserRepository userRepository;
 
-	UserController(UserService userService) {
+	UserController(UserService userService, UserRepository userRepository) {
 		this.userService = userService;
+        this.userRepository = userRepository;
 	} // UserService wird automatisch von Spring injiziert
 
     // GET /users - alle User laden (zb auf Userliste) von frontend aufgerufen
@@ -120,9 +125,14 @@ public class UserController {
 
     // heartbeat — frontend calls this every 30 seconds to signal it's still alive
     @PostMapping("/heartbeat")
-    @ResponseStatus(HttpStatus.OK)
-    public void heartbeat(@RequestHeader("Authorization") String token) {
-        userService.heartbeat(token);
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void handleHeartbeat(@RequestHeader("Authorization") String token) {
+        User user = userRepository.findByToken(token);
+        if (user != null) {
+            user.setLastHeartbeat(Instant.now());
+            user.setStatus(UserStatus.ONLINE); // Ensure they stay online
+            userRepository.save(user);
+        }
     }
 
 }
