@@ -8,6 +8,11 @@ public class WaitingLobbyViewDTO {
     private Long lobbyId;
     private String sessionId;
     private Boolean isPublic;
+    private Long afkTimeoutSeconds;
+    private Long initialPeekSeconds;
+    private Long turnSeconds;
+    private Long abilityRevealSeconds;
+    private Long rematchDecisionSeconds;
     private List<WaitingLobbyPlayerRowDTO> players = new ArrayList<>();
 
     public Long getLobbyId() {
@@ -32,6 +37,46 @@ public class WaitingLobbyViewDTO {
 
     public void setIsPublic(Boolean isPublic) {
         this.isPublic = isPublic;
+    }
+
+    public Long getAfkTimeoutSeconds() {
+        return afkTimeoutSeconds;
+    }
+
+    public void setAfkTimeoutSeconds(Long afkTimeoutSeconds) {
+        this.afkTimeoutSeconds = afkTimeoutSeconds;
+    }
+
+    public Long getInitialPeekSeconds() {
+        return initialPeekSeconds;
+    }
+
+    public void setInitialPeekSeconds(Long initialPeekSeconds) {
+        this.initialPeekSeconds = initialPeekSeconds;
+    }
+
+    public Long getTurnSeconds() {
+        return turnSeconds;
+    }
+
+    public void setTurnSeconds(Long turnSeconds) {
+        this.turnSeconds = turnSeconds;
+    }
+
+    public Long getAbilityRevealSeconds() {
+        return abilityRevealSeconds;
+    }
+
+    public void setAbilityRevealSeconds(Long abilityRevealSeconds) {
+        this.abilityRevealSeconds = abilityRevealSeconds;
+    }
+
+    public Long getRematchDecisionSeconds() {
+        return rematchDecisionSeconds;
+    }
+
+    public void setRematchDecisionSeconds(Long rematchDecisionSeconds) {
+        this.rematchDecisionSeconds = rematchDecisionSeconds;
     }
 
     public List<WaitingLobbyPlayerRowDTO> getPlayers() {

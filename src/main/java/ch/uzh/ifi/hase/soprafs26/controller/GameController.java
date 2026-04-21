@@ -33,7 +33,7 @@ public class GameController {
         Lobby currentLobby = lobbyService.verifyLobbyCanStart(token, sessionId);
         // retrieve playerIds of players currently in lobby
         List<Long> playerIds = currentLobby.getPlayerIds();
-        Game startedGame = gameService.startGame(playerIds);
+        Game startedGame = gameService.startGame(playerIds, currentLobby);
         lobbyService.markLobbyAsPlaying(sessionId);
         return startedGame;
     }
@@ -153,12 +153,25 @@ public class GameController {
     public void submitRematchDecision(
             @PathVariable String gameId,
             @RequestHeader("Authorization") String token,
-            @RequestBody Map<String, Boolean> body) {
-        Boolean rematch = body.get("rematch");
-        if (rematch == null) {
-            throw new org.springframework.web.server.ResponseStatusException(HttpStatus.BAD_REQUEST, "rematch is required");
+            @RequestBody Map<String, Object> body) {
+        Object decisionRaw = body == null ? null : body.get("decision");
+        if (decisionRaw != null) {
+            gameService.submitRematchDecision(gameId, token, String.valueOf(decisionRaw));
+            return;
         }
-        gameService.submitRematchDecision(gameId, token, rematch);
+
+        Object legacyRematchRaw = body == null ? null : body.get("rematch");
+        if (legacyRematchRaw instanceof Boolean legacyRematch) {
+            gameService.submitRematchDecision(
+                    gameId,
+                    token,
+                    legacyRematch ? GameService.REMATCH_DECISION_CONTINUE : GameService.REMATCH_DECISION_NONE);
+            return;
+        }
+
+        throw new org.springframework.web.server.ResponseStatusException(
+                HttpStatus.BAD_REQUEST,
+                "decision is required (CONTINUE, FRESH, NONE)");
     }
 
     @GetMapping("/games/{gameId}/post-round-lobby")

@@ -127,7 +127,7 @@ public class UserController {
         }
     }
 
-    // heartbeat — frontend calls this every 30 seconds to signal it's still alive
+    // heartbeat — frontend activity tracking (active/focused tab + user input)
     @PostMapping("/heartbeat")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void handleHeartbeat(@RequestHeader("Authorization") String token) {

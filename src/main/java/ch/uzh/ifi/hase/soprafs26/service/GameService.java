@@ -21,6 +21,9 @@ import java.util.concurrent.atomic.AtomicLong;
 import ch.uzh.ifi.hase.soprafs26.config.settings.GameSettingsProperties;
 import ch.uzh.ifi.hase.soprafs26.entity.Card;
 import ch.uzh.ifi.hase.soprafs26.entity.Game;
+import ch.uzh.ifi.hase.soprafs26.entity.GameMoveEvent;
+import ch.uzh.ifi.hase.soprafs26.entity.GameMoveStep;
+import ch.uzh.ifi.hase.soprafs26.entity.Lobby;
 import ch.uzh.ifi.hase.soprafs26.entity.User;
 import ch.uzh.ifi.hase.soprafs26.repository.GameRepository;
 import ch.uzh.ifi.hase.soprafs26.rest.mapper.DTOMapper;
@@ -38,6 +41,9 @@ import org.springframework.web.server.ResponseStatusException;
 // added TEMPORARY FALLBACK, SINCE DECKAPI IS UNRELIABLE FOR TESTING
 @Service
 public class GameService {
+    public static final String REMATCH_DECISION_CONTINUE = "CONTINUE";
+    public static final String REMATCH_DECISION_FRESH = "FRESH";
+    public static final String REMATCH_DECISION_NONE = "NONE";
 
     private static final List<String> FALLBACK_CABO_CARD_CODES = Arrays.asList(
             "AS", "AD", "AC", "AH",
@@ -70,6 +76,46 @@ public class GameService {
     private final Map<String, AtomicLong> abilityTimerCounts = new ConcurrentHashMap<>();
     // per-game count to guard rematch decision timers from executing stale tasks
     private final Map<String, AtomicLong> rematchDecisionTimerCounts = new ConcurrentHashMap<>();
+    private static final String MOVE_ZONE_DRAW_PILE = "DRAW_PILE";
+    private static final String MOVE_ZONE_DISCARD_PILE = "DISCARD_PILE";
+    private static final String MOVE_ZONE_HAND = "HAND";
+
+    private long resolvePositiveOrDefault(Long candidate, long defaultValue) {
+        if (candidate == null || candidate <= 0) {
+            return defaultValue;
+        }
+        return candidate;
+    }
+
+    private GameMoveStep createMoveStep(String sourceZone, Long sourceUserId, Integer sourceCardIndex,
+                                        String targetZone, Long targetUserId, Integer targetCardIndex,
+                                        boolean hidden, Integer value) {
+        GameMoveStep step = new GameMoveStep();
+        step.setSourceZone(sourceZone);
+        step.setSourceUserId(sourceUserId);
+        step.setSourceCardIndex(sourceCardIndex);
+        step.setTargetZone(targetZone);
+        step.setTargetUserId(targetUserId);
+        step.setTargetCardIndex(targetCardIndex);
+        step.setHidden(hidden);
+        step.setValue(hidden ? null : value);
+        return step;
+    }
+
+    private void setLastMoveEvent(Game game, Long actorUserId, GameMoveStep primary, GameMoveStep secondary) {
+        if (game == null || primary == null) {
+            return;
+        }
+        long sequence = game.getLastMoveSequence() + 1;
+        game.setLastMoveSequence(sequence);
+
+        GameMoveEvent event = new GameMoveEvent();
+        event.setSequence(sequence);
+        event.setActorUserId(actorUserId);
+        event.setPrimary(primary);
+        event.setSecondary(secondary);
+        game.setLastMoveEvent(event);
+    }
 
     // constructor injection
     public GameService(GameRepository gameRepository, DeckOfCardsAPIService deckOfCardsAPIService,
@@ -94,6 +140,10 @@ public class GameService {
     }
 
     public Game startGame(List<Long> playerIds) {
+        return startGame(playerIds, null);
+    }
+
+    public Game startGame(List<Long> playerIds, Lobby lobbyConfig) {
         List<Long> sanitizedPlayerIds = sanitizePlayerIds(playerIds);
         validatePlayerCount(sanitizedPlayerIds);
 
@@ -136,9 +186,33 @@ public class GameService {
         newGame.setOrderedPlayerIds(new ArrayList<>(sanitizedPlayerIds));
         newGame.setCurrentPlayerId(sanitizedPlayerIds.get(0));
         newGame.setStatus(GameStatus.INITIAL_PEEK);
+
+        long resolvedTurnSeconds = resolvePositiveOrDefault(
+                lobbyConfig != null ? lobbyConfig.getTurnSeconds() : null,
+                gameSettings.getTurnSeconds());
+        long resolvedInitialPeekSeconds = resolvePositiveOrDefault(
+                lobbyConfig != null ? lobbyConfig.getInitialPeekSeconds() : null,
+                gameSettings.getInitialPeekSeconds());
+        long resolvedAbilityRevealSeconds = resolvePositiveOrDefault(
+                lobbyConfig != null ? lobbyConfig.getAbilityRevealSeconds() : null,
+                gameSettings.getPostPeekAutoEndSeconds());
+        long resolvedRematchDecisionSeconds = resolvePositiveOrDefault(
+                lobbyConfig != null ? lobbyConfig.getRematchDecisionSeconds() : null,
+                gameSettings.getRematchDecisionSeconds());
+        long resolvedAfkTimeoutSeconds = resolvePositiveOrDefault(
+                lobbyConfig != null ? lobbyConfig.getAfkTimeoutSeconds() : null,
+                300L);
+
+        newGame.setTurnSeconds(resolvedTurnSeconds);
+        newGame.setInitialPeekSeconds(resolvedInitialPeekSeconds);
+        newGame.setAbilityRevealSeconds(resolvedAbilityRevealSeconds);
+        newGame.setRematchDecisionSeconds(resolvedRematchDecisionSeconds);
+        newGame.setAfkTimeoutSeconds(resolvedAfkTimeoutSeconds);
         // Save first to get a generated game id, then start the timer.
         Game saved = saveGameAndBroadcast(newGame);
-        startPeekingTimer(saved.getId());
+        if (saved.getId() != null && !saved.getId().isBlank()) {
+            startPeekingTimer(saved.getId(), saved.getInitialPeekSeconds());
+        }
 
         // startTurnTimer(saved.getId(), saved.getCurrentPlayerId());
         return saved;
@@ -493,7 +567,7 @@ public class GameService {
 
         saveGameAndBroadcast(game);
         // Keep the revealed card visible briefly, then auto-end peek/spy ability.
-        startAbilityTimer(game.getId(), gameSettings.getPostPeekAutoEndSeconds());
+        startAbilityTimer(game.getId(), game.getAbilityRevealSeconds());
     }
 
     private void clearAllHandVisibility(Game game) {
@@ -570,10 +644,26 @@ public class GameService {
 
         if (drawnCard != null) {
             boolean wasDrawnFromDeck = game.isDrawnFromDeck(); // save before reset
+            String sourceZone = wasDrawnFromDeck ? MOVE_ZONE_DRAW_PILE : MOVE_ZONE_DISCARD_PILE;
             drawnCard.setVisibility(true);
             discardPile.add(drawnCard);
             game.setDrawnCard(null);
             game.setDrawnFromDeck(false); // reset flag
+            setLastMoveEvent(
+                    game,
+                    game.getCurrentPlayerId(),
+                    createMoveStep(
+                            sourceZone,
+                            null,
+                            null,
+                            MOVE_ZONE_DISCARD_PILE,
+                            null,
+                            null,
+                            true,
+                            drawnCard.getValue()
+                    ),
+                    null
+            );
 
             // only trigger ability if card came from draw pile
             if (wasDrawnFromDeck) {
@@ -609,6 +699,7 @@ public class GameService {
 
         // remove the card at the target index from the hand
         Card replacedCard = playerHand.remove(targetCardIndex);
+        boolean drawnFromDeck = game.isDrawnFromDeck();
 
         // put the drawn card in its place, face-down
         drawnCard.setVisibility(false);
@@ -621,6 +712,30 @@ public class GameService {
         // clear the drawn card and advance turn
         game.setDrawnCard(null);
         game.setDrawnFromDeck(false); // reset flag after swap
+        setLastMoveEvent(
+                game,
+                currentPlayerId,
+                createMoveStep(
+                        drawnFromDeck ? MOVE_ZONE_DRAW_PILE : MOVE_ZONE_DISCARD_PILE,
+                        null,
+                        null,
+                        MOVE_ZONE_HAND,
+                        currentPlayerId,
+                        targetCardIndex,
+                        drawnFromDeck,
+                        drawnCard.getValue()
+                ),
+                createMoveStep(
+                        MOVE_ZONE_HAND,
+                        currentPlayerId,
+                        targetCardIndex,
+                        MOVE_ZONE_DISCARD_PILE,
+                        null,
+                        null,
+                        true,
+                        replacedCard.getValue()
+                )
+        );
         saveGameAndBroadcast(game);
         advanceTurnToNextPlayer(gameId);
     }
@@ -653,7 +768,8 @@ public class GameService {
 
     // auto-end ability phase after configured timeout if player doesn't act
     private void startAbilityTimer(String gameId) {
-        startAbilityTimer(gameId, gameSettings.getAbilitySeconds());
+        Game game = getGameById(gameId);
+        startAbilityTimer(gameId, game.getAbilityRevealSeconds());
     }
 
     private void startAbilityTimer(String gameId, long delaySeconds) {
@@ -755,6 +871,30 @@ public class GameService {
 
         ownHand.add(ownCardIndex, targetCard);
         targetHand.add(targetCardIndex, ownCard);
+        setLastMoveEvent(
+                game,
+                currentPlayerId,
+                createMoveStep(
+                        MOVE_ZONE_HAND,
+                        currentPlayerId,
+                        ownCardIndex,
+                        MOVE_ZONE_HAND,
+                        targetUserId,
+                        targetCardIndex,
+                        true,
+                        ownCard.getValue()
+                ),
+                createMoveStep(
+                        MOVE_ZONE_HAND,
+                        targetUserId,
+                        targetCardIndex,
+                        MOVE_ZONE_HAND,
+                        currentPlayerId,
+                        ownCardIndex,
+                        true,
+                        targetCard.getValue()
+                )
+        );
 
         // end ability phase, go back to next player's turn
         game.setStatus(GameStatus.ROUND_ACTIVE);
@@ -804,6 +944,30 @@ public class GameService {
     // put the replaced card face-up on the discard pile
     replacedCard.setVisibility(true);
     discardPile.add(replacedCard);
+    setLastMoveEvent(
+            game,
+            currentPlayerId,
+            createMoveStep(
+                    MOVE_ZONE_DISCARD_PILE,
+                    null,
+                    null,
+                    MOVE_ZONE_HAND,
+                    currentPlayerId,
+                    targetCardIndex,
+                    false,
+                    topDiscardCard.getValue()
+            ),
+            createMoveStep(
+                    MOVE_ZONE_HAND,
+                    currentPlayerId,
+                    targetCardIndex,
+                    MOVE_ZONE_DISCARD_PILE,
+                    null,
+                    null,
+                    true,
+                    replacedCard.getValue()
+            )
+    );
 
     // advance turn
     saveGameAndBroadcast(game);
@@ -857,7 +1021,7 @@ public class GameService {
         advanceTurnToNextPlayer(gameId);
     }
 
-    public void submitRematchDecision(String gameId, String token, boolean wantsRematch) {
+    public void submitRematchDecision(String gameId, String token, String decision) {
         if (token == null || token.isBlank()) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid token");
         }
@@ -875,12 +1039,19 @@ public class GameService {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Not a player in this game");
         }
 
-        Map<Long, Boolean> decisions = game.getRematchDecisionByUserId();
+        String normalizedDecision = String.valueOf(decision).trim().toUpperCase(Locale.ROOT);
+        if (!REMATCH_DECISION_CONTINUE.equals(normalizedDecision)
+                && !REMATCH_DECISION_FRESH.equals(normalizedDecision)
+                && !REMATCH_DECISION_NONE.equals(normalizedDecision)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "decision must be CONTINUE, FRESH, or NONE");
+        }
+
+        Map<Long, String> decisions = game.getRematchDecisionByUserId();
         if (decisions == null) {
             decisions = new HashMap<>();
             game.setRematchDecisionByUserId(decisions);
         }
-        decisions.put(user.getId(), wantsRematch);
+        decisions.put(user.getId(), normalizedDecision);
         saveGameAndBroadcast(game);
 
         if (decisions.keySet().containsAll(players)) {
@@ -889,7 +1060,7 @@ public class GameService {
     }
 
     public String completeRoundWithoutRematch(String gameId, String token) {
-        submitRematchDecision(gameId, token, false);
+        submitRematchDecision(gameId, token, REMATCH_DECISION_NONE);
         return getPostRoundLobbySessionForToken(gameId, token);
     }
 
@@ -923,7 +1094,7 @@ public class GameService {
         if (game.getOrderedPlayerIds() == null || !game.getOrderedPlayerIds().contains(user.getId())) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Not a player in this game");
         }
-        return gameSettings.getRematchDecisionSeconds();
+        return game.getRematchDecisionSeconds();
     }
 
     private void resolveRematchDecision(String gameId, Game game, Long expectedCountIfAny) {
@@ -937,9 +1108,12 @@ public class GameService {
         List<Long> orderedPlayers = game.getOrderedPlayerIds() == null
                 ? List.of()
                 : new ArrayList<>(game.getOrderedPlayerIds());
-        Map<Long, Boolean> decisions = game.getRematchDecisionByUserId();
-        List<Long> rematchPlayers = orderedPlayers.stream()
-                .filter(playerId -> decisions != null && Boolean.TRUE.equals(decisions.get(playerId)))
+        Map<Long, String> decisions = game.getRematchDecisionByUserId();
+        List<Long> continuePlayers = orderedPlayers.stream()
+                .filter(playerId -> decisions != null && REMATCH_DECISION_CONTINUE.equalsIgnoreCase(decisions.get(playerId)))
+                .toList();
+        List<Long> freshPlayers = orderedPlayers.stream()
+                .filter(playerId -> decisions != null && REMATCH_DECISION_FRESH.equalsIgnoreCase(decisions.get(playerId)))
                 .toList();
 
         cancelTurnTimer(gameId);
@@ -950,7 +1124,7 @@ public class GameService {
         saveGameAndBroadcast(game);
 
         if (lobbyService != null) {
-            lobbyService.handleRoundResolvedForGamePlayers(orderedPlayers, rematchPlayers);
+            lobbyService.handleRoundResolvedForGamePlayers(orderedPlayers, continuePlayers, freshPlayers);
         }
     }
 
@@ -1076,6 +1250,7 @@ public class GameService {
         if (gameId == null || gameId.isBlank() || playerId == null) {
             return;
         }
+        Game game = getGameById(gameId);
         // always cancel running timers first
         cancelTurnTimer(gameId);
         // tell the alarm what to run and when to run it
@@ -1087,7 +1262,7 @@ public class GameService {
                 // catch errors such that bug doesnt permanently crash timer
                 System.err.println("Timeout execution failed for game " + gameId + ": " + e.getMessage());
             }
-        }, gameSettings.getTurnSeconds(), TimeUnit.SECONDS);
+        }, game.getTurnSeconds(), TimeUnit.SECONDS);
         // save it to our tasks
         gameTimers.put(gameId, future);
     }
@@ -1111,7 +1286,7 @@ public class GameService {
             } catch (Exception e) {
                 System.err.println("Rematch decision timer failed for game " + gameId + ": " + e.getMessage());
             }
-        }, gameSettings.getRematchDecisionSeconds(), TimeUnit.SECONDS);
+        }, getGameById(gameId).getRematchDecisionSeconds(), TimeUnit.SECONDS);
 
         gameTimers.put(gameId, future);
     }
@@ -1135,6 +1310,10 @@ public class GameService {
     }
 
     private void startPeekingTimer(String gameId) {
+        startPeekingTimer(gameId, getGameById(gameId).getInitialPeekSeconds());
+    }
+
+    private void startPeekingTimer(String gameId, long delaySeconds) {
         if (gameId == null || gameId.isBlank()) {
             return;
         }
@@ -1143,7 +1322,7 @@ public class GameService {
         // start timer that allows players to do intial peek
         ScheduledFuture<?> future = scheduler.schedule( () -> {
             endPeekingTimer(gameId);
-        }, gameSettings.getInitialPeekSeconds(), TimeUnit.SECONDS);
+        }, delaySeconds, TimeUnit.SECONDS);
         gameTimers.put(gameId, future);
     }
 

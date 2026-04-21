@@ -149,7 +149,14 @@ public class CaboInviteService {
     private CaboInviteSentDTO toSentDto(CaboInvite inv) {
         CaboInviteSentDTO dto = new CaboInviteSentDTO();
         dto.setToUserId(inv.getToUserId());
-        dto.setStatus(inv.getStatus().name());
+        String status = inv.getStatus().name();
+        if (inv.getStatus() == CaboInviteStatus.ACCEPTED) {
+            String stillInWaitingLobby = lobbyService.getWaitingSessionIdIfPlayerInLobby(inv.getLobbyId(), inv.getToUserId());
+            if (stillInWaitingLobby == null || stillInWaitingLobby.isBlank()) {
+                status = CaboInviteStatus.DECLINED.name();
+            }
+        }
+        dto.setStatus(status);
         userRepository.findById(inv.getToUserId()).ifPresent(u -> dto.setToUsername(u.getUsername()));
         return dto;
     }
@@ -206,6 +213,9 @@ public class CaboInviteService {
         }
         String d = body.getDecision().trim().toUpperCase();
         if ("ACCEPT".equals(d)) {
+            if (lobbyService.isUserInActiveGame(invitee.getId())) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "Cannot join a lobby during an active game");
+            }
             invite.setStatus(CaboInviteStatus.ACCEPTED);
         } else if ("DECLINE".equals(d)) {
             invite.setStatus(CaboInviteStatus.DECLINED);

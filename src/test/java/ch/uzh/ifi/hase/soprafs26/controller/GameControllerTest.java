@@ -17,6 +17,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.server.ResponseStatusException;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doNothing;
@@ -135,7 +136,7 @@ public class GameControllerTest {
                 game.setId("game-123");
 
                 when(lobbyService.verifyLobbyCanStart(anyString(), anyString())).thenReturn(mockLobby);
-                when(gameService.startGame(any())).thenReturn(game);
+                when(gameService.startGame(anyList(), any(Lobby.class))).thenReturn(game);
                 doNothing().when(lobbyService).markLobbyAsPlaying(anyString());
 
                 when(gameService.getGameById(anyString())).thenReturn(game);
@@ -150,7 +151,7 @@ public class GameControllerTest {
 
                 var order = inOrder(lobbyService, gameService);
                 order.verify(lobbyService).verifyLobbyCanStart(eq(token), eq(sessionId));
-                order.verify(gameService).startGame(any());
+                order.verify(gameService).startGame(anyList(), any(Lobby.class));
                 order.verify(lobbyService).markLobbyAsPlaying(eq(sessionId));
         }
 }

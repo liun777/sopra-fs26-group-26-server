@@ -17,7 +17,6 @@ import java.util.Map;
 
 @Component
 public class StompAuthChannelInterceptor implements ChannelInterceptor {
-
     private final UserRepository userRepository;
 
     public StompAuthChannelInterceptor(UserRepository userRepository) {
@@ -60,34 +59,6 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
             userRepository.save(user);
         }
 
-        // 2. Refresh Heartbeat: Resets the 5-minute idle clock every time they do anything
-        Map<String, Object> sessionAttributes = accessor.getSessionAttributes();
-        Long userId = null;
-        if (sessionAttributes != null) {
-            Object rawUserId = sessionAttributes.get("userId");
-            if (rawUserId instanceof Long id) {
-                userId = id;
-            } else if (rawUserId instanceof Number id) {
-                userId = id.longValue();
-            }
-        }
-        if (userId != null) {
-            updateUserHeartbeat(userId);
-        }
-
         return message;
-    }
-
-    /**
-     * Helper to update the lastHeartbeat timestamp in the database.
-     * This keeps the "death clock" from starting while the user is active.
-     */
-    private void updateUserHeartbeat(Long userId) {
-        userRepository.findById(userId).ifPresent(user -> {
-            // Optimization: You could check if lastHeartbeat was > 10s ago before saving 
-            // to reduce DB load, but for now, this ensures the 5-min rule is safe.
-            user.setLastHeartbeat(Instant.now());
-            userRepository.save(user);
-        });
     }
 }

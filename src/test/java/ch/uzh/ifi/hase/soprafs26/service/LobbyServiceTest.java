@@ -1,6 +1,9 @@
 package ch.uzh.ifi.hase.soprafs26.service;
 
 import ch.uzh.ifi.hase.soprafs26.constant.UserStatus;
+import ch.uzh.ifi.hase.soprafs26.constant.GameStatus;
+import ch.uzh.ifi.hase.soprafs26.config.settings.LobbySettingsProperties;
+import ch.uzh.ifi.hase.soprafs26.entity.Game;
 import ch.uzh.ifi.hase.soprafs26.entity.Lobby;
 import ch.uzh.ifi.hase.soprafs26.entity.User;
 import ch.uzh.ifi.hase.soprafs26.repository.GameRepository;
@@ -51,12 +54,31 @@ public class LobbyServiceTest {
 	@Mock
 	private GameService gameService;
 
+	@Mock
+	private LobbySettingsProperties lobbySettingsProperties;
+
 	@InjectMocks
 	private LobbyService lobbyService;
 
 	@BeforeEach
 	public void setup() {
 		MockitoAnnotations.openMocks(this);
+		Mockito.when(gameRepository.findAll()).thenReturn(List.of());
+		Mockito.when(lobbySettingsProperties.getAfkTimeoutDefaultSeconds()).thenReturn(300L);
+		Mockito.when(lobbySettingsProperties.getInitialPeekDefaultSeconds()).thenReturn(10L);
+		Mockito.when(lobbySettingsProperties.getTurnDefaultSeconds()).thenReturn(30L);
+		Mockito.when(lobbySettingsProperties.getAbilityRevealDefaultSeconds()).thenReturn(5L);
+		Mockito.when(lobbySettingsProperties.getRematchDecisionDefaultSeconds()).thenReturn(60L);
+		Mockito.when(lobbySettingsProperties.getAfkTimeoutMinSeconds()).thenReturn(180L);
+		Mockito.when(lobbySettingsProperties.getAfkTimeoutMaxSeconds()).thenReturn(1200L);
+		Mockito.when(lobbySettingsProperties.getInitialPeekMinSeconds()).thenReturn(3L);
+		Mockito.when(lobbySettingsProperties.getInitialPeekMaxSeconds()).thenReturn(60L);
+		Mockito.when(lobbySettingsProperties.getTurnMinSeconds()).thenReturn(10L);
+		Mockito.when(lobbySettingsProperties.getTurnMaxSeconds()).thenReturn(60L);
+		Mockito.when(lobbySettingsProperties.getAbilityRevealMinSeconds()).thenReturn(3L);
+		Mockito.when(lobbySettingsProperties.getAbilityRevealMaxSeconds()).thenReturn(10L);
+		Mockito.when(lobbySettingsProperties.getRematchDecisionMinSeconds()).thenReturn(10L);
+		Mockito.when(lobbySettingsProperties.getRematchDecisionMaxSeconds()).thenReturn(60L);
 	}
 
 	@Test
@@ -219,6 +241,33 @@ public class LobbyServiceTest {
 	}
 
 	@Test
+	public void joinLobby_userInActiveGame_throwsConflict() {
+		User joiner = new User();
+		joiner.setId(2L);
+		Mockito.when(userRepository.findByToken("token")).thenReturn(joiner);
+
+		Lobby lobby = new Lobby();
+		lobby.setId(10L);
+		lobby.setSessionId("S1");
+		lobby.setSessionHostUserId(1L);
+		lobby.setStatus("WAITING");
+		lobby.setPlayerIds(new ArrayList<>(List.of(1L)));
+		Mockito.when(lobbyRepository.findBySessionId("S1")).thenReturn(lobby);
+
+		Game game = new Game();
+		game.setId("G1");
+		game.setStatus(GameStatus.ROUND_ACTIVE);
+		game.setOrderedPlayerIds(new ArrayList<>(List.of(2L, 1L)));
+		Mockito.when(gameRepository.findAll()).thenReturn(List.of(game));
+
+		ResponseStatusException ex = assertThrows(ResponseStatusException.class,
+				() -> lobbyService.joinLobby("S1", "token"));
+
+		assertEquals(HttpStatus.CONFLICT, ex.getStatusCode());
+		Mockito.verify(lobbyRepository, Mockito.never()).save(Mockito.any());
+	}
+
+	@Test
 	public void createLobby_validUser() {
 		// setup creator
 		User creator = new User();
@@ -239,6 +288,25 @@ public class LobbyServiceTest {
 		Mockito.verify(lobbyRepository, Mockito.times(1)).save(Mockito.any(Lobby.class));
 		Mockito.verify(lobbyEventPublisher, Mockito.times(1)).broadcastLobbyUpdate(Mockito.any(), Mockito.any());
 		Mockito.verify(onlineUsersEventPublisher, Mockito.times(1)).broadcastOnlineUsers();
+	}
+
+	@Test
+	public void createLobby_userInActiveGame_throwsConflict() {
+		User creator = new User();
+		creator.setId(2L);
+		Mockito.when(userRepository.findByToken("token")).thenReturn(creator);
+
+		Game game = new Game();
+		game.setId("G2");
+		game.setStatus(GameStatus.ROUND_ACTIVE);
+		game.setOrderedPlayerIds(new ArrayList<>(List.of(2L, 7L)));
+		Mockito.when(gameRepository.findAll()).thenReturn(List.of(game));
+
+		ResponseStatusException ex = assertThrows(ResponseStatusException.class,
+				() -> lobbyService.createLobby("token", true));
+
+		assertEquals(HttpStatus.CONFLICT, ex.getStatusCode());
+		Mockito.verify(lobbyRepository, Mockito.never()).save(Mockito.any());
 	}
 
 	@Test
@@ -406,7 +474,8 @@ public class LobbyServiceTest {
 
 		lobbyService.handleRoundResolvedForGamePlayers(
 				List.of(1L, 2L, 3L, 4L),
-				List.of(3L, 4L)
+				List.of(3L, 4L),
+				List.of()
 		);
 
 		ArgumentCaptor<Lobby> savedLobbyCaptor = ArgumentCaptor.forClass(Lobby.class);
@@ -416,6 +485,6 @@ public class LobbyServiceTest {
 		assertEquals("WAITING", rematchLobby.getStatus());
 		assertEquals(3L, rematchLobby.getSessionHostUserId());
 		assertEquals(List.of(3L, 4L), rematchLobby.getPlayerIds());
-		Mockito.verify(lobbyRepository).delete(playingLobby);
+		Mockito.verify(lobbyRepository, Mockito.never()).delete(playingLobby);
 	}
 }

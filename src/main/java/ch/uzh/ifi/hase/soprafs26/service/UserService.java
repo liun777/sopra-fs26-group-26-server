@@ -33,6 +33,7 @@ import java.time.LocalDate;
 @Service
 @Transactional
 public class UserService {
+    private static final long HEARTBEAT_WRITE_THROTTLE_SECONDS = 10;
 
 	private final Logger log = LoggerFactory.getLogger(UserService.class);
 
@@ -206,8 +207,12 @@ public class UserService {
 	public void heartbeat(String token) {
     	User user = userRepository.findByToken(token);
     	if (user == null) return;
-    	user.setLastHeartbeat(java.time.Instant.now());
-   	 	userRepository.save(user);
+        java.time.Instant now = java.time.Instant.now();
+        java.time.Instant last = user.getLastHeartbeat();
+        if (last == null || now.isAfter(last.plusSeconds(HEARTBEAT_WRITE_THROTTLE_SECONDS))) {
+    	    user.setLastHeartbeat(now);
+   	 	    userRepository.save(user);
+        }
         if (disconnectService != null) {
             disconnectService.cancelDisconnectTimer(user.getId());
         }

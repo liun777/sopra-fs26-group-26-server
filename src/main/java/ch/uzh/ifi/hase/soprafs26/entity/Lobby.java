@@ -24,6 +24,11 @@ public class Lobby implements Serializable {
     @ElementCollection
     private List<Long> playerIds = new ArrayList<>(); // userIds of players in lobby
 
+    // Users kicked by host from this waiting lobby.
+    // They may rejoin only through an explicit host invite flow.
+    @ElementCollection
+    private List<Long> kickedUserIds = new ArrayList<>();
+
     @Column(nullable = false)
     private Boolean isPublic = true;
 
@@ -32,6 +37,26 @@ public class Lobby implements Serializable {
 
     @Column(nullable = false)
     private String status = "WAITING"; // WAITING or PLAYING // prob later SPECTATING
+
+    // Per-lobby AFK timeout used while the game is active.
+    @Column(nullable = false)
+    private Long afkTimeoutSeconds = 300L;
+
+    // Per-lobby initial peek timer.
+    @Column(nullable = false)
+    private Long initialPeekSeconds = 10L;
+
+    // Per-lobby turn timer.
+    @Column(nullable = false)
+    private Long turnSeconds = 30L;
+
+    // Per-lobby reveal duration for peek/spy before auto-end.
+    @Column(nullable = false)
+    private Long abilityRevealSeconds = 5L;
+
+    // Per-lobby rematch decision window.
+    @Column(nullable = false)
+    private Long rematchDecisionSeconds = 60L;
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -45,6 +70,9 @@ public class Lobby implements Serializable {
     public List<Long> getPlayerIds() { return playerIds; }
     public void setPlayerIds(List<Long> playerIds) { this.playerIds = playerIds; }
 
+    public List<Long> getKickedUserIds() { return kickedUserIds; }
+    public void setKickedUserIds(List<Long> kickedUserIds) { this.kickedUserIds = kickedUserIds; }
+
     public Boolean getIsPublic() { return isPublic; }
     public void setIsPublic(Boolean isPublic) { this.isPublic = isPublic; }
 
@@ -53,4 +81,19 @@ public class Lobby implements Serializable {
 
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
+
+    public Long getAfkTimeoutSeconds() { return afkTimeoutSeconds; }
+    public void setAfkTimeoutSeconds(Long afkTimeoutSeconds) { this.afkTimeoutSeconds = afkTimeoutSeconds; }
+
+    public Long getInitialPeekSeconds() { return initialPeekSeconds; }
+    public void setInitialPeekSeconds(Long initialPeekSeconds) { this.initialPeekSeconds = initialPeekSeconds; }
+
+    public Long getTurnSeconds() { return turnSeconds; }
+    public void setTurnSeconds(Long turnSeconds) { this.turnSeconds = turnSeconds; }
+
+    public Long getAbilityRevealSeconds() { return abilityRevealSeconds; }
+    public void setAbilityRevealSeconds(Long abilityRevealSeconds) { this.abilityRevealSeconds = abilityRevealSeconds; }
+
+    public Long getRematchDecisionSeconds() { return rematchDecisionSeconds; }
+    public void setRematchDecisionSeconds(Long rematchDecisionSeconds) { this.rematchDecisionSeconds = rematchDecisionSeconds; }
 }

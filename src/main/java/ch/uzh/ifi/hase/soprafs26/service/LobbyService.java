@@ -2,6 +2,7 @@ package ch.uzh.ifi.hase.soprafs26.service;
 
 import ch.uzh.ifi.hase.soprafs26.constant.UserStatus;
 import ch.uzh.ifi.hase.soprafs26.constant.GameStatus;
+import ch.uzh.ifi.hase.soprafs26.config.settings.LobbySettingsProperties;
 import ch.uzh.ifi.hase.soprafs26.entity.Game;
 import ch.uzh.ifi.hase.soprafs26.entity.Lobby;
 import ch.uzh.ifi.hase.soprafs26.entity.User;
@@ -39,6 +40,7 @@ public class LobbyService {
     private final OnlineUsersEventPublisher onlineUsersEventPublisher;
     private final DisconnectService disconnectService;
     private final GameService gameService;
+    private final LobbySettingsProperties lobbySettings;
     // Players that timed out while being in a PLAYING lobby.
     // They stay part of the active game and trigger an automatic Cabo when their turn starts.
     private final Set<Long> timedOutInPlayingPlayerIds = ConcurrentHashMap.newKeySet();
@@ -48,6 +50,7 @@ public class LobbyService {
                         UserRepository userRepository,
                         LobbyEventPublisher lobbyEventPublisher,
                         OnlineUsersEventPublisher onlineUsersEventPublisher,
+                        LobbySettingsProperties lobbySettings,
                         @Lazy DisconnectService disconnectService,
                         @Lazy GameService gameService) {
         this.lobbyRepository = lobbyRepository;
@@ -55,6 +58,7 @@ public class LobbyService {
         this.userRepository = userRepository;
         this.lobbyEventPublisher = lobbyEventPublisher;
         this.onlineUsersEventPublisher = onlineUsersEventPublisher;
+        this.lobbySettings = lobbySettings;
         this.disconnectService = disconnectService;
         this.gameService = gameService;
     }
@@ -108,6 +112,21 @@ public class LobbyService {
         }
     }
 
+    private long clamp(long value, long min, long max) {
+        return Math.max(min, Math.min(max, value));
+    }
+
+    private void applyDefaultTimerSettings(Lobby lobby) {
+        if (lobby == null) {
+            return;
+        }
+        lobby.setAfkTimeoutSeconds(lobbySettings.getAfkTimeoutDefaultSeconds());
+        lobby.setInitialPeekSeconds(lobbySettings.getInitialPeekDefaultSeconds());
+        lobby.setTurnSeconds(lobbySettings.getTurnDefaultSeconds());
+        lobby.setAbilityRevealSeconds(lobbySettings.getAbilityRevealDefaultSeconds());
+        lobby.setRematchDecisionSeconds(lobbySettings.getRematchDecisionDefaultSeconds());
+    }
+
     // generates a unique sessionId
     private String generateUniqueSessionId() {
         String sessionId;
@@ -117,7 +136,7 @@ public class LobbyService {
         return sessionId;
     }
 
-    private boolean isUserInActiveGame(Long userId) {
+    public boolean isUserInActiveGame(Long userId) {
         if (userId == null || gameRepository == null) {
             return false;
         }
@@ -199,6 +218,9 @@ public class LobbyService {
     // POST /lobbies — create a new lobby
     public Lobby createLobby(String token, Boolean isPublic) {
         User host = getUserByToken(token);
+        if (isUserInActiveGame(host.getId())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Cannot create a lobby during an active game");
+        }
         leaveOtherWaitingLobbies(host.getId(), null);
         cleanupStalePlayingLobbiesForHost(host.getId());
         boolean hostInActiveGame = isUserInActiveGame(host.getId());
@@ -215,6 +237,7 @@ public class LobbyService {
         lobby.setSessionHostUserId(host.getId());
         lobby.setIsPublic(isPublic != null ? isPublic : true);
         lobby.getPlayerIds().add(host.getId());
+        applyDefaultTimerSettings(lobby);
 
         lobby = lobbyRepository.save(lobby);
         clearTimedOutPlayingFlag(host.getId());
@@ -255,6 +278,12 @@ public class LobbyService {
         }
         if (lobby.getPlayerIds().size() >= 4) {
             return;
+        }
+        if (isUserInActiveGame(guestUserId)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Cannot join a lobby during an active game");
+        }
+        if (lobby.getKickedUserIds() != null) {
+            lobby.getKickedUserIds().remove(guestUserId);
         }
         if (!lobby.getPlayerIds().contains(guestUserId)) {
             leaveOtherWaitingLobbies(guestUserId, lobby.getSessionId());
@@ -304,6 +333,11 @@ public class LobbyService {
         dto.setLobbyId(lobby.getId());
         dto.setSessionId(lobby.getSessionId());
         dto.setIsPublic(lobby.getIsPublic());
+        dto.setAfkTimeoutSeconds(lobby.getAfkTimeoutSeconds());
+        dto.setInitialPeekSeconds(lobby.getInitialPeekSeconds());
+        dto.setTurnSeconds(lobby.getTurnSeconds());
+        dto.setAbilityRevealSeconds(lobby.getAbilityRevealSeconds());
+        dto.setRematchDecisionSeconds(lobby.getRematchDecisionSeconds());
     
         List<WaitingLobbyPlayerRowDTO> rows = new ArrayList<>();
         for (Long pid : orderedIds) {
@@ -332,7 +366,16 @@ public class LobbyService {
     }
 
     public Lobby updateLobbySettings(String token, String sessionId, LobbySettingsPatchDTO body) {
-        if (body == null || body.getIsPublic() == null) {
+        if (body == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "No settings to update");
+        }
+        boolean hasAnySetting = body.getIsPublic() != null
+                || body.getAfkTimeoutSeconds() != null
+                || body.getInitialPeekSeconds() != null
+                || body.getTurnSeconds() != null
+                || body.getAbilityRevealSeconds() != null
+                || body.getRematchDecisionSeconds() != null;
+        if (!hasAnySetting) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "No settings to update");
         }
         User user = getUserByToken(token);
@@ -346,7 +389,44 @@ public class LobbyService {
         if (!"WAITING".equals(lobby.getStatus())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Invalid lobby settings update");
         }
-        lobby.setIsPublic(body.getIsPublic());
+        if (body.getIsPublic() != null) {
+            lobby.setIsPublic(body.getIsPublic());
+        }
+        if (body.getAfkTimeoutSeconds() != null) {
+            long value = clamp(
+                    body.getAfkTimeoutSeconds(),
+                    lobbySettings.getAfkTimeoutMinSeconds(),
+                    lobbySettings.getAfkTimeoutMaxSeconds());
+            lobby.setAfkTimeoutSeconds(value);
+        }
+        if (body.getInitialPeekSeconds() != null) {
+            long value = clamp(
+                    body.getInitialPeekSeconds(),
+                    lobbySettings.getInitialPeekMinSeconds(),
+                    lobbySettings.getInitialPeekMaxSeconds());
+            lobby.setInitialPeekSeconds(value);
+        }
+        if (body.getTurnSeconds() != null) {
+            long value = clamp(
+                    body.getTurnSeconds(),
+                    lobbySettings.getTurnMinSeconds(),
+                    lobbySettings.getTurnMaxSeconds());
+            lobby.setTurnSeconds(value);
+        }
+        if (body.getAbilityRevealSeconds() != null) {
+            long value = clamp(
+                    body.getAbilityRevealSeconds(),
+                    lobbySettings.getAbilityRevealMinSeconds(),
+                    lobbySettings.getAbilityRevealMaxSeconds());
+            lobby.setAbilityRevealSeconds(value);
+        }
+        if (body.getRematchDecisionSeconds() != null) {
+            long value = clamp(
+                    body.getRematchDecisionSeconds(),
+                    lobbySettings.getRematchDecisionMinSeconds(),
+                    lobbySettings.getRematchDecisionMaxSeconds());
+            lobby.setRematchDecisionSeconds(value);
+        }
         lobby = lobbyRepository.save(lobby);
         lobbyEventPublisher.broadcastLobbyUpdate(lobby.getId(), lobby);
         return lobby;
@@ -368,6 +448,12 @@ public class LobbyService {
         }
         if (lobby.getPlayerIds().contains(user.getId())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Already in lobby");
+        }
+        if (isUserInActiveGame(user.getId())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Cannot join a lobby during an active game");
+        }
+        if (lobby.getKickedUserIds() != null && lobby.getKickedUserIds().contains(user.getId())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "You were kicked from this lobby");
         }
 
         leaveOtherWaitingLobbies(user.getId(), sessionId);
@@ -433,6 +519,13 @@ public class LobbyService {
     }
 
     public void handleRoundResolvedForGamePlayers(List<Long> gamePlayerIds, List<Long> rematchPlayerIds) {
+        handleRoundResolvedForGamePlayers(gamePlayerIds, rematchPlayerIds, List.of());
+    }
+
+    public void handleRoundResolvedForGamePlayers(
+            List<Long> gamePlayerIds,
+            List<Long> continueRematchPlayerIds,
+            List<Long> freshRematchPlayerIds) {
         if (gamePlayerIds == null || gamePlayerIds.isEmpty()) {
             return;
         }
@@ -447,52 +540,77 @@ public class LobbyService {
                 .toList();
 
         if (candidates.isEmpty()) {
+            clearTimedOutPlayingFlags(gamePlayerIds);
+            setUsersStatus(gamePlayerIds, UserStatus.ONLINE);
+            onlineUsersEventPublisher.broadcastOnlineUsers();
             return;
         }
 
         Lobby currentLobby = candidates.get(0);
         List<Long> orderedGamePlayers = new ArrayList<>(gamePlayerIds);
         clearTimedOutPlayingFlags(orderedGamePlayers);
-        Set<Long> rematchPlayerIdSet = rematchPlayerIds == null
+
+        Set<Long> continueRematchSet = continueRematchPlayerIds == null
                 ? Set.of()
-                : new LinkedHashSet<>(rematchPlayerIds);
-        List<Long> normalizedRematchPlayers = orderedGamePlayers.stream()
-                .filter(rematchPlayerIdSet::contains)
+                : new LinkedHashSet<>(continueRematchPlayerIds);
+        Set<Long> freshRematchSet = freshRematchPlayerIds == null
+                ? Set.of()
+                : new LinkedHashSet<>(freshRematchPlayerIds);
+
+        List<Long> normalizedContinuePlayers = orderedGamePlayers.stream()
+                .filter(continueRematchSet::contains)
+                .toList();
+        List<Long> normalizedFreshPlayers = orderedGamePlayers.stream()
+                .filter(freshRematchSet::contains)
                 .toList();
 
-        if (normalizedRematchPlayers.size() >= 2) {
-            Lobby rematchLobby = new Lobby();
-            rematchLobby.setSessionId(generateUniqueSessionId());
-            rematchLobby.setSessionHostUserId(normalizedRematchPlayers.get(0));
-            rematchLobby.setIsPublic(currentLobby.getIsPublic());
-            rematchLobby.setStatus("WAITING");
-            rematchLobby.setPlayerIds(new ArrayList<>(normalizedRematchPlayers));
-            rematchLobby = lobbyRepository.save(rematchLobby);
-
-            lobbyRepository.delete(currentLobby);
-
-            setUsersStatus(normalizedRematchPlayers, UserStatus.LOBBY);
-            List<Long> nonRematchPlayers = orderedGamePlayers.stream()
-                    .filter(playerId -> !rematchPlayerIdSet.contains(playerId))
-                    .toList();
-            setUsersStatus(nonRematchPlayers, UserStatus.ONLINE);
-            lobbyEventPublisher.broadcastLobbyUpdate(rematchLobby.getId(), rematchLobby);
-        } else {
+        if (normalizedContinuePlayers.size() >= 2) {
             currentLobby.setStatus("WAITING");
+            currentLobby.setSessionHostUserId(normalizedContinuePlayers.get(0));
+            currentLobby.setPlayerIds(new ArrayList<>(normalizedContinuePlayers));
+            currentLobby.setKickedUserIds(new ArrayList<>());
             currentLobby = lobbyRepository.save(currentLobby);
-            setUsersStatus(currentLobby.getPlayerIds(), UserStatus.LOBBY);
+            setUsersStatus(normalizedContinuePlayers, UserStatus.LOBBY);
             lobbyEventPublisher.broadcastLobbyUpdate(currentLobby.getId(), currentLobby);
+        } else {
+            lobbyRepository.delete(currentLobby);
         }
+
+        if (normalizedFreshPlayers.size() >= 2) {
+            Lobby freshLobby = new Lobby();
+            freshLobby.setSessionId(generateUniqueSessionId());
+            freshLobby.setSessionHostUserId(normalizedFreshPlayers.get(0));
+            freshLobby.setIsPublic(currentLobby.getIsPublic());
+            freshLobby.setStatus("WAITING");
+            freshLobby.setPlayerIds(new ArrayList<>(normalizedFreshPlayers));
+            freshLobby.setKickedUserIds(new ArrayList<>());
+            freshLobby.setAfkTimeoutSeconds(currentLobby.getAfkTimeoutSeconds());
+            freshLobby.setInitialPeekSeconds(currentLobby.getInitialPeekSeconds());
+            freshLobby.setTurnSeconds(currentLobby.getTurnSeconds());
+            freshLobby.setAbilityRevealSeconds(currentLobby.getAbilityRevealSeconds());
+            freshLobby.setRematchDecisionSeconds(currentLobby.getRematchDecisionSeconds());
+            freshLobby = lobbyRepository.save(freshLobby);
+            setUsersStatus(normalizedFreshPlayers, UserStatus.LOBBY);
+            lobbyEventPublisher.broadcastLobbyUpdate(freshLobby.getId(), freshLobby);
+        }
+
+        Set<Long> allRematchPlayers = new LinkedHashSet<>(normalizedContinuePlayers);
+        allRematchPlayers.addAll(normalizedFreshPlayers);
+        List<Long> nonRematchPlayers = orderedGamePlayers.stream()
+                .filter(playerId -> !allRematchPlayers.contains(playerId))
+                .toList();
+        setUsersStatus(nonRematchPlayers, UserStatus.ONLINE);
         onlineUsersEventPublisher.broadcastOnlineUsers();
     }
 
     // GET /lobbies — get all public lobbies
     public List<Lobby> getPublicLobbies(String token) {
-        getUserByToken(token); // just validates the token
+        User requester = getUserByToken(token);
         return lobbyRepository.findAll().stream()
                 .filter(l -> l.getIsPublic())
                 .filter(l -> l.getPlayerIds().size() < 4)
                 .filter(l -> l.getStatus().equals("WAITING"))
+                .filter(l -> l.getKickedUserIds() == null || !l.getKickedUserIds().contains(requester.getId()))
                 .toList();
     }
 
@@ -542,6 +660,14 @@ public class LobbyService {
         lobby.getPlayerIds().remove(targetUserId);
         clearTimedOutPlayingFlag(targetUserId);
         setUserStatus(targetUserId, UserStatus.ONLINE);
+        if (isHost && !isSelf) {
+            if (lobby.getKickedUserIds() == null) {
+                lobby.setKickedUserIds(new ArrayList<>());
+            }
+            if (!lobby.getKickedUserIds().contains(targetUserId)) {
+                lobby.getKickedUserIds().add(targetUserId);
+            }
+        }
 
         // if no players left — delete the lobby
         if (lobby.getPlayerIds().isEmpty()) {

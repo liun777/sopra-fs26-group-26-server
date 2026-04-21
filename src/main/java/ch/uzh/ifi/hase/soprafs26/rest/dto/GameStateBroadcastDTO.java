@@ -16,6 +16,13 @@ public class GameStateBroadcastDTO {
     private Long currentTurnUserId;
     private DiscardTopDTO discardPileTop;
     private CardViewDTO drawnCard;
+    private boolean caboCalled;
+    private long turnSeconds;
+    private long initialPeekSeconds;
+    private long abilityRevealSeconds;
+    private long rematchDecisionSeconds;
+    private long afkTimeoutSeconds;
+    private GameMoveEventDTO lastMoveEvent;
     private List<PlayerHandViewDTO> players = new ArrayList<>();
 
     public String getGameId() {
@@ -64,6 +71,62 @@ public class GameStateBroadcastDTO {
 
     public void setDrawnCard(CardViewDTO drawnCard) {
         this.drawnCard = drawnCard;
+    }
+
+    public boolean isCaboCalled() {
+        return caboCalled;
+    }
+
+    public void setCaboCalled(boolean caboCalled) {
+        this.caboCalled = caboCalled;
+    }
+
+    public long getTurnSeconds() {
+        return turnSeconds;
+    }
+
+    public void setTurnSeconds(long turnSeconds) {
+        this.turnSeconds = turnSeconds;
+    }
+
+    public long getInitialPeekSeconds() {
+        return initialPeekSeconds;
+    }
+
+    public void setInitialPeekSeconds(long initialPeekSeconds) {
+        this.initialPeekSeconds = initialPeekSeconds;
+    }
+
+    public long getAbilityRevealSeconds() {
+        return abilityRevealSeconds;
+    }
+
+    public void setAbilityRevealSeconds(long abilityRevealSeconds) {
+        this.abilityRevealSeconds = abilityRevealSeconds;
+    }
+
+    public long getRematchDecisionSeconds() {
+        return rematchDecisionSeconds;
+    }
+
+    public void setRematchDecisionSeconds(long rematchDecisionSeconds) {
+        this.rematchDecisionSeconds = rematchDecisionSeconds;
+    }
+
+    public long getAfkTimeoutSeconds() {
+        return afkTimeoutSeconds;
+    }
+
+    public void setAfkTimeoutSeconds(long afkTimeoutSeconds) {
+        this.afkTimeoutSeconds = afkTimeoutSeconds;
+    }
+
+    public GameMoveEventDTO getLastMoveEvent() {
+        return lastMoveEvent;
+    }
+
+    public void setLastMoveEvent(GameMoveEventDTO lastMoveEvent) {
+        this.lastMoveEvent = lastMoveEvent;
     }
 
     public List<PlayerHandViewDTO> getPlayers() {

@@ -79,11 +79,35 @@ public class Game {
     @Column(nullable = false)
     private boolean specialPeekUsed = false;
 
-    // per-player rematch decision once round enters ROUND_AWAITING_REMATCH
-    // true = wants rematch, false = no rematch
+    // Per-game runtime timer config (copied from lobby at game start).
+    @Column(nullable = false)
+    private long turnSeconds = 30L;
+
+    @Column(nullable = false)
+    private long initialPeekSeconds = 10L;
+
+    @Column(nullable = false)
+    private long abilityRevealSeconds = 5L;
+
+    @Column(nullable = false)
+    private long rematchDecisionSeconds = 60L;
+
+    @Column(nullable = false)
+    private long afkTimeoutSeconds = 300L;
+
+    // per-player rematch decision once round enters ROUND_AWAITING_REMATCH:
+    // CONTINUE = rematch in same lobby, FRESH = rematch in new lobby code, NONE = no rematch
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(nullable = false, unique = false)
-    private Map<Long, Boolean> rematchDecisionByUserId = new HashMap<>();
+    private Map<Long, String> rematchDecisionByUserId = new HashMap<>();
+
+    // Last deterministic move event for client-side animation.
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(nullable = true, unique = false)
+    private GameMoveEvent lastMoveEvent;
+
+    @Column(nullable = false)
+    private long lastMoveSequence = 0L;
 
     public String getId() {
         return id;
@@ -205,13 +229,69 @@ public class Game {
         this.specialPeekUsed = specialPeekUsed;
     }
 
-    public Map<Long, Boolean> getRematchDecisionByUserId() {
+    public Map<Long, String> getRematchDecisionByUserId() {
         return rematchDecisionByUserId;
     }
 
-    public void setRematchDecisionByUserId(Map<Long, Boolean> rematchDecisionByUserId) {
+    public void setRematchDecisionByUserId(Map<Long, String> rematchDecisionByUserId) {
         this.rematchDecisionByUserId =
                 rematchDecisionByUserId != null ? rematchDecisionByUserId : new HashMap<>();
+    }
+
+    public long getTurnSeconds() {
+        return turnSeconds;
+    }
+
+    public void setTurnSeconds(long turnSeconds) {
+        this.turnSeconds = turnSeconds;
+    }
+
+    public long getInitialPeekSeconds() {
+        return initialPeekSeconds;
+    }
+
+    public void setInitialPeekSeconds(long initialPeekSeconds) {
+        this.initialPeekSeconds = initialPeekSeconds;
+    }
+
+    public long getAbilityRevealSeconds() {
+        return abilityRevealSeconds;
+    }
+
+    public void setAbilityRevealSeconds(long abilityRevealSeconds) {
+        this.abilityRevealSeconds = abilityRevealSeconds;
+    }
+
+    public long getRematchDecisionSeconds() {
+        return rematchDecisionSeconds;
+    }
+
+    public void setRematchDecisionSeconds(long rematchDecisionSeconds) {
+        this.rematchDecisionSeconds = rematchDecisionSeconds;
+    }
+
+    public long getAfkTimeoutSeconds() {
+        return afkTimeoutSeconds;
+    }
+
+    public void setAfkTimeoutSeconds(long afkTimeoutSeconds) {
+        this.afkTimeoutSeconds = afkTimeoutSeconds;
+    }
+
+    public GameMoveEvent getLastMoveEvent() {
+        return lastMoveEvent;
+    }
+
+    public void setLastMoveEvent(GameMoveEvent lastMoveEvent) {
+        this.lastMoveEvent = lastMoveEvent;
+    }
+
+    public long getLastMoveSequence() {
+        return lastMoveSequence;
+    }
+
+    public void setLastMoveSequence(long lastMoveSequence) {
+        this.lastMoveSequence = lastMoveSequence;
     }
 
 }

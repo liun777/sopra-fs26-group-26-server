@@ -2,6 +2,7 @@ package ch.uzh.ifi.hase.soprafs26.service;
 
 import ch.uzh.ifi.hase.soprafs26.config.settings.TimeoutSettingsProperties;
 import ch.uzh.ifi.hase.soprafs26.constant.UserStatus;
+import ch.uzh.ifi.hase.soprafs26.entity.Game;
 import ch.uzh.ifi.hase.soprafs26.entity.User;
 import ch.uzh.ifi.hase.soprafs26.repository.UserRepository;
 import org.springframework.context.annotation.Lazy;
@@ -22,6 +23,7 @@ public class DisconnectService {
 
     private final UserRepository userRepository;
     private final LobbyService lobbyService;
+    private final GameService gameService;
     private final TimeoutSettingsProperties timeoutSettings;
 
     private final Map<Long, ScheduledFuture<?>> activeTimers = new ConcurrentHashMap<>();
@@ -32,9 +34,11 @@ public class DisconnectService {
 
     public DisconnectService(UserRepository userRepository,
                              @Lazy LobbyService lobbyService,
+                             @Lazy GameService gameService,
                              TimeoutSettingsProperties timeoutSettings) {
         this.userRepository = userRepository;
         this.lobbyService = lobbyService;
+        this.gameService = gameService;
         this.timeoutSettings = timeoutSettings;
     }
 
@@ -62,17 +66,47 @@ public class DisconnectService {
      */
     @Scheduled(fixedDelayString = "#{@timeoutSettingsProperties.idleCheckIntervalMs}")
     public void checkIdleUsers() {
-        Instant idleCutoff = Instant.now().minusSeconds(timeoutSettings.getIdleSeconds());
-        
-        List<User> activeUsers = userRepository.findAll().stream()
-            .filter(u -> u.getStatus() != UserStatus.OFFLINE)
-            .filter(u -> u.getLastHeartbeat() != null && u.getLastHeartbeat().isBefore(idleCutoff))
-            .toList();
+        List<User> users = userRepository.findAll().stream()
+                .filter(u -> u.getStatus() != UserStatus.OFFLINE)
+                .toList();
 
-        for (User user : activeUsers) {
-            // If they are idle long enough, remove them from waiting/online presence.
+        Instant now = Instant.now();
+        for (User user : users) {
+            if (user.getLastHeartbeat() == null) {
+                continue;
+            }
+            if (lobbyService != null && lobbyService.isPlayerTimedOutInPlaying(user.getId())) {
+                // Already timed out midgame; keep game membership without repeated processing.
+                continue;
+            }
+            long idleThresholdSeconds = resolveIdleThresholdSecondsForUser(user.getId());
+            Instant idleCutoff = now.minusSeconds(idleThresholdSeconds);
+            if (!user.getLastHeartbeat().isBefore(idleCutoff)) {
+                continue;
+            }
+
+            boolean userInActiveGame = lobbyService != null && lobbyService.isUserInActiveGame(user.getId());
+            if (userInActiveGame && hasActiveWebSocketSession(user.getId())) {
+                // Prevent false AFK/Cabo while the player is still connected to the running game.
+                continue;
+            }
+            if (userInActiveGame && lobbyService != null && lobbyService.isPlayerTimedOutInPlaying(user.getId())) {
+                // Already marked timed out for active game: avoid repeated removals/log spam.
+                continue;
+            }
             performPermanentRemoval(user.getId());
         }
+    }
+
+    private long resolveIdleThresholdSecondsForUser(Long userId) {
+        long defaultIdle = timeoutSettings.getIdleSeconds();
+        if (userId == null || gameService == null) {
+            return defaultIdle;
+        }
+        return gameService.findActiveGameForUser(userId)
+                .map(Game::getAfkTimeoutSeconds)
+                .filter(seconds -> seconds > 0)
+                .orElse(defaultIdle);
     }
 
     /**
@@ -156,6 +190,16 @@ public class DisconnectService {
     private void performPermanentRemoval(Long userId) {
         User user = userRepository.findById(userId).orElse(null);
         if (user == null) return;
+        if (lobbyService != null && lobbyService.isPlayerTimedOutInPlaying(userId)) {
+            // Idempotency guard for midgame timeout path.
+            return;
+        }
+        if (user.getStatus() == UserStatus.OFFLINE) {
+            // Idempotency guard for already-processed offline users.
+            activeTimers.remove(userId);
+            activeWebSocketSessions.remove(userId);
+            return;
+        }
 
         // Delegate lobby/game-aware timeout handling.
         lobbyService.handlePermanentDisconnect(userId);
