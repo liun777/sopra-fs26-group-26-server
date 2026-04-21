@@ -351,6 +351,12 @@ public class LobbyService {
             lobby.setSessionHostUserId(lobby.getPlayerIds().get(0));
         }
 
+        // If the game is already running, we must tell the game engine 
+        // to handle the missing player (e.g., force end the round).
+        if ("PLAYING".equals(lobby.getStatus())) {
+            gameService.forceCallCabo(sessionId, targetUserId);
+        }
+
         lobby = lobbyRepository.save(lobby);
         lobbyEventPublisher.broadcastLobbyUpdate(lobby.getId(), lobby);
         return lobby;
