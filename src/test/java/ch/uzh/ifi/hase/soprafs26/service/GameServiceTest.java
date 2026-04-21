@@ -30,7 +30,6 @@ import java.util.Optional;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
-
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -38,6 +37,8 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doNothing;
@@ -67,8 +68,11 @@ public class GameServiceTest {
     @InjectMocks
     private GameService gameService;
 
+    private int scheduleCallCount;
+
     @BeforeEach
     void setup() {
+        scheduleCallCount = 0;
         MockitoAnnotations.openMocks(this);
         // mock timer without waiting for it
         Mockito.when(scheduler.schedule(Mockito.any(Runnable.class), Mockito.anyLong(), Mockito.any(TimeUnit.class)))
@@ -874,6 +878,186 @@ public class GameServiceTest {
                 () -> gameService.moveSwapWithDiscardPile("g-swap-bad-index", "token", 10));
         assertEquals(HttpStatus.BAD_REQUEST, ex.getStatusCode());
         assertEquals("Invalid card index", ex.getReason());
+    }
+
+    // #76: 30s ability timeout ends peek phase and passes turn when player never picks a target
+    @Test
+    void abilityTimeout_endsPeekAbility_andAdvancesTurn() {
+        Game game = new Game();
+        game.setId("g-ability-timeout-peek");
+        game.setStatus(GameStatus.ROUND_ACTIVE);
+        game.setDiscardPile(new ArrayList<>());
+        game.setOrderedPlayerIds(List.of(1L, 2L));
+        game.setCurrentPlayerId(1L);
+        game.setPlayerHands(new HashMap<>(Map.of(
+                1L, new ArrayList<>(List.of(new Card(), new Card(), new Card(), new Card())),
+                2L, new ArrayList<>(List.of(new Card(), new Card(), new Card(), new Card()))
+        )));
+
+        // findById -> return game
+        when(gameRepository.findById("g-ability-timeout-peek")).thenReturn(Optional.of(game));
+        // save game -> return game
+        when(gameRepository.save(any(Game.class))).thenAnswer(inv -> inv.getArgument(0));
+        doNothing().when(gameRepository).flush();
+
+        List<Runnable> listOfScheduled = new ArrayList<>();
+        // schedule call returns a future object, so mock them 
+        ScheduledFuture<?> abilitySchedFuture = Mockito.mock(ScheduledFuture.class);
+        ScheduledFuture<?> turnSchedFuture = Mockito.mock(ScheduledFuture.class);
+        when(scheduler.schedule(any(Runnable.class), anyLong(), any(TimeUnit.class))).thenAnswer(inv -> {
+            // add whatever we are scheduling to the list
+            listOfScheduled.add(inv.getArgument(0));
+            // scheduleCallCount is an instance variable in test class, initialized to 0 for each new test
+            int n = scheduleCallCount++;
+            // first -> ability timer, second -> turn timer
+            return n == 0 ? abilitySchedFuture : turnSchedFuture;
+        });
+
+        Card fromDeck = new Card();
+        fromDeck.setValue(8);
+        game.setDrawnCard(fromDeck);
+        game.setDrawnFromDeck(true);
+        // schedules first timer (ability timer)
+        gameService.moveCardToDiscardPile("g-ability-timeout-peek");
+
+        assertEquals(GameStatus.ABILITY_PEEK_SELF, game.getStatus());
+        assertEquals(1L, game.getCurrentPlayerId());
+        assertEquals(1, listOfScheduled.size(), "only ability timeout should be scheduled so far");
+
+        // simulate 30s timeout of ability timer
+        // this ends the ability, advances the turn, and schedules the turn timer
+        listOfScheduled.get(0).run();
+
+        assertEquals(GameStatus.ROUND_ACTIVE, game.getStatus());
+        assertEquals(2L, game.getCurrentPlayerId());
+    }
+
+    // #76: 30s ability timeout ends swap phase and passes turn when player never swaps
+    @Test
+    void abilityTimeout_endsSwapAbility_andAdvancesTurn() {
+        Game game = new Game();
+        game.setId("g-ability-timeout-swap");
+        game.setStatus(GameStatus.ROUND_ACTIVE);
+        game.setDiscardPile(new ArrayList<>());
+        game.setOrderedPlayerIds(List.of(1L, 2L, 3L));
+        game.setCurrentPlayerId(1L);
+        game.setPlayerHands(new HashMap<>(Map.of(
+                1L, new ArrayList<>(List.of(new Card(), new Card(), new Card(), new Card())),
+                2L, new ArrayList<>(List.of(new Card(), new Card(), new Card(), new Card())),
+                3L, new ArrayList<>(List.of(new Card(), new Card(), new Card(), new Card()))
+        )));
+
+        // findById -> return game
+        when(gameRepository.findById("g-ability-timeout-swap")).thenReturn(Optional.of(game));
+        // save game -> return game
+        when(gameRepository.save(any(Game.class))).thenAnswer(inv -> inv.getArgument(0));
+        doNothing().when(gameRepository).flush();
+
+        List<Runnable> listOfScheduled = new ArrayList<>();
+        // schedule call returns a future object, so mock them 
+        ScheduledFuture<?> abilitySchedFuture = Mockito.mock(ScheduledFuture.class);
+        ScheduledFuture<?> turnSchedFuture = Mockito.mock(ScheduledFuture.class);
+        when(scheduler.schedule(any(Runnable.class), anyLong(), any(TimeUnit.class))).thenAnswer(inv -> {
+            // add whatever we are scheduling to the list
+            listOfScheduled.add(inv.getArgument(0));
+            // scheduleCallCount is an instance variable in test class, initialized to 0 for each new test
+            int n = scheduleCallCount++;
+            // first -> ability timer, second -> turn timer
+            return n == 0 ? abilitySchedFuture : turnSchedFuture;
+        });
+
+        Card fromDeck = new Card();
+        fromDeck.setValue(11);
+        game.setDrawnCard(fromDeck);
+        game.setDrawnFromDeck(true);
+        // schedules first timer (ability timer)
+        gameService.moveCardToDiscardPile("g-ability-timeout-swap");
+
+        assertEquals(GameStatus.ABILITY_SWAP, game.getStatus());
+        assertEquals(1L, game.getCurrentPlayerId());
+        assertEquals(1, listOfScheduled.size());
+
+        // simulates ability timer timeout
+        // this ends the ability, advances the turn, and schedules the turn timer
+        listOfScheduled.get(0).run();
+
+        assertEquals(GameStatus.ROUND_ACTIVE, game.getStatus());
+        assertEquals(2L, game.getCurrentPlayerId());
+    }
+
+    @Test
+    void outdatedAbilityTimer_isIgnored_afterNewAbilityCycleStarts() {
+        User p1 = new User();
+        p1.setId(1L);
+        User p2 = new User();
+        p2.setId(2L);
+        when(userRepository.findByToken("token-1")).thenReturn(p1);
+        when(userRepository.findByToken("token-2")).thenReturn(p2);
+
+        Game game = new Game();
+        game.setId("g-outdated-ability-timer");
+        game.setStatus(GameStatus.ROUND_ACTIVE);
+        game.setOrderedPlayerIds(List.of(1L, 2L));
+        game.setCurrentPlayerId(1L);
+        game.setDrawPile(new ArrayList<>(List.of(new Card(), new Card(), new Card())));
+        game.setDiscardPile(new ArrayList<>());
+        game.setPlayerHands(new HashMap<>(Map.of(
+                1L, new ArrayList<>(List.of(new Card(), new Card(), new Card(), new Card())),
+                2L, new ArrayList<>(List.of(new Card(), new Card(), new Card(), new Card()))
+        )));
+
+        when(gameRepository.findById("g-outdated-ability-timer")).thenReturn(Optional.of(game));
+        when(gameRepository.save(any(Game.class))).thenAnswer(inv -> inv.getArgument(0));
+        doNothing().when(gameRepository).flush();
+
+        List<Runnable> listOfScheduled = new ArrayList<>();
+        // schedule call returns a future object, so mock them 
+        ScheduledFuture<?> firstAbilityFuture = Mockito.mock(ScheduledFuture.class);
+        ScheduledFuture<?> turnFuture = Mockito.mock(ScheduledFuture.class);
+        ScheduledFuture<?> secondAbilityFuture = Mockito.mock(ScheduledFuture.class);
+
+        when(scheduler.schedule(any(Runnable.class), anyLong(), any(TimeUnit.class))).thenAnswer(inv -> {
+            // add whatever we are scheduling to the list
+            listOfScheduled.add(inv.getArgument(0));
+            // scheduleCallCount is an instance variable in test class, initialized to 0 for each new test
+            int n = scheduleCallCount++;
+            if (n == 0) return firstAbilityFuture; // ability timer from first cycle
+            if (n == 1) return turnFuture; // turn timer after skip
+            if (n == 2) return secondAbilityFuture; // ability timer from second cycle
+            return Mockito.mock(ScheduledFuture.class);
+        });
+
+        Card firstAbilityCard = new Card();
+        firstAbilityCard.setValue(7);
+        game.setDrawnCard(firstAbilityCard);
+        game.setDrawnFromDeck(true);
+        // schedule first ability timer
+        gameService.moveCardToDiscardPile("g-outdated-ability-timer");
+        assertEquals(GameStatus.ABILITY_PEEK_SELF, game.getStatus());
+
+        // cancel first ability timer, schedule turn timer
+        gameService.skipAbility("g-outdated-ability-timer", "token-1");
+        assertEquals(GameStatus.ROUND_ACTIVE, game.getStatus());
+        assertEquals(2L, game.getCurrentPlayerId());
+        // verify the first ability timer was canceled
+        verify(firstAbilityFuture).cancel(anyBoolean());
+
+        Card secondAbilityCard = new Card();
+        secondAbilityCard.setValue(9);
+        game.setDrawnCard(secondAbilityCard);
+        game.setDrawnFromDeck(true);
+        // cancel turn timer, schedule second ability timer
+        gameService.moveCardToDiscardPile("g-outdated-ability-timer");
+        assertEquals(GameStatus.ABILITY_PEEK_OPPONENT, game.getStatus());
+        assertEquals(2L, game.getCurrentPlayerId());
+
+        // run outdated ability timer
+        Runnable outdatedAbilityTimer = listOfScheduled.get(0);
+        outdatedAbilityTimer.run();
+
+        // nothing changes after trying to run an outdated ability timer
+        assertEquals(GameStatus.ABILITY_PEEK_OPPONENT, game.getStatus());
+        assertEquals(2L, game.getCurrentPlayerId());
     }
 
     @Test

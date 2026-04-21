@@ -14,6 +14,7 @@ import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.Set;
 import java.util.Arrays;
+import java.util.concurrent.atomic.AtomicLong;
 
 
 import ch.uzh.ifi.hase.soprafs26.entity.Card;
@@ -61,6 +62,10 @@ public class GameService {
     private final ScheduledExecutorService scheduler;
     // map to store tasks - key: gameId, value: scheduled task
     private final Map<String, ScheduledFuture<?>> gameTimers = new ConcurrentHashMap<>();
+    // per-game count so an outdated scheduled ability timer cannot execute 
+    // already existing cancel mechanism alone is not always enough if a task was queued/running
+    // AtomicLong: enables thread-safe increments
+    private final Map<String, AtomicLong> abilityTimerCounts = new ConcurrentHashMap<>();
 
     // constructor injection
     public GameService(GameRepository gameRepository, DeckOfCardsAPIService deckOfCardsAPIService,
@@ -623,26 +628,54 @@ public class GameService {
     // auto-end ability phase after 30 seconds if player doesn't act
     private void startAbilityTimer(String gameId) {
         cancelTurnTimer(gameId);
+        long scheduledCount = abilityTimerCounts
+                .computeIfAbsent(gameId, ignored -> new AtomicLong(0)) // if there is no count for this game id, set to 0
+                .incrementAndGet(); // increment by 1 and retrieve
         ScheduledFuture<?> future = scheduler.schedule(() -> {
             try {
                 Game game = getGameById(gameId);
-                // only end if still in an ability phase
-                GameStatus s = game.getStatus();
-                if (s == GameStatus.ABILITY_PEEK_SELF
-                        || s == GameStatus.ABILITY_PEEK_OPPONENT
-                        || s == GameStatus.ABILITY_SWAP) {
-                    if (s == GameStatus.ABILITY_PEEK_SELF || s == GameStatus.ABILITY_PEEK_OPPONENT) {
-                        clearAllHandVisibility(game);
-                    }
-                    game.setStatus(GameStatus.ROUND_ACTIVE);
-                    saveGameAndBroadcast(game);
-                    advanceTurnToNextPlayer(gameId);
+                if (isCurrentAbilityTimerCount(gameId, scheduledCount)) {
+                    completeAbilityPhaseAndAdvance(gameId, game, scheduledCount);
                 }
             } catch (Exception e) {
                 System.err.println("Ability timer failed for game " + gameId + ": " + e.getMessage());
             }
         }, 30, TimeUnit.SECONDS);
         gameTimers.put(gameId, future);
+    }
+
+    // True if scheduledCount is still the latest count for this game's ability timers
+    private boolean isCurrentAbilityTimerCount(String gameId, long scheduledCount) {
+        AtomicLong latest = abilityTimerCounts.get(gameId);
+        return latest != null && latest.get() == scheduledCount;
+    }
+
+    private boolean isAbilityPhase(GameStatus status) {
+        return status == GameStatus.ABILITY_PEEK_SELF
+                || status == GameStatus.ABILITY_PEEK_OPPONENT
+                || status == GameStatus.ABILITY_SWAP;
+    }
+
+
+     // expectedCountIfAny is non-null only from startAbilityTimer method, where it must match latest count
+     // null from other paths (e.g. away from keyboard turn timeout) — no count check
+    private boolean completeAbilityPhaseAndAdvance(String gameId, Game game, Long expectedCountIfAny) {
+        GameStatus status = game.getStatus();
+        if (!isAbilityPhase(status)) {
+            return false;
+        }
+        if (expectedCountIfAny != null && !isCurrentAbilityTimerCount(gameId, expectedCountIfAny)) {
+            return false;
+        }
+
+        if (status == GameStatus.ABILITY_PEEK_SELF || status == GameStatus.ABILITY_PEEK_OPPONENT) {
+            clearAllHandVisibility(game);
+        }
+        game.setStatus(GameStatus.ROUND_ACTIVE);
+        cancelTurnTimer(gameId);
+        saveGameAndBroadcast(game);
+        advanceTurnToNextPlayer(gameId);
+        return true;
     }
 
     // swap one card from current player's hand with a card from opponent's hand
@@ -692,6 +725,8 @@ public class GameService {
 
         // end ability phase, go back to next player's turn
         game.setStatus(GameStatus.ROUND_ACTIVE);
+        // cancel pending timer, player finished the ability manually
+        cancelTurnTimer(gameId);
         saveGameAndBroadcast(game);
         advanceTurnToNextPlayer(gameId);
     }
@@ -816,13 +851,10 @@ public class GameService {
             game.setDrawnFromDeck(false);
         }
 
-        if(status == GameStatus.ABILITY_PEEK_SELF 
-            || status == GameStatus.ABILITY_PEEK_OPPONENT
-            || status == GameStatus.ABILITY_SWAP) 
-        {
-            game.setStatus(GameStatus.ROUND_ACTIVE);
-            clearAllHandVisibility(game);
-            cancelTurnTimer(gameId);
+        if (isAbilityPhase(status)) {
+            // null: no ability timer count to validate (this path is from the turn timer, not startAbilityTimer)
+            completeAbilityPhaseAndAdvance(gameId, game, null);
+            return;
         }
         // save changes and advance turn
         saveGameAndBroadcast(game);
@@ -974,6 +1006,8 @@ public class GameService {
             clearAllHandVisibility(game);
         }
         game.setStatus(GameStatus.ROUND_ACTIVE);
+        // cancel pending timer, player finished the ability manually
+        cancelTurnTimer(gameId);
         saveGameAndBroadcast(game);
         advanceTurnToNextPlayer(gameId);
     }
