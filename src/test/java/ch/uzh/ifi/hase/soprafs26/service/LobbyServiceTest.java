@@ -275,4 +275,73 @@ public class LobbyServiceTest {
 		Mockito.verify(lobbyEventPublisher, Mockito.times(1)).broadcastLobbyUpdate(Mockito.eq(22L), Mockito.any());
 		Mockito.verify(onlineUsersEventPublisher, Mockito.times(1)).broadcastOnlineUsers();
 	}
+
+	// player can leave lobby, host migrates if host leaves
+	@Test
+	public void removePlayerFromLobby_hostLeaves_migratesHostToNextPlayer() {
+    	User host = new User();
+    	host.setId(1L);
+    	Mockito.when(userRepository.findByToken("host-token")).thenReturn(host);
+
+    	Lobby lobby = new Lobby();
+    	lobby.setId(10L);
+    	lobby.setSessionId("S1");
+    	lobby.setSessionHostUserId(1L);
+    	lobby.setStatus("WAITING");
+    	lobby.setPlayerIds(new ArrayList<>(List.of(1L, 2L, 3L)));
+    	Mockito.when(lobbyRepository.findBySessionId("S1")).thenReturn(lobby);
+    	Mockito.when(lobbyRepository.save(Mockito.any(Lobby.class))).thenAnswer(inv -> inv.getArgument(0));
+
+    	lobbyService.removePlayerFromLobby("S1", "host-token", 1L);
+
+    	// host should be migrated to next player
+    	assertEquals(2L, lobby.getSessionHostUserId());
+    	assertFalse(lobby.getPlayerIds().contains(1L));
+    	Mockito.verify(lobbyEventPublisher, Mockito.times(1)).broadcastLobbyUpdate(Mockito.eq(10L), Mockito.any());
+	}
+
+	// host can kick another player
+	@Test
+	public void removePlayerFromLobby_hostKicksPlayer_removesPlayer() {
+    	User host = new User();
+    	host.setId(1L);
+    	Mockito.when(userRepository.findByToken("host-token")).thenReturn(host);
+
+    	Lobby lobby = new Lobby();
+    	lobby.setId(10L);
+    	lobby.setSessionId("S1");
+    	lobby.setSessionHostUserId(1L);
+    	lobby.setStatus("WAITING");
+    	lobby.setPlayerIds(new ArrayList<>(List.of(1L, 2L)));
+    	Mockito.when(lobbyRepository.findBySessionId("S1")).thenReturn(lobby);
+    	Mockito.when(lobbyRepository.save(Mockito.any(Lobby.class))).thenAnswer(inv -> inv.getArgument(0));
+
+    	lobbyService.removePlayerFromLobby("S1", "host-token", 2L);
+
+    	assertFalse(lobby.getPlayerIds().contains(2L));
+    	assertEquals(1L, lobby.getSessionHostUserId()); // host unchanged
+    	Mockito.verify(lobbyEventPublisher, Mockito.times(1)).broadcastLobbyUpdate(Mockito.eq(10L), Mockito.any());
+	}
+
+	// non-host cannot kick another player
+	@Test
+	public void removePlayerFromLobby_nonHostKicksOther_throwsForbidden() {
+    	User guest = new User();
+    	guest.setId(2L);
+    	Mockito.when(userRepository.findByToken("guest-token")).thenReturn(guest);
+
+    	Lobby lobby = new Lobby();
+    	lobby.setId(10L);
+    	lobby.setSessionId("S1");
+    	lobby.setSessionHostUserId(1L);
+    	lobby.setStatus("WAITING");
+    	lobby.setPlayerIds(new ArrayList<>(List.of(1L, 2L, 3L)));
+    	Mockito.when(lobbyRepository.findBySessionId("S1")).thenReturn(lobby);
+
+    	ResponseStatusException ex = assertThrows(ResponseStatusException.class,
+            	() -> lobbyService.removePlayerFromLobby("S1", "guest-token", 3L));
+
+    	assertEquals(HttpStatus.FORBIDDEN, ex.getStatusCode());
+    	Mockito.verify(lobbyRepository, Mockito.never()).save(Mockito.any());
+	}
 }

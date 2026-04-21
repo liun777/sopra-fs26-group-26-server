@@ -1105,4 +1105,217 @@ public class GameServiceTest {
 
         assertEquals(1, game.getDrawPile().size(), "Draw pile should have 1 card left");
     }
+
+    // drawing during INITIAL_PEEK phase is blocked
+    @Test
+    void moveDrawFromDrawPile_duringInitialPeek_throwsConflict() {
+        Game game = new Game();
+        game.setId("g-peek-block");
+        game.setStatus(GameStatus.INITIAL_PEEK);
+        game.setDrawPile(new ArrayList<>(List.of(new Card())));
+        game.setOrderedPlayerIds(List.of(1L, 2L));
+        game.setCurrentPlayerId(1L);
+
+        Mockito.when(gameRepository.findById("g-peek-block")).thenReturn(Optional.of(game));
+
+        ResponseStatusException ex = assertThrows(ResponseStatusException.class,
+                () -> gameService.moveDrawFromDrawPile("g-peek-block"));
+
+        assertEquals(HttpStatus.CONFLICT, ex.getStatusCode());
+        assertEquals("Cannot draw a card right now", ex.getReason());
+    }
+
+    // ability swap exchanges cards between two players without revealing values
+    @Test
+    void moveAbilitySwap_success_exchangesCardsWithoutRevealingValues() {
+        User user = new User();
+        user.setId(1L);
+        Mockito.when(userRepository.findByToken("token")).thenReturn(user);
+
+        Card ownCard = new Card();
+        ownCard.setValue(3);
+        ownCard.setCode("3C");
+        ownCard.setVisibility(false);
+
+        Card targetCard = new Card();
+        targetCard.setValue(9);
+        targetCard.setCode("9H");
+        targetCard.setVisibility(false);
+
+        List<Card> ownHand = new ArrayList<>();
+        ownHand.add(ownCard);
+        for (int i = 0; i < 3; i++) ownHand.add(new Card());
+
+        List<Card> targetHand = new ArrayList<>();
+        targetHand.add(targetCard);
+        for (int i = 0; i < 3; i++) targetHand.add(new Card());
+
+        Game game = new Game();
+        game.setId("g-ability-swap");
+        game.setStatus(GameStatus.ABILITY_SWAP);
+        game.setCurrentPlayerId(1L);
+        game.setOrderedPlayerIds(List.of(1L, 2L));
+        game.setPlayerHands(new HashMap<>(Map.of(1L, ownHand, 2L, targetHand)));
+        game.setDiscardPile(new ArrayList<>());
+
+        Mockito.when(gameRepository.findById("g-ability-swap")).thenReturn(Optional.of(game));
+        Mockito.when(gameRepository.save(Mockito.any(Game.class))).thenAnswer(inv -> inv.getArgument(0));
+        Mockito.doNothing().when(gameRepository).flush();
+
+        gameService.moveAbilitySwap("g-ability-swap", "token", 0, 2L, 0);
+
+        // cards should be swapped
+        assertEquals("9H", ownHand.get(0).getCode());
+        assertEquals("3C", targetHand.get(0).getCode());
+        // neither card should be revealed
+        assertFalse(ownHand.get(0).getVisibility());
+        assertFalse(targetHand.get(0).getVisibility());
+        // game should return to ROUND_ACTIVE
+        assertEquals(GameStatus.ROUND_ACTIVE, game.getStatus());
+        // turn should advance
+        assertEquals(2L, game.getCurrentPlayerId());
+    }
+
+    // Cabo is called, exactly N-1 players get a final turn then ROUND_ENDED
+    @Test
+    void moveCallCabo_thenAllOtherPlayersTakeTurn_triggersRoundEnded() {
+        User caboUser = new User();
+        caboUser.setId(1L);
+        Mockito.when(userRepository.findByToken("token-1")).thenReturn(caboUser);
+
+        Game game = new Game();
+        game.setId("g-cabo");
+        game.setStatus(GameStatus.ROUND_ACTIVE);
+        game.setCurrentPlayerId(1L);
+        game.setOrderedPlayerIds(new ArrayList<>(List.of(1L, 2L, 3L, 4L)));
+        game.setDiscardPile(new ArrayList<>());
+        game.setDrawPile(new ArrayList<>());
+        game.setPlayerHands(new HashMap<>(Map.of(
+                1L, new ArrayList<>(List.of(new Card(), new Card(), new Card(), new Card())),
+                2L, new ArrayList<>(List.of(new Card(), new Card(), new Card(), new Card())),
+                3L, new ArrayList<>(List.of(new Card(), new Card(), new Card(), new Card())),
+                4L, new ArrayList<>(List.of(new Card(), new Card(), new Card(), new Card()))
+        )));
+
+        Mockito.when(gameRepository.findById("g-cabo")).thenReturn(Optional.of(game));
+        Mockito.when(gameRepository.save(Mockito.any(Game.class))).thenAnswer(inv -> inv.getArgument(0));
+        Mockito.doNothing().when(gameRepository).flush();
+
+        // player 1 calls cabo
+        gameService.moveCallCabo("g-cabo", "token-1");
+        assertTrue(game.isCaboCalled());
+        assertEquals(1L, game.getCaboCalledByUserId());
+        assertEquals(2L, game.getCurrentPlayerId()); // turn advances to player 2
+
+        // player 2 takes final turn
+        gameService.advanceTurnToNextPlayer("g-cabo");
+        assertEquals(3L, game.getCurrentPlayerId()); // turn advances to player 3
+
+        // player 3 takes final turn
+        gameService.advanceTurnToNextPlayer("g-cabo");
+        assertEquals(4L, game.getCurrentPlayerId()); // turn advances to player 4
+
+        // player 4 takes final turn — next would be player 1 (who called cabo) so round ends
+        gameService.advanceTurnToNextPlayer("g-cabo");
+        assertEquals(GameStatus.ROUND_ENDED, game.getStatus());
+    }
+
+    // reshuffle when draw pile is empty
+    @Test
+    void moveDrawFromDrawPile_emptyPile_triggersReshuffle() {
+        Game game = new Game();
+        game.setId("g-reshuffle");
+        game.setStatus(GameStatus.ROUND_ACTIVE);
+        game.setDrawPile(new ArrayList<>()); // Empty pile triggers reshuffle logic
+        game.setOrderedPlayerIds(List.of(1L, 2L));
+        game.setCurrentPlayerId(1L);
+
+        // Create a card that WILL be in the draw pile after reshuffle
+        Card cardAfterReshuffle = new Card();
+        cardAfterReshuffle.setCode("2H");
+        cardAfterReshuffle.setValue(2);
+
+        // Mock behavior: 
+        // 1. First call to findById returns empty draw pile game
+        // 2. We mock the reshuffle (you can verify it was called if you want)
+        // 3. We simulate the "reload" by having the second call return a game with cards
+        Mockito.when(gameRepository.findById("g-reshuffle")).thenAnswer(new org.mockito.stubbing.Answer<Optional<Game>>() {
+            private int count = 0;
+            public Optional<Game> answer(org.mockito.invocation.InvocationOnMock invocation) {
+                if (count++ == 0) return Optional.of(game); // First call (empty)
+                game.setDrawPile(new ArrayList<>(List.of(cardAfterReshuffle))); // Simulate reshuffle result
+                return Optional.of(game); // Second call (filled)
+            }
+        });
+
+        gameService.moveDrawFromDrawPile("g-reshuffle");
+
+        // Verify the card was drawn and set as the current drawn card
+        assertNotNull(game.getDrawnCard());
+        assertEquals("2H", game.getDrawnCard().getCode());
+        assertTrue(game.isDrawnFromDeck());
+    }
+
+    // swap discard pile only on turn
+    @Test
+    void moveSwapWithDiscard_notCurrentPlayer_throwsForbidden() {
+        Game game = new Game();
+        game.setId("g-turn-check");
+        game.setCurrentPlayerId(1L); // It is Player 1's turn
+    
+        User player2 = new User();
+        player2.setId(2L);
+        Mockito.when(userRepository.findByToken("token-p2")).thenReturn(player2);
+        Mockito.when(gameRepository.findById("g-turn-check")).thenReturn(Optional.of(game));
+
+        // Player 2 tries to move
+        assertThrows(ResponseStatusException.class, 
+            () -> gameService.moveSwapWithDiscardPile("g-turn-check", "token-p2", 0));
+    }
+
+    // abilities only tringger from draw pile
+    @Test
+    void moveSwapWithDiscard_abilityCard_doesNotTriggerAbility() {
+        String gameId = "g1";
+        String userToken = "token-123";
+        Long userId = 1L;
+
+        // 1. Setup User: Token must match and ID must match the Game's current player
+        User user = new User();
+        user.setId(userId);
+        user.setToken(userToken);
+        Mockito.when(userRepository.findByToken(userToken)).thenReturn(user);
+
+        // 2. Setup Game: CurrentPlayerId must match the User's ID
+        Game game = new Game();
+        game.setId(gameId);
+        game.setStatus(GameStatus.ROUND_ACTIVE);
+        game.setCurrentPlayerId(userId);
+        game.setOrderedPlayerIds(new ArrayList<>(List.of(userId, 2L)));
+        game.setDrawnCard(null); // Satisfy Guard 2
+
+        // Create a 7 (Ability Card)
+        Card seven = new Card();
+        seven.setCode("7H");
+        seven.setValue(7);
+
+        // Setup piles: Discard pile needs a card to satisfy Guard 3
+        game.setDiscardPile(new ArrayList<>(List.of(seven)));
+    
+        // Setup player hand
+        List<Card> hand = new ArrayList<>(List.of(new Card()));
+        game.setPlayerHands(new HashMap<>(Map.of(userId, hand)));
+
+        // 3. Mock Repositories
+        Mockito.when(gameRepository.findById(gameId)).thenReturn(Optional.of(game));
+        Mockito.when(gameRepository.save(Mockito.any())).thenReturn(game);
+
+        // 4. Execute
+        gameService.moveSwapWithDiscardPile(gameId, userToken, 0);
+
+        // 5. Verify: Even though a '7' was put on the discard pile, 
+        // status should NOT change to a PEEK state because swaps don't trigger abilities.
+        assertEquals(GameStatus.ROUND_ACTIVE, game.getStatus());
+    }
+
 }
