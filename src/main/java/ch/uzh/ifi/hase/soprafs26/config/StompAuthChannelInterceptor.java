@@ -13,6 +13,7 @@ import org.springframework.stereotype.Component;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 
 @Component
 public class StompAuthChannelInterceptor implements ChannelInterceptor {
@@ -44,8 +45,15 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
                 throw new MessagingException("Invalid Authorization token");
             }
 
-            // Important: This is what allows the logic below to work!
-            accessor.getSessionAttributes().put("userId", user.getId());
+            Map<String, Object> sessionAttributes = accessor.getSessionAttributes();
+            if (sessionAttributes == null) {
+                throw new MessagingException("Missing websocket session attributes");
+            }
+
+            // Keep userId in websocket session attributes for connect/disconnect tracking.
+            sessionAttributes.put("userId", user.getId());
+            // Also set websocket principal so /user/queue routing can resolve convertAndSendToUser calls.
+            accessor.setUser(new StompPrincipal(String.valueOf(user.getId())));
             
             // Set initial heartbeat
             user.setLastHeartbeat(Instant.now());
@@ -53,7 +61,16 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
         }
 
         // 2. Refresh Heartbeat: Resets the 5-minute idle clock every time they do anything
-        Long userId = (Long) accessor.getSessionAttributes().get("userId");
+        Map<String, Object> sessionAttributes = accessor.getSessionAttributes();
+        Long userId = null;
+        if (sessionAttributes != null) {
+            Object rawUserId = sessionAttributes.get("userId");
+            if (rawUserId instanceof Long id) {
+                userId = id;
+            } else if (rawUserId instanceof Number id) {
+                userId = id.longValue();
+            }
+        }
         if (userId != null) {
             updateUserHeartbeat(userId);
         }

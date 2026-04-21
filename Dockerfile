@@ -4,13 +4,15 @@ WORKDIR /app
 # Copy Gradle configuration files
 COPY gradlew /app/
 COPY gradle /app/gradle
-# Ensure Gradle wrapper is executable
-RUN chmod +x ./gradlew
+# Normalize Windows line endings and ensure Gradle wrapper is executable
+RUN sed -i 's/\r$//' ./gradlew && chmod +x ./gradlew
 # Copy build script and source code
 COPY build.gradle settings.gradle /app/
 COPY src /app/src
 # Build the server
-RUN ./gradlew clean build --no-daemon
+RUN ./gradlew clean bootJar --no-daemon --max-workers=1 -x test \
+    -Dorg.gradle.daemon=false \
+    -Dorg.gradle.jvmargs="-Xms256m -Xmx768m -XX:MaxMetaspaceSize=512m -Dfile.encoding=UTF-8"
 
 # make image smaller by using multi stage build
 FROM eclipse-temurin:17-jdk

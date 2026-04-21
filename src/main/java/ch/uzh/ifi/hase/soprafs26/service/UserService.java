@@ -3,13 +3,16 @@ package ch.uzh.ifi.hase.soprafs26.service;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import ch.uzh.ifi.hase.soprafs26.constant.UserStatus;
+import ch.uzh.ifi.hase.soprafs26.entity.Lobby;
 import ch.uzh.ifi.hase.soprafs26.entity.User;
+import ch.uzh.ifi.hase.soprafs26.repository.LobbyRepository;
 import ch.uzh.ifi.hase.soprafs26.repository.UserRepository;
 
 import java.util.List;
@@ -34,13 +37,30 @@ public class UserService {
 	private final Logger log = LoggerFactory.getLogger(UserService.class);
 
 	private final UserRepository userRepository;
+    private final LobbyRepository lobbyRepository;
 	private final OnlineUsersEventPublisher onlineUsersEventPublisher;
+    private final DisconnectService disconnectService;
 
 	public UserService(@Qualifier("userRepository") UserRepository userRepository,
-	                   OnlineUsersEventPublisher onlineUsersEventPublisher) {
+                       @Qualifier("lobbyRepository") LobbyRepository lobbyRepository,
+	                   OnlineUsersEventPublisher onlineUsersEventPublisher,
+                       @Lazy DisconnectService disconnectService) {
 		this.userRepository = userRepository;
+        this.lobbyRepository = lobbyRepository;
 		this.onlineUsersEventPublisher = onlineUsersEventPublisher;
+		this.disconnectService = disconnectService;
 	}
+
+    private boolean isUserInPlayingLobby(Long userId) {
+        if (userId == null || lobbyRepository == null) {
+            return false;
+        }
+
+        return lobbyRepository.findAll().stream()
+                .filter(lobby -> lobby != null && "PLAYING".equals(lobby.getStatus()))
+                .map(Lobby::getPlayerIds)
+                .anyMatch(playerIds -> playerIds != null && playerIds.contains(userId));
+    }
 
     // holt alle user aus Datenbank und gibt sie dem controller
 	public List<User> getUsers() {
@@ -127,11 +147,37 @@ public class UserService {
     }
 
 // falls ja status ändern zu online
-        user.setStatus(UserStatus.ONLINE);
+        user.setStatus(resolveStatusForLogin(user.getId()));
         userRepository.save(user);
         userRepository.flush();
         onlineUsersEventPublisher.broadcastOnlineUsers();
         return user;
+    }
+
+    private UserStatus resolveStatusForLogin(Long userId) {
+        if (userId == null || lobbyRepository == null) {
+            return UserStatus.ONLINE;
+        }
+
+        boolean inPlayingLobby = lobbyRepository.findAll().stream()
+                .anyMatch(lobby -> lobby != null
+                        && "PLAYING".equals(lobby.getStatus())
+                        && lobby.getPlayerIds() != null
+                        && lobby.getPlayerIds().contains(userId));
+        if (inPlayingLobby) {
+            return UserStatus.PLAYING;
+        }
+
+        boolean inWaitingLobby = lobbyRepository.findAll().stream()
+                .anyMatch(lobby -> lobby != null
+                        && "WAITING".equals(lobby.getStatus())
+                        && lobby.getPlayerIds() != null
+                        && lobby.getPlayerIds().contains(userId));
+        if (inWaitingLobby) {
+            return UserStatus.LOBBY;
+        }
+
+        return UserStatus.ONLINE;
     }
 
 	// logout needs to be authenticated according to REST interface
@@ -142,12 +188,19 @@ public class UserService {
 			throw new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found!");
 		}
 
+        if (isUserInPlayingLobby(foundUser.getId())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Cannot logout during an active game");
+        }
+
 		foundUser.setStatus(UserStatus.OFFLINE);
 		// this saves a random token to the user but the token is never revealed and no-one can use it
 		// acts as a safety feature s.t. a user that is logged out has no valid token saved in the DB
 		foundUser.setToken(UUID.randomUUID().toString());
 		userRepository.save(foundUser);
 		userRepository.flush();
+        if (disconnectService != null) {
+            disconnectService.cancelDisconnectTimer(foundUser.getId());
+        }
 	}
 
 	public void heartbeat(String token) {
@@ -155,5 +208,8 @@ public class UserService {
     	if (user == null) return;
     	user.setLastHeartbeat(java.time.Instant.now());
    	 	userRepository.save(user);
+        if (disconnectService != null) {
+            disconnectService.cancelDisconnectTimer(user.getId());
+        }
 	}
 }

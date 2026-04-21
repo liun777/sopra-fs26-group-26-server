@@ -5,6 +5,7 @@ import ch.uzh.ifi.hase.soprafs26.entity.CaboInvite;
 import ch.uzh.ifi.hase.soprafs26.entity.Lobby;
 import ch.uzh.ifi.hase.soprafs26.entity.User;
 import ch.uzh.ifi.hase.soprafs26.repository.CaboInviteRepository;
+import ch.uzh.ifi.hase.soprafs26.repository.LobbyRepository;
 import ch.uzh.ifi.hase.soprafs26.repository.UserRepository;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.CaboInviteCreateDTO;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.CaboInviteDecisionDTO;
@@ -25,15 +26,18 @@ import java.util.Map;
 public class CaboInviteService {
 
     private final CaboInviteRepository caboInviteRepository;
+    private final LobbyRepository lobbyRepository;
     private final UserRepository userRepository;
     private final CaboInviteEventPublisher caboInviteEventPublisher;
     private final LobbyService lobbyService;
 
     public CaboInviteService(CaboInviteRepository caboInviteRepository,
+                             LobbyRepository lobbyRepository,
                              UserRepository userRepository,
                              CaboInviteEventPublisher caboInviteEventPublisher,
                              LobbyService lobbyService) {
         this.caboInviteRepository = caboInviteRepository;
+        this.lobbyRepository = lobbyRepository;
         this.userRepository = userRepository;
         this.caboInviteEventPublisher = caboInviteEventPublisher;
         this.lobbyService = lobbyService;
@@ -77,6 +81,13 @@ public class CaboInviteService {
 
         Lobby waiting = lobbyService.requireWaitingLobbyForHost(from.getId());
         Long lobbyId = waiting.getId();
+
+        boolean targetInAnyPlayingLobby = lobbyRepository.findAll().stream()
+                .filter(lobby -> lobby != null && "PLAYING".equals(lobby.getStatus()))
+                .anyMatch(lobby -> lobby.getPlayerIds() != null && lobby.getPlayerIds().contains(toUserId));
+        if (targetInAnyPlayingLobby) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "User is currently playing");
+        }
 
         Map<Long, CaboInvite> latestPerTo = latestInvitePerToUserForLobby(from.getId(), lobbyId);
         long activeSlots = latestPerTo.values().stream()

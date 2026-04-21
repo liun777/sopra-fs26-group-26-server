@@ -1,5 +1,6 @@
 package ch.uzh.ifi.hase.soprafs26.service;
 
+import ch.uzh.ifi.hase.soprafs26.config.settings.GameSettingsProperties;
 import ch.uzh.ifi.hase.soprafs26.constant.GameStatus;
 import ch.uzh.ifi.hase.soprafs26.entity.Card;
 import ch.uzh.ifi.hase.soprafs26.entity.Game;
@@ -65,6 +66,12 @@ public class GameServiceTest {
     @Mock
     private ScheduledExecutorService scheduler;
 
+    @Mock
+    private GameSettingsProperties gameSettings;
+
+    @Mock
+    private LobbyService lobbyService;
+
     @InjectMocks
     private GameService gameService;
 
@@ -74,6 +81,15 @@ public class GameServiceTest {
     void setup() {
         scheduleCallCount = 0;
         MockitoAnnotations.openMocks(this);
+        Mockito.when(gameSettings.getMinPlayers()).thenReturn(2);
+        Mockito.when(gameSettings.getMaxPlayers()).thenReturn(4);
+        Mockito.when(gameSettings.getStarterCardsPerPlayer()).thenReturn(4);
+        Mockito.when(gameSettings.getInitialPeekSeconds()).thenReturn(10L);
+        Mockito.when(gameSettings.getTurnSeconds()).thenReturn(30L);
+        Mockito.when(gameSettings.getAbilitySeconds()).thenReturn(30L);
+        Mockito.when(gameSettings.getPostPeekAutoEndSeconds()).thenReturn(5L);
+        Mockito.when(gameSettings.getRematchDecisionSeconds()).thenReturn(60L);
+        Mockito.when(lobbyService.isPlayerTimedOutInPlaying(Mockito.anyLong())).thenReturn(false);
         // mock timer without waiting for it
         Mockito.when(scheduler.schedule(Mockito.any(Runnable.class), Mockito.anyLong(), Mockito.any(TimeUnit.class)))
                 .thenAnswer(invocation -> Mockito.mock(ScheduledFuture.class));
@@ -195,6 +211,28 @@ public class GameServiceTest {
         assertEquals("Initial peek already used", ex.getReason());
         // verify gameEventPublisher.publishFilteredState was called once during first successful peek only
         Mockito.verify(gameEventPublisher, Mockito.times(1)).publishFilteredState(game);
+    }
+
+    @Test
+    void advanceTurnToNextPlayer_timedOutNextPlayer_autoCallsCaboOnThatTurn() {
+        Game game = new Game();
+        game.setId(GAME_ID);
+        game.setStatus(GameStatus.ROUND_ACTIVE);
+        game.setOrderedPlayerIds(new ArrayList<>(List.of(1L, 2L, 3L)));
+        game.setCurrentPlayerId(1L);
+
+        Mockito.when(gameRepository.findById(GAME_ID)).thenReturn(Optional.of(game));
+        Mockito.when(gameRepository.save(any(Game.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        Mockito.doNothing().when(gameRepository).flush();
+        Mockito.when(lobbyService.isPlayerTimedOutInPlaying(2L)).thenReturn(true);
+
+        gameService.advanceTurnToNextPlayer(GAME_ID);
+
+        assertTrue(game.isCaboCalled());
+        assertEquals(2L, game.getCaboCalledByUserId());
+        assertEquals(3L, game.getCurrentPlayerId());
+        verify(lobbyService).isPlayerTimedOutInPlaying(2L);
+        verify(gameEventPublisher, Mockito.atLeastOnce()).publishFilteredState(any(Game.class));
     }
 
     // placeholder testing 1/3
@@ -1176,9 +1214,9 @@ public class GameServiceTest {
         assertEquals(2L, game.getCurrentPlayerId());
     }
 
-    // Cabo is called, exactly N-1 players get a final turn then ROUND_ENDED
+    // Cabo is called, exactly N-1 players get a final turn then rematch/no-rematch decision starts
     @Test
-    void moveCallCabo_thenAllOtherPlayersTakeTurn_triggersRoundEnded() {
+    void moveCallCabo_thenAllOtherPlayersTakeTurn_entersRematchDecision() {
         User caboUser = new User();
         caboUser.setId(1L);
         Mockito.when(userRepository.findByToken("token-1")).thenReturn(caboUser);
@@ -1217,7 +1255,7 @@ public class GameServiceTest {
 
         // player 4 takes final turn — next would be player 1 (who called cabo) so round ends
         gameService.advanceTurnToNextPlayer("g-cabo");
-        assertEquals(GameStatus.ROUND_ENDED, game.getStatus());
+        assertEquals(GameStatus.ROUND_AWAITING_REMATCH, game.getStatus());
     }
 
     // reshuffle when draw pile is empty

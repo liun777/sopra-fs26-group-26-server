@@ -1,8 +1,11 @@
 package ch.uzh.ifi.hase.soprafs26;
 
+import ch.uzh.ifi.hase.soprafs26.config.settings.ServerSettingsProperties;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -14,6 +17,7 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 @RestController
 @SpringBootApplication
+@EnableScheduling
 public class Application {
 
 	public static void main(String[] args) {
@@ -28,32 +32,21 @@ public class Application {
 	}
 
 	@Bean(destroyMethod = "shutdown")
-	public ScheduledExecutorService gameScheduler() {
-		return Executors.newScheduledThreadPool(10);
+	public ScheduledExecutorService gameScheduler(ObjectProvider<ServerSettingsProperties> serverSettingsProvider) {
+		ServerSettingsProperties defaults = new ServerSettingsProperties();
+		ServerSettingsProperties serverSettings = serverSettingsProvider.getIfAvailable(() -> defaults);
+		return Executors.newScheduledThreadPool(serverSettings.getGameSchedulerThreadPoolSize());
 	}
 
-	/*
 	@Bean
-	public WebMvcConfigurer corsConfigurer() {
-		return new WebMvcConfigurer() {
-			@Override
-			public void addCorsMappings(CorsRegistry registry) {
-				registry.addMapping("/**").allowedOrigins("*").allowedMethods("*");
-			}
-		};
-	}
-	*/
-
-	@Bean
-	public WebMvcConfigurer corsConfigurer() {
+	public WebMvcConfigurer corsConfigurer(ObjectProvider<ServerSettingsProperties> serverSettingsProvider) {
+		ServerSettingsProperties defaults = new ServerSettingsProperties();
+		ServerSettingsProperties serverSettings = serverSettingsProvider.getIfAvailable(() -> defaults);
     	return new WebMvcConfigurer() {
-     		@Override
+      		@Override
         	public void addCorsMappings(CorsRegistry registry) {
             	registry.addMapping("/**")
-                    .allowedOrigins(
-                        "http://localhost:3000",
-                        "https://sopra-fs26-group-26-client.vercel.app"
-                    )
+                    .allowedOrigins(serverSettings.getCorsAllowedOrigins().toArray(String[]::new))
                     .allowedMethods("*")
                     .allowCredentials(true);
         	}

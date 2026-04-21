@@ -1,5 +1,6 @@
 package ch.uzh.ifi.hase.soprafs26.service;
 
+import ch.uzh.ifi.hase.soprafs26.config.settings.GameSettingsProperties;
 import ch.uzh.ifi.hase.soprafs26.entity.Card;
 import ch.uzh.ifi.hase.soprafs26.entity.Game;
 import ch.uzh.ifi.hase.soprafs26.entity.Lobby;
@@ -47,6 +48,9 @@ class WebSocketBroadcastTest {
     @Mock
     private UserRepository userRepository;
 
+    @Mock
+    private GameSettingsProperties gameSettings;
+
     @InjectMocks
     private GameService gameService;
 
@@ -56,6 +60,14 @@ class WebSocketBroadcastTest {
     @BeforeEach
     void setUp() {
         MockitoAnnotations.openMocks(this);
+        Mockito.when(gameSettings.getMinPlayers()).thenReturn(2);
+        Mockito.when(gameSettings.getMaxPlayers()).thenReturn(4);
+        Mockito.when(gameSettings.getStarterCardsPerPlayer()).thenReturn(4);
+        Mockito.when(gameSettings.getInitialPeekSeconds()).thenReturn(10L);
+        Mockito.when(gameSettings.getTurnSeconds()).thenReturn(30L);
+        Mockito.when(gameSettings.getAbilitySeconds()).thenReturn(30L);
+        Mockito.when(gameSettings.getPostPeekAutoEndSeconds()).thenReturn(5L);
+        Mockito.when(gameSettings.getRematchDecisionSeconds()).thenReturn(60L);
     }
 
     @Test

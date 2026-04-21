@@ -33,10 +33,12 @@ public interface DTOMapper {
 
 	DTOMapper INSTANCE = Mappers.getMapper(DTOMapper.class);
 
+	@BeanMapping(ignoreByDefault = true)
 	@Mapping(source = "name", target = "name")
 	@Mapping(source = "username", target = "username")
     @Mapping(source = "password", target = "password")
     @Mapping(source = "bio", target = "bio")
+    @Mapping(source = "creationDate", target = "creationDate")
 	User convertUserPostDTOtoEntity(UserPostDTO userPostDTO); // Entity kennt alle Felder auch das Passwort, weil e sin der Datenbank gespeichert wird.
     // nimmt daten die vom Frontend kommen (UserPostdto) und wandelt sie in user entity um
     // so können sie in der datenbank gespeichert werden, source sagt woher target wohin.
@@ -55,6 +57,7 @@ public interface DTOMapper {
     // nimmt user aus der datenbank vom backend zum frintend und wandelt ihn in einen usergetdto um,
     // wird dann ans frontend gesendet, passwirt wird weggelassen, wegen security und weil es kein feld dafür gibt
 
+    @BeanMapping(ignoreByDefault = true)
     @Mapping(source = "password", target = "password")
     @Mapping(source = "status", target = "status")
     User convertUserPutDTOtoEntity(UserPutDTO userPutDTO);

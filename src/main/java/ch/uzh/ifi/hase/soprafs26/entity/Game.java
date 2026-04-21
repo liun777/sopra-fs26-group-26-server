@@ -79,6 +79,12 @@ public class Game {
     @Column(nullable = false)
     private boolean specialPeekUsed = false;
 
+    // per-player rematch decision once round enters ROUND_AWAITING_REMATCH
+    // true = wants rematch, false = no rematch
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(nullable = false, unique = false)
+    private Map<Long, Boolean> rematchDecisionByUserId = new HashMap<>();
+
     public String getId() {
         return id;
     }
@@ -197,6 +203,15 @@ public class Game {
 
     public void setSpecialPeekUsed(boolean specialPeekUsed) {
         this.specialPeekUsed = specialPeekUsed;
+    }
+
+    public Map<Long, Boolean> getRematchDecisionByUserId() {
+        return rematchDecisionByUserId;
+    }
+
+    public void setRematchDecisionByUserId(Map<Long, Boolean> rematchDecisionByUserId) {
+        this.rematchDecisionByUserId =
+                rematchDecisionByUserId != null ? rematchDecisionByUserId : new HashMap<>();
     }
 
 }

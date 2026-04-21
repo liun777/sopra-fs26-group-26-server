@@ -7,6 +7,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.socket.messaging.SessionDisconnectEvent;
 import org.springframework.web.socket.messaging.SessionConnectedEvent;
 
+import java.util.Map;
+
 @Component
 public class WebSocketEventListener {
 
@@ -19,24 +21,68 @@ public class WebSocketEventListener {
     @EventListener
     public void handleDisconnect(SessionDisconnectEvent event) {
         StompHeaderAccessor accessor = StompHeaderAccessor.wrap(event.getMessage());
-    
-        // Get the ID we saved in the interceptor
-        Long userId = (Long) accessor.getSessionAttributes().get("userId");
-    
+        Long userId = extractUserId(accessor);
+        String sessionId = accessor.getSessionId();
+
         if (userId != null) {
-            // Tell your service to start the 60s timer for this specific User ID
-            disconnectService.handleConnectionLoss(userId);
+            if (sessionId != null && !sessionId.isBlank()) {
+                disconnectService.unregisterWebSocketSession(userId, sessionId);
+            } else {
+                // Fallback when broker message has no session id
+                disconnectService.handleConnectionLoss(userId);
+            }
         }
     }
 
     @EventListener
     public void handleConnect(SessionConnectedEvent event) {
         StompHeaderAccessor accessor = StompHeaderAccessor.wrap(event.getMessage());
-        Long userId = (Long) accessor.getSessionAttributes().get("userId");
+        Long userId = extractUserId(accessor);
+        String sessionId = accessor.getSessionId();
 
         if (userId != null) {
-            // This stops the 60s timer if the user refreshes or reconnects
-            disconnectService.cancelDisconnectTimer(userId);
+            if (sessionId != null && !sessionId.isBlank()) {
+                disconnectService.registerWebSocketSession(userId, sessionId);
+            } else {
+                // Fallback when broker message has no session id
+                disconnectService.cancelDisconnectTimer(userId);
+            }
         }
+    }
+
+    private Long extractUserId(StompHeaderAccessor accessor) {
+        if (accessor == null) {
+            return null;
+        }
+
+        Map<String, Object> sessionAttributes = accessor.getSessionAttributes();
+        if (sessionAttributes == null) {
+            return null;
+        }
+
+        Object raw = sessionAttributes.get("userId");
+        if (raw instanceof Long userId) {
+            return userId;
+        }
+        if (raw instanceof Number number) {
+            return number.longValue();
+        }
+
+        if (raw instanceof String textId) {
+            try {
+                return Long.parseLong(textId.trim());
+            } catch (NumberFormatException ignored) {
+                // ignore and try principal fallback
+            }
+        }
+
+        if (accessor.getUser() != null) {
+            try {
+                return Long.parseLong(accessor.getUser().getName());
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        return null;
     }
 }

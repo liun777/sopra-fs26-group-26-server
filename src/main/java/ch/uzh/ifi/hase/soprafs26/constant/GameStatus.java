@@ -6,5 +6,6 @@ public enum GameStatus {
     ABILITY_PEEK_SELF, // player is using peek on own card (7/8)
     ABILITY_PEEK_OPPONENT, // player is using peek on opponent card (9/10)
     ABILITY_SWAP, // player is swapping cards with opponent (11/12)
+    ROUND_AWAITING_REMATCH, // round is finished, waiting for rematch/no-rematch decision
     ROUND_ENDED // round is over, scores are shown
 }

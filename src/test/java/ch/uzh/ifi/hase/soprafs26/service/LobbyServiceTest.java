@@ -3,12 +3,14 @@ package ch.uzh.ifi.hase.soprafs26.service;
 import ch.uzh.ifi.hase.soprafs26.constant.UserStatus;
 import ch.uzh.ifi.hase.soprafs26.entity.Lobby;
 import ch.uzh.ifi.hase.soprafs26.entity.User;
+import ch.uzh.ifi.hase.soprafs26.repository.GameRepository;
 import ch.uzh.ifi.hase.soprafs26.repository.LobbyRepository;
 import ch.uzh.ifi.hase.soprafs26.repository.UserRepository;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.LobbySettingsPatchDTO;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.WaitingLobbyViewDTO;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Mockito;
@@ -35,10 +37,19 @@ public class LobbyServiceTest {
 	private UserRepository userRepository;
 
 	@Mock
+	private GameRepository gameRepository;
+
+	@Mock
 	private LobbyEventPublisher lobbyEventPublisher;
 
 	@Mock
 	private OnlineUsersEventPublisher onlineUsersEventPublisher;
+
+	@Mock
+	private DisconnectService disconnectService;
+
+	@Mock
+	private GameService gameService;
 
 	@InjectMocks
 	private LobbyService lobbyService;
@@ -343,5 +354,68 @@ public class LobbyServiceTest {
 
     	assertEquals(HttpStatus.FORBIDDEN, ex.getStatusCode());
     	Mockito.verify(lobbyRepository, Mockito.never()).save(Mockito.any());
+	}
+
+	@Test
+	public void removePlayerFromLobby_playingLobby_throwsConflictAndKeepsPlayers() {
+		User host = new User();
+		host.setId(1L);
+		Mockito.when(userRepository.findByToken("host-token")).thenReturn(host);
+
+		Lobby lobby = new Lobby();
+		lobby.setId(10L);
+		lobby.setSessionId("S1");
+		lobby.setSessionHostUserId(1L);
+		lobby.setStatus("PLAYING");
+		lobby.setPlayerIds(new ArrayList<>(List.of(1L, 2L, 3L)));
+		Mockito.when(lobbyRepository.findBySessionId("S1")).thenReturn(lobby);
+
+		ResponseStatusException ex = assertThrows(ResponseStatusException.class,
+				() -> lobbyService.removePlayerFromLobby("S1", "host-token", 2L));
+
+		assertEquals(HttpStatus.CONFLICT, ex.getStatusCode());
+		assertTrue(lobby.getPlayerIds().contains(2L));
+		Mockito.verify(lobbyRepository, Mockito.never()).save(Mockito.any());
+	}
+
+	@Test
+	public void handleRoundResolvedForGamePlayers_hostVotesNo_hostMigratesToRematchVoter() {
+		Lobby playingLobby = new Lobby();
+		playingLobby.setId(10L);
+		playingLobby.setSessionId("PLAY123");
+		playingLobby.setSessionHostUserId(1L);
+		playingLobby.setStatus("PLAYING");
+		playingLobby.setIsPublic(true);
+		playingLobby.setPlayerIds(new ArrayList<>(List.of(1L, 2L, 3L, 4L)));
+		Mockito.when(lobbyRepository.findAll()).thenReturn(List.of(playingLobby));
+		Mockito.when(lobbyRepository.save(Mockito.any(Lobby.class))).thenAnswer(invocation -> {
+			Lobby saved = invocation.getArgument(0);
+			if (saved.getId() == null) {
+				saved.setId(99L);
+			}
+			return saved;
+		});
+
+		for (long id = 1L; id <= 4L; id++) {
+			User user = new User();
+			user.setId(id);
+			user.setStatus(UserStatus.PLAYING);
+			Mockito.when(userRepository.findById(id)).thenReturn(Optional.of(user));
+		}
+		Mockito.when(userRepository.save(Mockito.any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+		lobbyService.handleRoundResolvedForGamePlayers(
+				List.of(1L, 2L, 3L, 4L),
+				List.of(3L, 4L)
+		);
+
+		ArgumentCaptor<Lobby> savedLobbyCaptor = ArgumentCaptor.forClass(Lobby.class);
+		Mockito.verify(lobbyRepository).save(savedLobbyCaptor.capture());
+		Lobby rematchLobby = savedLobbyCaptor.getValue();
+
+		assertEquals("WAITING", rematchLobby.getStatus());
+		assertEquals(3L, rematchLobby.getSessionHostUserId());
+		assertEquals(List.of(3L, 4L), rematchLobby.getPlayerIds());
+		Mockito.verify(lobbyRepository).delete(playingLobby);
 	}
 }

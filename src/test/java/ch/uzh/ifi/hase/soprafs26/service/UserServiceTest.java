@@ -9,8 +9,12 @@ import org.mockito.MockitoAnnotations;
 import org.springframework.web.server.ResponseStatusException;
 
 import ch.uzh.ifi.hase.soprafs26.constant.UserStatus;
+import ch.uzh.ifi.hase.soprafs26.entity.Lobby;
 import ch.uzh.ifi.hase.soprafs26.entity.User;
+import ch.uzh.ifi.hase.soprafs26.repository.LobbyRepository;
 import ch.uzh.ifi.hase.soprafs26.repository.UserRepository;
+
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.verify;
@@ -22,7 +26,13 @@ public class UserServiceTest {
 	private UserRepository userRepository;
 
 	@Mock
+	private LobbyRepository lobbyRepository;
+
+	@Mock
 	private OnlineUsersEventPublisher onlineUsersEventPublisher;
+
+	@Mock
+	private DisconnectService disconnectService;
 
 	@InjectMocks
 	private UserService userService;
@@ -101,11 +111,31 @@ public class UserServiceTest {
 		user.setStatus(UserStatus.ONLINE);
 
 		when(userRepository.findByToken("token")).thenReturn(user);
+        when(lobbyRepository.findAll()).thenReturn(List.of());
 
 		userService.logoutUser("token");
 		
 		assertEquals(UserStatus.OFFLINE, user.getStatus());
 		verify(userRepository, Mockito.times(1)).save(user);
 	}
+
+    @Test
+    public void logoutUser_whileInPlayingLobby_throwsConflict() {
+        User user = new User();
+        user.setId(7L);
+        user.setToken("token");
+        user.setStatus(UserStatus.PLAYING);
+
+        Lobby playingLobby = new Lobby();
+        playingLobby.setStatus("PLAYING");
+        playingLobby.setPlayerIds(List.of(7L, 8L));
+
+        when(userRepository.findByToken("token")).thenReturn(user);
+        when(lobbyRepository.findAll()).thenReturn(List.of(playingLobby));
+
+        ResponseStatusException ex = assertThrows(ResponseStatusException.class, () -> userService.logoutUser("token"));
+        assertEquals(409, ex.getStatusCode().value());
+        verify(userRepository, Mockito.never()).save(user);
+    }
 
 }

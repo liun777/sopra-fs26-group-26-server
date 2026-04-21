@@ -13,6 +13,8 @@ import jakarta.validation.Valid;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.nio.charset.StandardCharsets;
+import java.net.URLDecoder;
 
 /**
  * User Controller
@@ -110,8 +112,16 @@ public class UserController {
     @ResponseStatus(HttpStatus.OK)
     public void logoutUserBeacon(@RequestBody(required = false) String body) {
         if (body == null || body.isBlank()) return;
-        String token = body.replace("{", "").replace("}", "")
-                .replace("\"token\":", "").replace("\"", "").trim();
+        String cleaned = body.trim();
+        String token;
+        if (cleaned.startsWith("{")) {
+            token = cleaned.replace("{", "").replace("}", "")
+                    .replace("\"token\":", "").replace("\"", "").trim();
+        } else if (cleaned.startsWith("token=")) {
+            token = URLDecoder.decode(cleaned.substring("token=".length()), StandardCharsets.UTF_8);
+        } else {
+            token = cleaned;
+        }
         if (!token.isBlank()) {
             userService.logoutUser(token); // use existing userService method
         }

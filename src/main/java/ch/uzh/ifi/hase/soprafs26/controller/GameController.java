@@ -38,6 +38,15 @@ public class GameController {
         return startedGame;
     }
 
+    @GetMapping("/games/active")
+    @ResponseStatus(HttpStatus.OK)
+    public Map<String, String> getActiveGameForCurrentUser(
+            @RequestHeader("Authorization") String token) {
+        return gameService.getActiveGameForToken(token)
+                .map(game -> Map.of("gameId", game.getId()))
+                .orElseGet(Map::of);
+    }
+
     // Backlog #9: Implement logic to always render the DiscardPile top card with its face-up value
     @GetMapping("/games/{gameId}/discard-pile/top")
     @ResponseStatus(HttpStatus.OK)
@@ -126,6 +135,49 @@ public class GameController {
             @PathVariable String gameId,
             @RequestHeader("Authorization") String token) {
         gameService.moveCallCabo(gameId, token);
+    }
+
+    @PostMapping("/games/{gameId}/rematch/no")
+    @ResponseStatus(HttpStatus.OK)
+    public Map<String, String> completeRoundWithoutRematch(
+            @PathVariable String gameId,
+            @RequestHeader("Authorization") String token) {
+        String waitingSessionId = gameService.completeRoundWithoutRematch(gameId, token);
+        return waitingSessionId == null || waitingSessionId.isBlank()
+                ? Map.of()
+                : Map.of("sessionId", waitingSessionId);
+    }
+
+    @PostMapping("/games/{gameId}/rematch/decision")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void submitRematchDecision(
+            @PathVariable String gameId,
+            @RequestHeader("Authorization") String token,
+            @RequestBody Map<String, Boolean> body) {
+        Boolean rematch = body.get("rematch");
+        if (rematch == null) {
+            throw new org.springframework.web.server.ResponseStatusException(HttpStatus.BAD_REQUEST, "rematch is required");
+        }
+        gameService.submitRematchDecision(gameId, token, rematch);
+    }
+
+    @GetMapping("/games/{gameId}/post-round-lobby")
+    @ResponseStatus(HttpStatus.OK)
+    public Map<String, String> getPostRoundLobby(
+            @PathVariable String gameId,
+            @RequestHeader("Authorization") String token) {
+        String waitingSessionId = gameService.getPostRoundLobbySessionForToken(gameId, token);
+        return waitingSessionId == null || waitingSessionId.isBlank()
+                ? Map.of()
+                : Map.of("sessionId", waitingSessionId);
+    }
+
+    @GetMapping("/games/{gameId}/rematch/config")
+    @ResponseStatus(HttpStatus.OK)
+    public Map<String, Long> getRematchConfig(
+            @PathVariable String gameId,
+            @RequestHeader("Authorization") String token) {
+        return Map.of("decisionSeconds", gameService.getRematchDecisionSeconds(gameId, token));
     }
 
     // discard the drawn card — POST /games/{gameId}/drawn-card/discard
