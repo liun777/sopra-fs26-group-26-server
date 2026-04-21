@@ -75,6 +75,10 @@ public class Game {
     @Column
     private Long caboCalledByUserId;
 
+    // tracks if the current player already used their special peek ability
+    @Column(nullable = false)
+    private boolean specialPeekUsed = false;
+
     public String getId() {
         return id;
     }
@@ -185,6 +189,14 @@ public class Game {
 
     public void setCaboCalledByUserId(Long caboCalledByUserId) {
         this.caboCalledByUserId = caboCalledByUserId;
+    }
+
+    public boolean isSpecialPeekUsed() {
+        return specialPeekUsed;
+    }
+
+    public void setSpecialPeekUsed(boolean specialPeekUsed) {
+        this.specialPeekUsed = specialPeekUsed;
     }
 
 }

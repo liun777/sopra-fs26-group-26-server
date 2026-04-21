@@ -424,6 +424,11 @@ public class GameService {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "No special peek ability active");
         }
 
+        // check if peek was already used
+        if (game.isSpecialPeekUsed()) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Peek ability already used");
+        }
+
         List<Integer> indices = body.getIndices();
         if (indices == null || indices.size() != 1) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Exactly one card index required");
@@ -467,6 +472,10 @@ public class GameService {
             }
         }
         hand.get(idx).setVisibility(true);
+
+        // mark peek as used
+        game.setSpecialPeekUsed(true);
+
         saveGameAndBroadcast(game);
     }
 
@@ -671,6 +680,9 @@ public class GameService {
         if (status == GameStatus.ABILITY_PEEK_SELF || status == GameStatus.ABILITY_PEEK_OPPONENT) {
             clearAllHandVisibility(game);
         }
+
+        game.setSpecialPeekUsed(false); // reset peek flag
+
         game.setStatus(GameStatus.ROUND_ACTIVE);
         cancelTurnTimer(gameId);
         saveGameAndBroadcast(game);
@@ -1005,6 +1017,9 @@ public class GameService {
         if (status == GameStatus.ABILITY_PEEK_SELF || status == GameStatus.ABILITY_PEEK_OPPONENT) {
             clearAllHandVisibility(game);
         }
+
+        game.setSpecialPeekUsed(false); // reset peek flag
+        
         game.setStatus(GameStatus.ROUND_ACTIVE);
         // cancel pending timer, player finished the ability manually
         cancelTurnTimer(gameId);

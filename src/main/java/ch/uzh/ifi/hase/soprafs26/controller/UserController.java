@@ -3,10 +3,7 @@ package ch.uzh.ifi.hase.soprafs26.controller;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 
-import ch.uzh.ifi.hase.soprafs26.constant.UserStatus;
 import ch.uzh.ifi.hase.soprafs26.entity.User;
-import ch.uzh.ifi.hase.soprafs26.repository.UserRepository;
-import java.time.Instant;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.UserGetDTO;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.UserPostDTO;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.UserPutDTO;
@@ -31,11 +28,9 @@ import java.util.List;
 public class UserController {
 
 	private final UserService userService; // zugriff auf den userService für Logik
-    private final UserRepository userRepository;
 
-	UserController(UserService userService, UserRepository userRepository) {
+	UserController(UserService userService) {
 		this.userService = userService;
-        this.userRepository = userRepository;
 	} // UserService wird automatisch von Spring injiziert
 
     // GET /users - alle User laden (zb auf Userliste) von frontend aufgerufen
@@ -110,16 +105,15 @@ public class UserController {
         userService.logoutUser(token);
     }
 
-    // beacon logout — called when tab closes, token sent in body since sendBeacon can't set headers
+    // beacon logout — called when tab closes
     @PostMapping("/auth/logout/beacon")
     @ResponseStatus(HttpStatus.OK)
     public void logoutUserBeacon(@RequestBody(required = false) String body) {
         if (body == null || body.isBlank()) return;
-        // body comes as raw JSON string: {"token":"..."}
         String token = body.replace("{", "").replace("}", "")
                 .replace("\"token\":", "").replace("\"", "").trim();
         if (!token.isBlank()) {
-            userService.logoutUser(token);
+            userService.logoutUser(token); // use existing userService method
         }
     }
 
@@ -127,12 +121,7 @@ public class UserController {
     @PostMapping("/heartbeat")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void handleHeartbeat(@RequestHeader("Authorization") String token) {
-        User user = userRepository.findByToken(token);
-        if (user != null) {
-            user.setLastHeartbeat(Instant.now());
-            user.setStatus(UserStatus.ONLINE); // Ensure they stay online
-            userRepository.save(user);
-        }
+        userService.heartbeat(token);
     }
 
 }
