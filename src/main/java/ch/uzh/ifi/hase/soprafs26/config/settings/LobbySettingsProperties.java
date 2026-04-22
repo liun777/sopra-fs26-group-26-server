@@ -19,7 +19,7 @@ public class LobbySettingsProperties {
     @Min(1)
     private long afkTimeoutMinSeconds = 180;
     @Min(1)
-    private long afkTimeoutMaxSeconds = 1200;
+    private long afkTimeoutMaxSeconds = 600;
 
     @Min(1)
     private long initialPeekDefaultSeconds = 10;
@@ -48,6 +48,13 @@ public class LobbySettingsProperties {
     private long rematchDecisionMinSeconds = 10;
     @Min(1)
     private long rematchDecisionMaxSeconds = 60;
+
+    @Min(1)
+    private long websocketGraceDefaultSeconds = 300;
+    @Min(1)
+    private long websocketGraceMinSeconds = 180;
+    @Min(1)
+    private long websocketGraceMaxSeconds = 600;
 
     public long getAfkTimeoutDefaultSeconds() { return afkTimeoutDefaultSeconds; }
     public void setAfkTimeoutDefaultSeconds(long afkTimeoutDefaultSeconds) { this.afkTimeoutDefaultSeconds = afkTimeoutDefaultSeconds; }
@@ -83,5 +90,11 @@ public class LobbySettingsProperties {
     public void setRematchDecisionMinSeconds(long rematchDecisionMinSeconds) { this.rematchDecisionMinSeconds = rematchDecisionMinSeconds; }
     public long getRematchDecisionMaxSeconds() { return rematchDecisionMaxSeconds; }
     public void setRematchDecisionMaxSeconds(long rematchDecisionMaxSeconds) { this.rematchDecisionMaxSeconds = rematchDecisionMaxSeconds; }
-}
 
+    public long getWebsocketGraceDefaultSeconds() { return websocketGraceDefaultSeconds; }
+    public void setWebsocketGraceDefaultSeconds(long websocketGraceDefaultSeconds) { this.websocketGraceDefaultSeconds = websocketGraceDefaultSeconds; }
+    public long getWebsocketGraceMinSeconds() { return websocketGraceMinSeconds; }
+    public void setWebsocketGraceMinSeconds(long websocketGraceMinSeconds) { this.websocketGraceMinSeconds = websocketGraceMinSeconds; }
+    public long getWebsocketGraceMaxSeconds() { return websocketGraceMaxSeconds; }
+    public void setWebsocketGraceMaxSeconds(long websocketGraceMaxSeconds) { this.websocketGraceMaxSeconds = websocketGraceMaxSeconds; }
+}

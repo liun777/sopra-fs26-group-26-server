@@ -10,7 +10,6 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import ch.uzh.ifi.hase.soprafs26.constant.UserStatus;
-import ch.uzh.ifi.hase.soprafs26.entity.Lobby;
 import ch.uzh.ifi.hase.soprafs26.entity.User;
 import ch.uzh.ifi.hase.soprafs26.repository.LobbyRepository;
 import ch.uzh.ifi.hase.soprafs26.repository.UserRepository;
@@ -56,11 +55,7 @@ public class UserService {
         if (userId == null || lobbyRepository == null) {
             return false;
         }
-
-        return lobbyRepository.findAll().stream()
-                .filter(lobby -> lobby != null && "PLAYING".equals(lobby.getStatus()))
-                .map(Lobby::getPlayerIds)
-                .anyMatch(playerIds -> playerIds != null && playerIds.contains(userId));
+        return lobbyRepository.existsByStatusAndPlayerId("PLAYING", userId);
     }
 
     // holt alle user aus Datenbank und gibt sie dem controller
@@ -160,20 +155,12 @@ public class UserService {
             return UserStatus.ONLINE;
         }
 
-        boolean inPlayingLobby = lobbyRepository.findAll().stream()
-                .anyMatch(lobby -> lobby != null
-                        && "PLAYING".equals(lobby.getStatus())
-                        && lobby.getPlayerIds() != null
-                        && lobby.getPlayerIds().contains(userId));
+        boolean inPlayingLobby = lobbyRepository.existsByStatusAndPlayerId("PLAYING", userId);
         if (inPlayingLobby) {
             return UserStatus.PLAYING;
         }
 
-        boolean inWaitingLobby = lobbyRepository.findAll().stream()
-                .anyMatch(lobby -> lobby != null
-                        && "WAITING".equals(lobby.getStatus())
-                        && lobby.getPlayerIds() != null
-                        && lobby.getPlayerIds().contains(userId));
+        boolean inWaitingLobby = lobbyRepository.existsByStatusAndPlayerId("WAITING", userId);
         if (inWaitingLobby) {
             return UserStatus.LOBBY;
         }

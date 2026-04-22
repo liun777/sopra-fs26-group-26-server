@@ -82,8 +82,7 @@ public class CaboInviteService {
         Lobby waiting = lobbyService.requireWaitingLobbyForHost(from.getId());
         Long lobbyId = waiting.getId();
 
-        boolean targetInAnyPlayingLobby = lobbyRepository.findAll().stream()
-                .filter(lobby -> lobby != null && "PLAYING".equals(lobby.getStatus()))
+        boolean targetInAnyPlayingLobby = lobbyRepository.findByStatus("PLAYING").stream()
                 .anyMatch(lobby -> lobby.getPlayerIds() != null && lobby.getPlayerIds().contains(toUserId));
         if (targetInAnyPlayingLobby) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "User is currently playing");

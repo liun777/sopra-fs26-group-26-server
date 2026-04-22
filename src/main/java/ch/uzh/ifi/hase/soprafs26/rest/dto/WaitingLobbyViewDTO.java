@@ -13,6 +13,8 @@ public class WaitingLobbyViewDTO {
     private Long turnSeconds;
     private Long abilityRevealSeconds;
     private Long rematchDecisionSeconds;
+    private Long websocketGraceSeconds;
+    private Boolean viewerIsHost;
     private List<WaitingLobbyPlayerRowDTO> players = new ArrayList<>();
 
     public Long getLobbyId() {
@@ -77,6 +79,22 @@ public class WaitingLobbyViewDTO {
 
     public void setRematchDecisionSeconds(Long rematchDecisionSeconds) {
         this.rematchDecisionSeconds = rematchDecisionSeconds;
+    }
+
+    public Long getWebsocketGraceSeconds() {
+        return websocketGraceSeconds;
+    }
+
+    public void setWebsocketGraceSeconds(Long websocketGraceSeconds) {
+        this.websocketGraceSeconds = websocketGraceSeconds;
+    }
+
+    public Boolean getViewerIsHost() {
+        return viewerIsHost;
+    }
+
+    public void setViewerIsHost(Boolean viewerIsHost) {
+        this.viewerIsHost = viewerIsHost;
     }
 
     public List<WaitingLobbyPlayerRowDTO> getPlayers() {

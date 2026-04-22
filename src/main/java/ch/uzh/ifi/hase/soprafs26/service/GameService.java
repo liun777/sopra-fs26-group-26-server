@@ -77,9 +77,15 @@ public class GameService {
     private final Map<String, AtomicLong> abilityTimerCounts = new ConcurrentHashMap<>();
     // per-game count to guard rematch decision timers from executing stale tasks
     private final Map<String, AtomicLong> rematchDecisionTimerCounts = new ConcurrentHashMap<>();
+    // per-game lock to serialize rematch decision writes/resolution and avoid race conditions
+    private final Map<String, Object> rematchResolutionLocks = new ConcurrentHashMap<>();
     private static final String MOVE_ZONE_DRAW_PILE = "DRAW_PILE";
     private static final String MOVE_ZONE_DISCARD_PILE = "DISCARD_PILE";
     private static final String MOVE_ZONE_HAND = "HAND";
+
+    private Object getRematchResolutionLock(String gameId) {
+        return rematchResolutionLocks.computeIfAbsent(gameId, ignored -> new Object());
+    }
 
     private long resolvePositiveOrDefault(Long candidate, long defaultValue) {
         if (candidate == null || candidate <= 0) {
@@ -763,7 +769,9 @@ public class GameService {
             // swap cards with opponent
             game.setStatus(GameStatus.ABILITY_SWAP);
             saveGameAndBroadcast(game);
-            startAbilityTimer(game.getId());
+            // Swap requires two clicks (own card + opponent card), so use turn timer budget,
+            // not short peek/spy reveal duration.
+            startAbilityTimer(game.getId(), game.getTurnSeconds());
         } else {
             // no ability — just advance turn normally
             saveGameAndBroadcast(game);
@@ -1037,15 +1045,6 @@ public class GameService {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid token");
         }
 
-        Game game = getGameById(gameId);
-        if (game.getStatus() != GameStatus.ROUND_AWAITING_REMATCH) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Round is not waiting for rematch decision");
-        }
-        List<Long> players = game.getOrderedPlayerIds();
-        if (players == null || !players.contains(user.getId())) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Not a player in this game");
-        }
-
         String normalizedDecision = String.valueOf(decision).trim().toUpperCase(Locale.ROOT);
         if (!REMATCH_DECISION_CONTINUE.equals(normalizedDecision)
                 && !REMATCH_DECISION_FRESH.equals(normalizedDecision)
@@ -1053,16 +1052,27 @@ public class GameService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "decision must be CONTINUE, FRESH, or NONE");
         }
 
-        Map<Long, String> decisions = game.getRematchDecisionByUserId();
-        if (decisions == null) {
-            decisions = new HashMap<>();
-            game.setRematchDecisionByUserId(decisions);
-        }
-        decisions.put(user.getId(), normalizedDecision);
-        saveGameAndBroadcast(game);
+        synchronized (getRematchResolutionLock(gameId)) {
+            Game game = getGameById(gameId);
+            if (game.getStatus() != GameStatus.ROUND_AWAITING_REMATCH) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "Round is not waiting for rematch decision");
+            }
+            List<Long> players = game.getOrderedPlayerIds();
+            if (players == null || !players.contains(user.getId())) {
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Not a player in this game");
+            }
 
-        if (decisions.keySet().containsAll(players)) {
-            resolveRematchDecision(gameId, game, null);
+            Map<Long, String> decisions = game.getRematchDecisionByUserId();
+            if (decisions == null) {
+                decisions = new HashMap<>();
+                game.setRematchDecisionByUserId(decisions);
+            }
+            decisions.put(user.getId(), normalizedDecision);
+            saveGameAndBroadcast(game);
+
+            if (decisions.keySet().containsAll(players)) {
+                resolveRematchDecisionLocked(gameId, game, null);
+            }
         }
     }
 
@@ -1126,6 +1136,12 @@ public class GameService {
     }
 
     private void resolveRematchDecision(String gameId, Game game, Long expectedCountIfAny) {
+        synchronized (getRematchResolutionLock(gameId)) {
+            resolveRematchDecisionLocked(gameId, game, expectedCountIfAny);
+        }
+    }
+
+    private void resolveRematchDecisionLocked(String gameId, Game game, Long expectedCountIfAny) {
         if (game.getStatus() != GameStatus.ROUND_AWAITING_REMATCH) {
             return;
         }
@@ -1155,6 +1171,8 @@ public class GameService {
         if (lobbyService != null) {
             lobbyService.handleRoundResolvedForGamePlayers(orderedPlayers, continuePlayers, freshPlayers);
         }
+        rematchDecisionTimerCounts.remove(gameId);
+        rematchResolutionLocks.remove(gameId);
     }
 
     public Optional<Game> findActiveGameForUser(Long userId) {

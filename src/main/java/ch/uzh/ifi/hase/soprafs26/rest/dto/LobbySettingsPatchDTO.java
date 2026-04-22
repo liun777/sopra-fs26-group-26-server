@@ -8,6 +8,7 @@ public class LobbySettingsPatchDTO {
     private Long turnSeconds;
     private Long abilityRevealSeconds;
     private Long rematchDecisionSeconds;
+    private Long websocketGraceSeconds;
 
     public Boolean getIsPublic() {
         return isPublic;
@@ -55,5 +56,13 @@ public class LobbySettingsPatchDTO {
 
     public void setRematchDecisionSeconds(Long rematchDecisionSeconds) {
         this.rematchDecisionSeconds = rematchDecisionSeconds;
+    }
+
+    public Long getWebsocketGraceSeconds() {
+        return websocketGraceSeconds;
+    }
+
+    public void setWebsocketGraceSeconds(Long websocketGraceSeconds) {
+        this.websocketGraceSeconds = websocketGraceSeconds;
     }
 }

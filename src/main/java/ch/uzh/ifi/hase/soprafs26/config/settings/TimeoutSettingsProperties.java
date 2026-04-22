@@ -16,7 +16,7 @@ public class TimeoutSettingsProperties {
 
     // Grace window after websocket disconnect before permanent disconnect handling starts.
     @Min(1)
-    private long websocketGraceSeconds = 90;
+    private long websocketGraceSeconds = 300;
 
     // AFK threshold; if last heartbeat is older than this, user is considered idle.
     @Min(1)

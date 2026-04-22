@@ -64,10 +64,11 @@ public class DisconnectService {
             return;
         }
         cancelDisconnectTimer(userId);
-        
+        long websocketGraceSeconds = resolveWebsocketGraceSecondsForUser(userId);
+
         ScheduledFuture<?> future = scheduler.schedule(() -> {
-            performPermanentRemoval(userId, "websocket_grace", timeoutSettings.getWebsocketGraceSeconds());
-        }, timeoutSettings.getWebsocketGraceSeconds(), TimeUnit.SECONDS);
+            performPermanentRemoval(userId, "websocket_grace", websocketGraceSeconds);
+        }, websocketGraceSeconds, TimeUnit.SECONDS);
         
         activeTimers.put(userId, future);
     }
@@ -78,9 +79,10 @@ public class DisconnectService {
      */
     @Scheduled(fixedDelayString = "#{@timeoutSettingsProperties.idleCheckIntervalMs}")
     public void checkIdleUsers() {
-        List<User> users = userRepository.findAll().stream()
-                .filter(u -> u.getStatus() != UserStatus.OFFLINE)
-                .toList();
+        List<User> users = userRepository.findByStatusNot(UserStatus.OFFLINE);
+        Set<Long> activeGameUserIds = lobbyService != null
+                ? lobbyService.getPlayingLobbyPlayerIdsSnapshot()
+                : Set.of();
 
         Instant now = Instant.now();
         for (User user : users) {
@@ -91,13 +93,15 @@ public class DisconnectService {
                 // Already timed out midgame; keep game membership without repeated processing.
                 continue;
             }
-            long idleThresholdSeconds = resolveIdleThresholdSecondsForUser(user.getId());
+            boolean userInActiveGame = activeGameUserIds.contains(user.getId());
+            long idleThresholdSeconds = userInActiveGame
+                    ? resolveIdleThresholdSecondsForUser(user.getId())
+                    : timeoutSettings.getIdleSeconds();
             Instant idleCutoff = now.minusSeconds(idleThresholdSeconds);
             if (!user.getLastHeartbeat().isBefore(idleCutoff)) {
                 continue;
             }
 
-            boolean userInActiveGame = lobbyService != null && lobbyService.isUserInActiveGame(user.getId());
             if (userInActiveGame && hasActiveWebSocketSession(user.getId())) {
                 // Prevent false AFK/Cabo while the player is still connected to the running game.
                 continue;
@@ -121,6 +125,18 @@ public class DisconnectService {
                 .orElse(defaultIdle);
     }
 
+    private long resolveWebsocketGraceSecondsForUser(Long userId) {
+        long defaultGrace = timeoutSettings.getWebsocketGraceSeconds();
+        if (userId == null || lobbyService == null) {
+            return defaultGrace;
+        }
+        Long lobbyGrace = lobbyService.findWebsocketGraceSecondsForUser(userId);
+        if (lobbyGrace == null || lobbyGrace <= 0) {
+            return defaultGrace;
+        }
+        return lobbyGrace;
+    }
+
     /**
      * RULE 3: Automatic logout (token invalidation) for very long inactivity.
      * This is intentionally much longer than idle disconnect timers.
@@ -129,11 +145,10 @@ public class DisconnectService {
     public void checkAutoLogoutUsers() {
         Instant autoLogoutCutoff = Instant.now().minusSeconds(timeoutSettings.getAutoLogoutSeconds());
 
-        List<User> usersToAutoLogout = userRepository.findAll().stream()
-                .filter(user -> user.getLastHeartbeat() != null && user.getLastHeartbeat().isBefore(autoLogoutCutoff))
-                // Never invalidate tokens while a user is still in an active game.
-                .filter(user -> user.getStatus() != UserStatus.PLAYING)
-                .toList();
+        List<User> usersToAutoLogout = userRepository.findByLastHeartbeatBeforeAndStatusNot(
+                autoLogoutCutoff,
+                UserStatus.PLAYING
+        );
 
         for (User user : usersToAutoLogout) {
             user.setStatus(UserStatus.OFFLINE);
@@ -227,10 +242,22 @@ public class DisconnectService {
         String heartbeatText = secondsSinceHeartbeat >= 0
                 ? String.valueOf(secondsSinceHeartbeat)
                 : "n/a";
+
+        User updatedUser = userRepository.findById(userId).orElse(user);
+        boolean timedOutInActiveGame = lobbyService != null && lobbyService.isPlayerTimedOutInPlaying(userId);
+        String outcomeText;
+        if (timedOutInActiveGame) {
+            outcomeText = "marked_timed_out_in_active_game";
+        } else if (updatedUser.getStatus() == UserStatus.OFFLINE) {
+            outcomeText = "removed_and_set_offline";
+        } else {
+            outcomeText = "timeout_handled_status_" + String.valueOf(updatedUser.getStatus()).toLowerCase();
+        }
+
         System.out.println(
-                "User " + userId
-                        + " permanently removed due to timeout "
+                "Timeout handling applied for user " + userId + " "
                         + "[reason=" + reasonText
+                        + ", outcome=" + outcomeText
                         + ", thresholdSeconds=" + thresholdSeconds
                         + ", secondsSinceHeartbeat=" + heartbeatText
                         + "].");

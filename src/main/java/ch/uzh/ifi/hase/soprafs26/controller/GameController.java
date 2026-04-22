@@ -12,6 +12,7 @@ import ch.uzh.ifi.hase.soprafs26.entity.Game;
 import ch.uzh.ifi.hase.soprafs26.entity.Lobby;
 import ch.uzh.ifi.hase.soprafs26.service.GameService;
 import ch.uzh.ifi.hase.soprafs26.service.LobbyService;
+import org.springframework.web.server.ResponseStatusException;
 
 @RestController
 public class GameController {
@@ -22,6 +23,36 @@ public class GameController {
     public GameController(GameService gameService, LobbyService lobbyService) {
         this.gameService = gameService;
         this.lobbyService = lobbyService;
+    }
+
+    private int requireIntBodyField(Map<String, ?> body, String field) {
+        if (body == null || !body.containsKey(field) || body.get(field) == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, field + " is required");
+        }
+        Object raw = body.get(field);
+        if (raw instanceof Number number) {
+            return number.intValue();
+        }
+        try {
+            return Integer.parseInt(String.valueOf(raw).trim());
+        } catch (NumberFormatException ignored) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, field + " must be an integer");
+        }
+    }
+
+    private long requireLongBodyField(Map<String, ?> body, String field) {
+        if (body == null || !body.containsKey(field) || body.get(field) == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, field + " is required");
+        }
+        Object raw = body.get(field);
+        if (raw instanceof Number number) {
+            return number.longValue();
+        }
+        try {
+            return Long.parseLong(String.valueOf(raw).trim());
+        } catch (NumberFormatException ignored) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, field + " must be a number");
+        }
     }
 
     // endpoint according to REST interface
@@ -100,7 +131,7 @@ public class GameController {
             @PathVariable String gameId,
             @RequestHeader("Authorization") String token,
             @RequestBody Map<String, Integer> body) {
-        int targetCardIndex = body.get("targetCardIndex");
+        int targetCardIndex = requireIntBodyField(body, "targetCardIndex");
         gameService.moveSwapDrawnCard(gameId, token, targetCardIndex);
     }
 
@@ -111,7 +142,7 @@ public class GameController {
             @PathVariable String gameId,
             @RequestHeader("Authorization") String token,
             @RequestBody Map<String, Integer> body) {
-        int targetCardIndex = body.get("targetCardIndex");
+        int targetCardIndex = requireIntBodyField(body, "targetCardIndex");
         gameService.moveSwapWithDiscardPile(gameId, token, targetCardIndex);
     }
 
@@ -122,9 +153,9 @@ public class GameController {
             @PathVariable String gameId,
             @RequestHeader("Authorization") String token,
             @RequestBody Map<String, Object> body) {
-        int ownCardIndex = (int) body.get("ownCardIndex");
-        Long targetUserId = Long.valueOf(body.get("targetUserId").toString());
-        int targetCardIndex = (int) body.get("targetCardIndex");
+        int ownCardIndex = requireIntBodyField(body, "ownCardIndex");
+        Long targetUserId = requireLongBodyField(body, "targetUserId");
+        int targetCardIndex = requireIntBodyField(body, "targetCardIndex");
         gameService.moveAbilitySwap(gameId, token, ownCardIndex, targetUserId, targetCardIndex);
     }
 

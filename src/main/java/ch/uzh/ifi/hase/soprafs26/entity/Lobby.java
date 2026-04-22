@@ -58,6 +58,10 @@ public class Lobby implements Serializable {
     @Column(nullable = false)
     private Long rematchDecisionSeconds = 60L;
 
+    // Per-lobby websocket disconnect grace period before timeout handling.
+    @Column(nullable = false)
+    private Long websocketGraceSeconds = 300L;
+
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
 
@@ -96,4 +100,7 @@ public class Lobby implements Serializable {
 
     public Long getRematchDecisionSeconds() { return rematchDecisionSeconds; }
     public void setRematchDecisionSeconds(Long rematchDecisionSeconds) { this.rematchDecisionSeconds = rematchDecisionSeconds; }
+
+    public Long getWebsocketGraceSeconds() { return websocketGraceSeconds; }
+    public void setWebsocketGraceSeconds(Long websocketGraceSeconds) { this.websocketGraceSeconds = websocketGraceSeconds; }
 }

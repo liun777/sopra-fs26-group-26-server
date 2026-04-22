@@ -9,7 +9,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
 
 @Service
 public class OnlineUsersEventPublisher {
@@ -18,6 +20,7 @@ public class OnlineUsersEventPublisher {
 
     private final SimpMessagingTemplate messagingTemplate;
     private final UserRepository userRepository;
+    private volatile String lastPresenceSnapshot = "";
 
     public OnlineUsersEventPublisher(SimpMessagingTemplate messagingTemplate,
                                      UserRepository userRepository) {
@@ -28,11 +31,16 @@ public class OnlineUsersEventPublisher {
     /** Pushes current active users to subscribers (all non-offline statuses). */
     public void broadcastOnlineUsers() {
         Runnable send = () -> {
-            List<UserGetDTO> online = userRepository.findAll().stream()
-                    .filter(u -> u.getStatus() != UserStatus.OFFLINE)
+            List<UserGetDTO> online = userRepository.findByStatusNot(UserStatus.OFFLINE).stream()
                     .map(DTOMapper.INSTANCE::convertEntityToUserGetDTO)
                     .peek(d -> d.setToken(null))
+                    .sorted(Comparator.comparing(UserGetDTO::getId, Comparator.nullsLast(Long::compareTo)))
                     .toList();
+            String snapshot = buildSnapshot(online);
+            if (snapshot.equals(lastPresenceSnapshot)) {
+                return;
+            }
+            lastPresenceSnapshot = snapshot;
             messagingTemplate.convertAndSend(TOPIC, online);
         };
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
@@ -45,5 +53,18 @@ public class OnlineUsersEventPublisher {
         } else {
             send.run();
         }
+    }
+
+    private String buildSnapshot(List<UserGetDTO> online) {
+        StringBuilder builder = new StringBuilder(online.size() * 24);
+        for (UserGetDTO user : online) {
+            builder.append(Objects.toString(user.getId(), ""))
+                    .append('|')
+                    .append(Objects.toString(user.getUsername(), ""))
+                    .append('|')
+                    .append(Objects.toString(user.getStatus(), ""))
+                    .append(';');
+        }
+        return builder.toString();
     }
 }

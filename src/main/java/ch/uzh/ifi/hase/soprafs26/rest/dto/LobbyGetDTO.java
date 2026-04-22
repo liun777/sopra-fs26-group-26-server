@@ -17,6 +17,7 @@ public class LobbyGetDTO {
     private Long turnSeconds;
     private Long abilityRevealSeconds;
     private Long rematchDecisionSeconds;
+    private Long websocketGraceSeconds;
 
     public void setId(Long id) {
         this.id = id;
@@ -112,5 +113,13 @@ public class LobbyGetDTO {
 
     public void setRematchDecisionSeconds(Long rematchDecisionSeconds) {
         this.rematchDecisionSeconds = rematchDecisionSeconds;
+    }
+
+    public Long getWebsocketGraceSeconds() {
+        return websocketGraceSeconds;
+    }
+
+    public void setWebsocketGraceSeconds(Long websocketGraceSeconds) {
+        this.websocketGraceSeconds = websocketGraceSeconds;
     }
 }
