@@ -1259,6 +1259,138 @@ public class GameServiceTest {
         assertEquals(GameStatus.ROUND_AWAITING_REMATCH, game.getStatus());
     }
 
+    // #83: Cabo caller must not act as current player during the post-Cabo final lap (draw / swap)
+
+    // 4 players, ROUND_ACTIVE, player 1 calls cabo
+    // after return current player is player 2
+    private Game createFourPlayerGameAndCallCaboAsPlayer1(String gameId, List<Card> discardPile) {
+        User user1 = new User();
+        user1.setId(1L);
+        Mockito.when(userRepository.findByToken("token-1")).thenReturn(user1);
+
+        Game game = new Game();
+        game.setId(gameId);
+        game.setStatus(GameStatus.ROUND_ACTIVE);
+        game.setCurrentPlayerId(1L);
+        game.setOrderedPlayerIds(new ArrayList<>(List.of(1L, 2L, 3L, 4L)));
+        game.setDiscardPile(new ArrayList<>(discardPile == null ? List.of() : discardPile));
+        Card drawCard = new Card();
+        drawCard.setValue(4);
+        drawCard.setCode("4D");
+        game.setDrawPile(new ArrayList<>(List.of(drawCard)));
+        Map<Long, List<Card>> hands = new HashMap<>();
+        for (Long player_id : List.of(1L, 2L, 3L, 4L)) {
+            List<Card> hand = new ArrayList<>();
+            for (int i = 0; i < 4; i++) {
+                Card c = new Card();
+                c.setValue(i + 1);
+                c.setCode("X" + i);
+                c.setVisibility(false);
+                hand.add(c);
+            }
+            hands.put(player_id, hand);
+        }
+        game.setPlayerHands(hands);
+
+        Mockito.when(gameRepository.findById(gameId)).thenReturn(Optional.of(game));
+        Mockito.when(gameRepository.save(Mockito.any(Game.class))).thenAnswer(inv -> inv.getArgument(0));
+        Mockito.doNothing().when(gameRepository).flush();
+
+        gameService.moveCallCabo(gameId, "token-1");
+        assertTrue(game.isCaboCalled());
+        assertEquals(1L, game.getCaboCalledByUserId());
+        assertEquals(2L, game.getCurrentPlayerId());
+        assertEquals(GameStatus.ROUND_ACTIVE, game.getStatus());
+        return game;
+    }
+
+    @Test
+    void caboCallerAfterCabo_verifyMoveCallerIsCurrentPlayer_throwsForbidden() {
+        createFourPlayerGameAndCallCaboAsPlayer1("g-83-verify", List.of());
+
+        ResponseStatusException ex = assertThrows(ResponseStatusException.class,
+                () -> gameService.verifyMoveCallerIsCurrentPlayer("g-83-verify", "token-1"));
+        assertEquals(HttpStatus.FORBIDDEN, ex.getStatusCode());
+        assertEquals("Not your turn", ex.getReason());
+    }
+
+    @Test
+    void caboCallerAfterCabo_moveDrawFromDiscardPile_throwsForbidden() {
+        Card top = new Card();
+        top.setValue(9);
+        top.setCode("9S");
+        createFourPlayerGameAndCallCaboAsPlayer1("g-83-discard-draw", List.of(top));
+
+        ResponseStatusException ex = assertThrows(ResponseStatusException.class,
+                () -> gameService.moveDrawFromDiscardPile("g-83-discard-draw", "token-1"));
+        assertEquals(HttpStatus.FORBIDDEN, ex.getStatusCode());
+    }
+
+    @Test
+    void caboCallerAfterCabo_moveSwapWithDiscardPile_throwsForbidden() {
+        Card top = new Card();
+        top.setValue(3);
+        top.setCode("3H");
+        createFourPlayerGameAndCallCaboAsPlayer1("g-83-discard-swap", List.of(top));
+
+        ResponseStatusException ex = assertThrows(ResponseStatusException.class,
+                () -> gameService.moveSwapWithDiscardPile("g-83-discard-swap", "token-1", 0));
+        assertEquals(HttpStatus.FORBIDDEN, ex.getStatusCode());
+    }
+
+    @Test
+    void caboCallerAfterCabo_moveSwapDrawnCard_throwsForbidden() {
+        Game game = createFourPlayerGameAndCallCaboAsPlayer1("g-83-drawn-swap", List.of());
+
+        Card drawn = new Card();
+        drawn.setValue(7);
+        drawn.setCode("7C");
+        game.setDrawnCard(drawn);
+        game.setDrawnFromDeck(true);
+
+        ResponseStatusException ex = assertThrows(ResponseStatusException.class,
+                () -> gameService.moveSwapDrawnCard("g-83-drawn-swap", "token-1", 0));
+        assertEquals(HttpStatus.FORBIDDEN, ex.getStatusCode());
+    }
+
+    @Test
+    void caboCallerAfterCabo_moveAbilitySwap_throwsForbidden() {
+        Game game = createFourPlayerGameAndCallCaboAsPlayer1("g-83-ability-swap", List.of());
+        game.setStatus(GameStatus.ABILITY_SWAP);
+
+        ResponseStatusException ex = assertThrows(ResponseStatusException.class,
+                () -> gameService.moveAbilitySwap("g-83-ability-swap", "token-1", 0, 3L, 0));
+        assertEquals(HttpStatus.FORBIDDEN, ex.getStatusCode());
+    }
+
+    @Test
+    void caboCallerAfterCabo_skipAbility_throwsForbidden() {
+        Game game = createFourPlayerGameAndCallCaboAsPlayer1("g-83-skip", List.of());
+        game.setStatus(GameStatus.ABILITY_SWAP);
+
+        ResponseStatusException ex = assertThrows(ResponseStatusException.class,
+                () -> gameService.skipAbility("g-83-skip", "token-1"));
+        assertEquals(HttpStatus.FORBIDDEN, ex.getStatusCode());
+    }
+
+    @Test
+    void currentPlayerDuringFinalLapAfterCabo_canMoveDrawFromDiscardPile() {
+        Card top = new Card();
+        top.setValue(8);
+        top.setCode("8D");
+        Game game = createFourPlayerGameAndCallCaboAsPlayer1("g-83-currentplayer", List.of(top));
+
+        Long currentId = game.getCurrentPlayerId();
+        User currentUser = new User();
+        currentUser.setId(currentId);
+        String currentToken = "token-" + currentId;
+        Mockito.when(userRepository.findByToken(currentToken)).thenReturn(currentUser);
+
+        gameService.moveDrawFromDiscardPile("g-83-currentplayer", currentToken);
+        assertNotNull(game.getDrawnCard());
+        assertEquals("8D", game.getDrawnCard().getCode());
+    }
+
     // reshuffle when draw pile is empty
     @Test
     void moveDrawFromDrawPile_emptyPile_triggersReshuffle() {
