@@ -6,6 +6,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.MockitoAnnotations;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 
 import ch.uzh.ifi.hase.soprafs26.constant.UserStatus;
@@ -136,6 +137,24 @@ public class UserServiceTest {
         ResponseStatusException ex = assertThrows(ResponseStatusException.class, () -> userService.logoutUser("token"));
         assertEquals(409, ex.getStatusCode().value());
         verify(userRepository, Mockito.never()).save(user);
+    }
+
+	@Test
+    public void createUser_usernameTooLong_throwsBadRequest() {
+        // 1. GIVEN: A user object with a 17-character username
+        User newRestrictedUser = new User();
+        newRestrictedUser.setUsername("12345678901234567"); // 17 chars!
+        newRestrictedUser.setPassword("securePassword");
+
+        // 2. WHEN / THEN: Attempting to save it throws an error
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class, 
+            () -> userService.createUser(newRestrictedUser)); // (Adjust method name if needed)
+
+        // Verify the server rejects it with a 400 Bad Request
+        assertEquals(HttpStatus.BAD_REQUEST, exception.getStatusCode());
+        
+        // Verify the database was never touched
+        Mockito.verify(userRepository, Mockito.never()).save(Mockito.any());
     }
 
 }

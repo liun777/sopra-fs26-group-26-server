@@ -25,6 +25,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -153,5 +154,20 @@ public class GameControllerTest {
                 order.verify(lobbyService).verifyLobbyCanStart(eq(token), eq(sessionId));
                 order.verify(gameService).startGame(anyList(), any(Lobby.class));
                 order.verify(lobbyService).markLobbyAsPlaying(eq(sessionId));
+        }
+
+        @Test
+        public void putCallCabo_validRequest_returns200() throws Exception {
+                String gameId = "test-game";
+                String token = "valid-token";
+
+                doNothing().when(gameService).moveCallCabo(gameId, token);
+
+                mockMvc.perform(post("/games/{gameId}/moves/cabo", gameId)
+                                .header("Authorization", token)
+                                .contentType(MediaType.APPLICATION_JSON))
+                        .andExpect(status().isNoContent()); 
+                
+                verify(gameService, times(1)).moveCallCabo(eq(gameId), eq(token));
         }
 }

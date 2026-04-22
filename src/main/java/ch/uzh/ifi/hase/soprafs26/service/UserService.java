@@ -64,6 +64,9 @@ public class UserService {
 	}
 
 	public User createUser(User newUser) {
+        if (newUser.getUsername() != null && newUser.getUsername().length() > 16) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Username must be 16 characters or fewer.");
+        }
 		newUser.setToken(UUID.randomUUID().toString()); // generiert einen zufälligen eindeutigen Token
 		newUser.setStatus(UserStatus.ONLINE); // neuer User ist sofort ONLINE
         newUser.setCreationDate(LocalDate.now()); // setzt heutiges datum

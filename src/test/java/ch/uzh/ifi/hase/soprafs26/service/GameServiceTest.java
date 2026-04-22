@@ -24,6 +24,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -53,7 +54,7 @@ public class GameServiceTest {
 
     @Mock
     private GameRepository gameRepository;
-
+    
     @Mock
     private UserRepository userRepository;
 
@@ -1355,5 +1356,149 @@ public class GameServiceTest {
         // status should NOT change to a PEEK state because swaps don't trigger abilities.
         assertEquals(GameStatus.ROUND_ACTIVE, game.getStatus());
     }
+
+    // test that initial peek timer transitions to ROUND_ACTIVE state and assigns a random player as starter
+    @Test
+    public void startGame_peekingTimerCompletes_transitionsToRoundActiveAndPicksRandomStarter() {
+
+        when(gameSettings.getMinPlayers()).thenReturn(2);
+        when(gameSettings.getMaxPlayers()).thenReturn(4);
+        when(gameSettings.getStarterCardsPerPlayer()).thenReturn(4);
+        when(gameSettings.getInitialPeekSeconds()).thenReturn(5L); // The 5-second timer
+        when(gameSettings.getTurnSeconds()).thenReturn(30L); // Needed for the turn timer
+
+        when(gameRepository.save(any(Game.class))).thenAnswer(inv -> {
+            Game g = inv.getArgument(0);
+            if (g.getId() == null) g.setId("test-game-id");
+            return g;
+        });
+
+        List<Runnable> scheduledTasks = new ArrayList<>();
+        ScheduledFuture<?> mockFuture = Mockito.mock(ScheduledFuture.class);
+
+        when(scheduler.schedule(any(Runnable.class), anyLong(), eq(TimeUnit.SECONDS))).thenAnswer(inv -> {
+            scheduledTasks.add(inv.getArgument(0));
+            return mockFuture;
+        });
+
+        List<Long> playerIds = List.of(1L, 2L, 3L);
+        Game startedGame = gameService.startGame(playerIds);
+
+        assertEquals(GameStatus.INITIAL_PEEK, startedGame.getStatus(), "Game should start in INITIAL_PEEK");
+        assertTrue(scheduledTasks.size() >= 1, "The peeking timer should be scheduled");
+
+        when(gameRepository.findById("test-game-id")).thenReturn(Optional.of(startedGame));
+        
+        scheduledTasks.get(0).run();
+
+        assertEquals(GameStatus.ROUND_ACTIVE, startedGame.getStatus(), "Game should transition to ROUND_ACTIVE");
+        
+        assertTrue(playerIds.contains(startedGame.getCurrentPlayerId()), "A random player should be assigned the first turn");
+        
+    }
+
+    // test whether opponents get null for drawn card to prevent cheating
+    @Test
+    public void getDrawnCard_opponentRequests_returnsNull() {
+        String snooperToken = "player2-token";
+        User opponent = new User(); 
+        opponent.setId(2L); 
+        opponent.setToken(snooperToken);
+        
+        Game game = new Game();
+        game.setId("g-drawn-card-snoop");
+        game.setCurrentPlayerId(1L);
+
+        Card drawnCard = new Card();
+        drawnCard.setCode("AS");
+        game.setDrawnCard(drawnCard);
+
+        when(userRepository.findByToken(snooperToken)).thenReturn(opponent);
+        when(gameRepository.findById("g-drawn-card-snoop")).thenReturn(Optional.of(game));
+
+        Card result = gameService.getDrawnCard("g-drawn-card-snoop", snooperToken);
+
+        assertNull(result, "Opponents should receive null to prevent cheating");
+    }
+
+    // test that if a player times out without drawing, the game auto-draws a card for them and discards it, then advances the turn
+    @Test
+    public void executeTimoutMove_playerHasNotDrawnCard_autoDrawsAndDiscards() {
+
+        Game game = new Game();
+        game.setId("g-timeout-nodraw");
+        game.setStatus(GameStatus.ROUND_ACTIVE);
+        game.setOrderedPlayerIds(List.of(1L, 2L));
+        game.setCurrentPlayerId(1L);
+        game.setDrawnCard(null); // No card drawn yet
+
+        Card topDraw = new Card(); topDraw.setCode("2H");
+        game.setDrawPile(new ArrayList<>(List.of(topDraw)));
+        game.setDiscardPile(new ArrayList<>());
+
+        when(gameRepository.findById("g-timeout-nodraw")).thenReturn(Optional.of(game));
+        when(gameRepository.save(any(Game.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        gameService.executeTimoutMove("g-timeout-nodraw", 1L);
+
+        assertEquals(0, game.getDrawPile().size(), "The card should be removed from the draw pile");
+        assertEquals(1, game.getDiscardPile().size(), "The card should be added to the discard pile");
+        
+        Card discardedCard = game.getDiscardPile().get(0);
+        assertEquals("2H", discardedCard.getCode(), "The discarded card should be the one from the draw pile");
+        assertTrue(discardedCard.getVisibility(), "The discarded card must be face-up (visible)");
+        
+        assertNull(game.getDrawnCard(), "The drawn card slot should be empty again");
+
+        assertEquals(2L, game.getCurrentPlayerId(), "Turn should advance to Player 2");
+    }
+
+    // tests that swapping a drawn card with a card in hand properly discards the swapped-out card face-up and hides the new card in hand, then advances the turn
+    @Test
+    public void moveSwapDrawnCard_validIndex_swapsCardsAndDiscardsFaceUp() {
+        String token = "player1-token";
+        User player1 = new User();
+        player1.setId(1L);
+        player1.setToken(token);
+
+        Game game = new Game();
+        game.setId("g-swap-drawn");
+        game.setStatus(GameStatus.ROUND_ACTIVE);
+        game.setOrderedPlayerIds(List.of(1L, 2L));
+        game.setCurrentPlayerId(1L);
+
+        Card handCard0 = new Card(); handCard0.setCode("2H");
+        Card handCard1 = new Card(); handCard1.setCode("3C"); 
+        List<Card> hand = new ArrayList<>(Arrays.asList(handCard0, handCard1));
+        game.setPlayerHands(new HashMap<>(Map.of(1L, hand)));
+
+        Card drawnCard = new Card(); drawnCard.setCode("AS");
+        game.setDrawnCard(drawnCard);
+        game.setDrawnFromDeck(true);
+
+        game.setDiscardPile(new ArrayList<>());
+
+        when(userRepository.findByToken(token)).thenReturn(player1);
+        when(gameRepository.findById("g-swap-drawn")).thenReturn(Optional.of(game));
+        when(gameRepository.save(any(Game.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        gameService.moveSwapDrawnCard("g-swap-drawn", token, 1);
+
+        List<Card> updatedHand = game.getPlayerHands().get(1L);
+        assertEquals(2, updatedHand.size());
+        assertEquals("AS", updatedHand.get(1).getCode(), "The drawn Ace of Spades should now be at index 1");
+        assertFalse(updatedHand.get(1).getVisibility(), "The new card in hand must be face-down");
+
+        assertEquals(1, game.getDiscardPile().size(), "The discard pile should now have 1 card");
+        Card discardedCard = game.getDiscardPile().get(0);
+        
+        assertEquals("3C", discardedCard.getCode(), "The discarded card should be the 3 of Clubs removed from the hand");
+        assertTrue(discardedCard.getVisibility(), "CRITICAL: The discarded card MUST be face-up!");
+
+        assertNull(game.getDrawnCard(), "The drawn card slot should be cleared after the swap");
+        assertEquals(2L, game.getCurrentPlayerId(), "Turn should successfully advance to Player 2");
+    }
+
+
 
 }
