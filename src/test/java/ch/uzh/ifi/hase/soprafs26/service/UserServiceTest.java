@@ -111,7 +111,7 @@ public class UserServiceTest {
 		user.setStatus(UserStatus.ONLINE);
 
 		when(userRepository.findByToken("token")).thenReturn(user);
-        when(lobbyRepository.findAll()).thenReturn(List.of());
+        when(lobbyRepository.existsByStatusAndPlayerId("PLAYING", 1L)).thenReturn(false);
 
 		userService.logoutUser("token");
 		
@@ -131,7 +131,7 @@ public class UserServiceTest {
         playingLobby.setPlayerIds(List.of(7L, 8L));
 
         when(userRepository.findByToken("token")).thenReturn(user);
-        when(lobbyRepository.findAll()).thenReturn(List.of(playingLobby));
+        when(lobbyRepository.existsByStatusAndPlayerId("PLAYING", 7L)).thenReturn(true);
 
         ResponseStatusException ex = assertThrows(ResponseStatusException.class, () -> userService.logoutUser("token"));
         assertEquals(409, ex.getStatusCode().value());

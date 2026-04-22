@@ -1,6 +1,7 @@
 package ch.uzh.ifi.hase.soprafs26.service;
 
 import ch.uzh.ifi.hase.soprafs26.config.settings.GameSettingsProperties;
+import ch.uzh.ifi.hase.soprafs26.config.settings.LobbySettingsProperties;
 import ch.uzh.ifi.hase.soprafs26.entity.Card;
 import ch.uzh.ifi.hase.soprafs26.entity.Game;
 import ch.uzh.ifi.hase.soprafs26.entity.Lobby;
@@ -14,6 +15,8 @@ import ch.uzh.ifi.hase.soprafs26.constant.GameStatus;
 // These are the publishers your Service uses to send WebSocket messages
 import ch.uzh.ifi.hase.soprafs26.service.GameEventPublisher;
 import ch.uzh.ifi.hase.soprafs26.service.LobbyEventPublisher;
+import ch.uzh.ifi.hase.soprafs26.service.OnlineUsersEventPublisher;
+import ch.uzh.ifi.hase.soprafs26.service.DisconnectService;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -51,6 +54,15 @@ class WebSocketBroadcastTest {
     @Mock
     private GameSettingsProperties gameSettings;
 
+    @Mock
+    private LobbySettingsProperties lobbySettings;
+
+    @Mock
+    private OnlineUsersEventPublisher onlineUsersEventPublisher;
+
+    @Mock
+    private DisconnectService disconnectService;
+
     @InjectMocks
     private GameService gameService;
 
@@ -68,6 +80,18 @@ class WebSocketBroadcastTest {
         Mockito.when(gameSettings.getAbilitySeconds()).thenReturn(30L);
         Mockito.when(gameSettings.getPostPeekAutoEndSeconds()).thenReturn(5L);
         Mockito.when(gameSettings.getRematchDecisionSeconds()).thenReturn(60L);
+        Mockito.when(lobbySettings.getAfkTimeoutMinSeconds()).thenReturn(180L);
+        Mockito.when(lobbySettings.getAfkTimeoutMaxSeconds()).thenReturn(1200L);
+        Mockito.when(lobbySettings.getInitialPeekMinSeconds()).thenReturn(3L);
+        Mockito.when(lobbySettings.getInitialPeekMaxSeconds()).thenReturn(60L);
+        Mockito.when(lobbySettings.getTurnMinSeconds()).thenReturn(10L);
+        Mockito.when(lobbySettings.getTurnMaxSeconds()).thenReturn(60L);
+        Mockito.when(lobbySettings.getAbilityRevealMinSeconds()).thenReturn(3L);
+        Mockito.when(lobbySettings.getAbilityRevealMaxSeconds()).thenReturn(10L);
+        Mockito.when(lobbySettings.getRematchDecisionMinSeconds()).thenReturn(10L);
+        Mockito.when(lobbySettings.getRematchDecisionMaxSeconds()).thenReturn(60L);
+        Mockito.when(lobbySettings.getWebsocketGraceMinSeconds()).thenReturn(180L);
+        Mockito.when(lobbySettings.getWebsocketGraceMaxSeconds()).thenReturn(600L);
     }
 
     @Test

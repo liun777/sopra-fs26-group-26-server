@@ -63,12 +63,13 @@ public class LobbyServiceTest {
 	@BeforeEach
 	public void setup() {
 		MockitoAnnotations.openMocks(this);
-		Mockito.when(gameRepository.findAll()).thenReturn(List.of());
+		Mockito.when(gameRepository.findGamesByPlayerId(Mockito.anyLong())).thenReturn(List.of());
 		Mockito.when(lobbySettingsProperties.getAfkTimeoutDefaultSeconds()).thenReturn(300L);
 		Mockito.when(lobbySettingsProperties.getInitialPeekDefaultSeconds()).thenReturn(10L);
 		Mockito.when(lobbySettingsProperties.getTurnDefaultSeconds()).thenReturn(30L);
 		Mockito.when(lobbySettingsProperties.getAbilityRevealDefaultSeconds()).thenReturn(5L);
 		Mockito.when(lobbySettingsProperties.getRematchDecisionDefaultSeconds()).thenReturn(60L);
+		Mockito.when(lobbySettingsProperties.getWebsocketGraceDefaultSeconds()).thenReturn(300L);
 		Mockito.when(lobbySettingsProperties.getAfkTimeoutMinSeconds()).thenReturn(180L);
 		Mockito.when(lobbySettingsProperties.getAfkTimeoutMaxSeconds()).thenReturn(1200L);
 		Mockito.when(lobbySettingsProperties.getInitialPeekMinSeconds()).thenReturn(3L);
@@ -79,6 +80,8 @@ public class LobbyServiceTest {
 		Mockito.when(lobbySettingsProperties.getAbilityRevealMaxSeconds()).thenReturn(10L);
 		Mockito.when(lobbySettingsProperties.getRematchDecisionMinSeconds()).thenReturn(10L);
 		Mockito.when(lobbySettingsProperties.getRematchDecisionMaxSeconds()).thenReturn(60L);
+		Mockito.when(lobbySettingsProperties.getWebsocketGraceMinSeconds()).thenReturn(180L);
+		Mockito.when(lobbySettingsProperties.getWebsocketGraceMaxSeconds()).thenReturn(600L);
 	}
 
 	@Test
@@ -258,7 +261,7 @@ public class LobbyServiceTest {
 		game.setId("G1");
 		game.setStatus(GameStatus.ROUND_ACTIVE);
 		game.setOrderedPlayerIds(new ArrayList<>(List.of(2L, 1L)));
-		Mockito.when(gameRepository.findAll()).thenReturn(List.of(game));
+		Mockito.when(gameRepository.findGamesByPlayerId(2L)).thenReturn(List.of(game));
 
 		ResponseStatusException ex = assertThrows(ResponseStatusException.class,
 				() -> lobbyService.joinLobby("S1", "token"));
@@ -300,7 +303,7 @@ public class LobbyServiceTest {
 		game.setId("G2");
 		game.setStatus(GameStatus.ROUND_ACTIVE);
 		game.setOrderedPlayerIds(new ArrayList<>(List.of(2L, 7L)));
-		Mockito.when(gameRepository.findAll()).thenReturn(List.of(game));
+		Mockito.when(gameRepository.findGamesByPlayerId(2L)).thenReturn(List.of(game));
 
 		ResponseStatusException ex = assertThrows(ResponseStatusException.class,
 				() -> lobbyService.createLobby("token", true));
@@ -455,7 +458,7 @@ public class LobbyServiceTest {
 		playingLobby.setStatus("PLAYING");
 		playingLobby.setIsPublic(true);
 		playingLobby.setPlayerIds(new ArrayList<>(List.of(1L, 2L, 3L, 4L)));
-		Mockito.when(lobbyRepository.findAll()).thenReturn(List.of(playingLobby));
+		Mockito.when(lobbyRepository.findByStatus("PLAYING")).thenReturn(List.of(playingLobby));
 		Mockito.when(lobbyRepository.save(Mockito.any(Lobby.class))).thenAnswer(invocation -> {
 			Lobby saved = invocation.getArgument(0);
 			if (saved.getId() == null) {
