@@ -7,6 +7,7 @@ import ch.uzh.ifi.hase.soprafs26.rest.dto.CardViewDTO;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.DiscardTopDTO;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.GameStateBroadcastDTO;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.PlayerHandViewDTO;
+import ch.uzh.ifi.hase.soprafs26.service.LobbyService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -19,14 +20,20 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class GameStateBroadcastMapperTest {
 
     private GameStateBroadcastMapper mapper;
+    private LobbyService lobbyService;
 
     @BeforeEach
     void setUp() {
-        mapper = new GameStateBroadcastMapper();
+        lobbyService = mock(LobbyService.class);
+        when(lobbyService.isPlayerTimedOutInPlaying(anyLong())).thenReturn(false);
+        mapper = new GameStateBroadcastMapper(lobbyService);
     }
 
     @Test

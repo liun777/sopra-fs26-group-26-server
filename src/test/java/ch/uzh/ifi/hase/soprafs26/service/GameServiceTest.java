@@ -760,7 +760,7 @@ public class GameServiceTest {
 
         gameService.moveSwapWithDiscardPile("g-swap-broadcast-chain", "token", 0);
 
-        GameStateBroadcastMapper broadcastMapper = new GameStateBroadcastMapper();
+        GameStateBroadcastMapper broadcastMapper = new GameStateBroadcastMapper(lobbyService);
         for (Long viewerId : List.of(1L, 2L)) {
             GameStateBroadcastDTO dto = broadcastMapper.toBroadcastForViewer(game, viewerId);
             assertNotNull(dto.getDiscardPileTop());
@@ -817,7 +817,7 @@ public class GameServiceTest {
         gameService.moveDrawFromDiscardPile("g-draw-swap-broadcast-chain", "token");
         gameService.moveSwapDrawnCard("g-draw-swap-broadcast-chain", "token", 0);
 
-        GameStateBroadcastMapper broadcastMapper = new GameStateBroadcastMapper();
+        GameStateBroadcastMapper broadcastMapper = new GameStateBroadcastMapper(lobbyService);
         for (Long viewerId : List.of(1L, 2L)) {
             GameStateBroadcastDTO dto = broadcastMapper.toBroadcastForViewer(game, viewerId);
             assertNotNull(dto.getDiscardPileTop());
