@@ -193,6 +193,14 @@ public class GameController {
         return Map.of("decisionSeconds", gameService.getRematchDecisionSeconds(gameId, token));
     }
 
+    @GetMapping("/games/{gameId}/config")
+    @ResponseStatus(HttpStatus.OK)
+    public Map<String, Long> getGameRuntimeConfig(
+            @PathVariable String gameId,
+            @RequestHeader("Authorization") String token) {
+        return gameService.getGameRuntimeConfig(gameId, token);
+    }
+
     // discard the drawn card — POST /games/{gameId}/drawn-card/discard
     @PostMapping("/games/{gameId}/drawn-card/discard")
     @ResponseStatus(HttpStatus.OK)

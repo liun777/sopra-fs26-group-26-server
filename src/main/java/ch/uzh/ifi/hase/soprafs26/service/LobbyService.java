@@ -373,10 +373,12 @@ public class LobbyService {
                 || body.getAfkTimeoutSeconds() != null
                 || body.getInitialPeekSeconds() != null
                 || body.getTurnSeconds() != null
-                || body.getAbilityRevealSeconds() != null
-                || body.getRematchDecisionSeconds() != null;
+                || body.getAbilityRevealSeconds() != null;
         if (!hasAnySetting) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "No settings to update");
+        }
+        if (body.getRematchDecisionSeconds() != null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Rematch decision timer is fixed");
         }
         User user = getUserByToken(token);
         Lobby lobby = lobbyRepository.findBySessionId(sessionId);
@@ -419,13 +421,6 @@ public class LobbyService {
                     lobbySettings.getAbilityRevealMinSeconds(),
                     lobbySettings.getAbilityRevealMaxSeconds());
             lobby.setAbilityRevealSeconds(value);
-        }
-        if (body.getRematchDecisionSeconds() != null) {
-            long value = clamp(
-                    body.getRematchDecisionSeconds(),
-                    lobbySettings.getRematchDecisionMinSeconds(),
-                    lobbySettings.getRematchDecisionMaxSeconds());
-            lobby.setRematchDecisionSeconds(value);
         }
         lobby = lobbyRepository.save(lobby);
         lobbyEventPublisher.broadcastLobbyUpdate(lobby.getId(), lobby);

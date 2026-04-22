@@ -51,10 +51,22 @@ public class DisconnectService {
         if (hasActiveWebSocketSession(userId)) {
             return;
         }
+        // In active games, do not fast-timeout on websocket disconnect alone (tab switch/background throttling).
+        // AFK handling should follow the configured game AFK timer via heartbeat idle checks.
+        if (lobbyService != null && lobbyService.isUserInActiveGame(userId)) {
+            // Reset AFK baseline on midgame websocket loss so a short tab/background switch
+            // cannot instantly trigger timeout because of an older stale heartbeat.
+            userRepository.findById(userId).ifPresent(user -> {
+                user.setLastHeartbeat(Instant.now());
+                userRepository.save(user);
+            });
+            cancelDisconnectTimer(userId);
+            return;
+        }
         cancelDisconnectTimer(userId);
         
         ScheduledFuture<?> future = scheduler.schedule(() -> {
-            performPermanentRemoval(userId);
+            performPermanentRemoval(userId, "websocket_grace", timeoutSettings.getWebsocketGraceSeconds());
         }, timeoutSettings.getWebsocketGraceSeconds(), TimeUnit.SECONDS);
         
         activeTimers.put(userId, future);
@@ -94,7 +106,7 @@ public class DisconnectService {
                 // Already marked timed out for active game: avoid repeated removals/log spam.
                 continue;
             }
-            performPermanentRemoval(user.getId());
+            performPermanentRemoval(user.getId(), "idle", idleThresholdSeconds);
         }
     }
 
@@ -187,7 +199,7 @@ public class DisconnectService {
     /**
      * Final cleanup after websocket grace or idle timeout.
      */
-    private void performPermanentRemoval(Long userId) {
+    private void performPermanentRemoval(Long userId, String reason, long thresholdSeconds) {
         User user = userRepository.findById(userId).orElse(null);
         if (user == null) return;
         if (lobbyService != null && lobbyService.isPlayerTimedOutInPlaying(userId)) {
@@ -206,6 +218,21 @@ public class DisconnectService {
         
         activeTimers.remove(userId);
         activeWebSocketSessions.remove(userId);
-        System.out.println("User " + userId + " permanently removed due to timeout.");
+        long secondsSinceHeartbeat = -1L;
+        Instant lastHeartbeat = user.getLastHeartbeat();
+        if (lastHeartbeat != null) {
+            secondsSinceHeartbeat = Math.max(0L, Instant.now().getEpochSecond() - lastHeartbeat.getEpochSecond());
+        }
+        String reasonText = reason == null || reason.isBlank() ? "unknown" : reason;
+        String heartbeatText = secondsSinceHeartbeat >= 0
+                ? String.valueOf(secondsSinceHeartbeat)
+                : "n/a";
+        System.out.println(
+                "User " + userId
+                        + " permanently removed due to timeout "
+                        + "[reason=" + reasonText
+                        + ", thresholdSeconds=" + thresholdSeconds
+                        + ", secondsSinceHeartbeat=" + heartbeatText
+                        + "].");
     }
 }

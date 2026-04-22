@@ -17,11 +17,13 @@ public class GameStateBroadcastDTO {
     private DiscardTopDTO discardPileTop;
     private CardViewDTO drawnCard;
     private boolean caboCalled;
+    private boolean caboForcedByTimeout;
     private long turnSeconds;
     private long initialPeekSeconds;
     private long abilityRevealSeconds;
     private long rematchDecisionSeconds;
     private long afkTimeoutSeconds;
+    private List<Long> timedOutPlayerIds = new ArrayList<>();
     private GameMoveEventDTO lastMoveEvent;
     private List<PlayerHandViewDTO> players = new ArrayList<>();
 
@@ -81,6 +83,14 @@ public class GameStateBroadcastDTO {
         this.caboCalled = caboCalled;
     }
 
+    public boolean isCaboForcedByTimeout() {
+        return caboForcedByTimeout;
+    }
+
+    public void setCaboForcedByTimeout(boolean caboForcedByTimeout) {
+        this.caboForcedByTimeout = caboForcedByTimeout;
+    }
+
     public long getTurnSeconds() {
         return turnSeconds;
     }
@@ -119,6 +129,14 @@ public class GameStateBroadcastDTO {
 
     public void setAfkTimeoutSeconds(long afkTimeoutSeconds) {
         this.afkTimeoutSeconds = afkTimeoutSeconds;
+    }
+
+    public List<Long> getTimedOutPlayerIds() {
+        return timedOutPlayerIds;
+    }
+
+    public void setTimedOutPlayerIds(List<Long> timedOutPlayerIds) {
+        this.timedOutPlayerIds = timedOutPlayerIds != null ? timedOutPlayerIds : new ArrayList<>();
     }
 
     public GameMoveEventDTO getLastMoveEvent() {

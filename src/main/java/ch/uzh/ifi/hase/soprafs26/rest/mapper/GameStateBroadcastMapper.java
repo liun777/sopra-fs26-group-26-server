@@ -11,6 +11,8 @@ import ch.uzh.ifi.hase.soprafs26.rest.dto.GameStateBroadcastDTO;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.GameMoveEventDTO;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.GameMoveStepDTO;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.PlayerHandViewDTO;
+import ch.uzh.ifi.hase.soprafs26.service.LobbyService;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -20,6 +22,11 @@ import java.util.Map;
 // builds a game state representation with filtered data for a given player
 @Component
 public class GameStateBroadcastMapper {
+    private final LobbyService lobbyService;
+
+    public GameStateBroadcastMapper(@Lazy LobbyService lobbyService) {
+        this.lobbyService = lobbyService;
+    }
 
     public GameStateBroadcastDTO toBroadcastForViewer(Game game, Long viewerUserId) {
         GameStateBroadcastDTO dto = new GameStateBroadcastDTO();
@@ -28,6 +35,7 @@ public class GameStateBroadcastMapper {
         dto.setStatus(game.getStatus());
         dto.setCurrentTurnUserId(game.getCurrentPlayerId());
         dto.setCaboCalled(game.isCaboCalled());
+        dto.setCaboForcedByTimeout(game.isCaboForcedByTimeout());
         dto.setTurnSeconds(game.getTurnSeconds());
         dto.setInitialPeekSeconds(game.getInitialPeekSeconds());
         dto.setAbilityRevealSeconds(game.getAbilityRevealSeconds());
@@ -76,6 +84,11 @@ public class GameStateBroadcastMapper {
         if (ordered == null) {
             ordered = List.of();
         }
+        dto.setTimedOutPlayerIds(
+                ordered.stream()
+                        .filter(id -> id != null && lobbyService != null && lobbyService.isPlayerTimedOutInPlaying(id))
+                        .toList()
+        );
 
         List<PlayerHandViewDTO> playerHands = new ArrayList<>();
         for (Long ownerId : ordered) {

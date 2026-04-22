@@ -214,7 +214,9 @@ public class UserService {
    	 	    userRepository.save(user);
         }
         if (disconnectService != null) {
-            disconnectService.cancelDisconnectTimer(user.getId());
+            // A fresh authenticated heartbeat means the user is back and active.
+            // Clear any stale "timed out in playing" flag to prevent false auto-Cabo.
+            disconnectService.handleReconnect(user.getId());
         }
 	}
 }

@@ -37,6 +37,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
+import java.time.Instant;
 
 // added TEMPORARY FALLBACK, SINCE DECKAPI IS UNRELIABLE FOR TESTING
 @Service
@@ -196,8 +197,9 @@ public class GameService {
         long resolvedAbilityRevealSeconds = resolvePositiveOrDefault(
                 lobbyConfig != null ? lobbyConfig.getAbilityRevealSeconds() : null,
                 gameSettings.getPostPeekAutoEndSeconds());
+        // Rematch decision timer is fixed globally (not lobby-adjustable).
         long resolvedRematchDecisionSeconds = resolvePositiveOrDefault(
-                lobbyConfig != null ? lobbyConfig.getRematchDecisionSeconds() : null,
+                null,
                 gameSettings.getRematchDecisionSeconds());
         long resolvedAfkTimeoutSeconds = resolvePositiveOrDefault(
                 lobbyConfig != null ? lobbyConfig.getAfkTimeoutSeconds() : null,
@@ -407,6 +409,9 @@ public class GameService {
         User user = userRepository.findByToken(authorizationToken);
         if (user == null) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid token");
+        }
+        if (lobbyService != null) {
+            lobbyService.clearTimedOutPlayingFlag(user.getId());
         }
         Game game = getGameById(gameId);
         if (!user.getId().equals(game.getCurrentPlayerId())) {
@@ -993,6 +998,7 @@ public class GameService {
 
         game.setCaboCalled(true);
         game.setCaboCalledByUserId(game.getCurrentPlayerId());
+        game.setCaboForcedByTimeout(false);
         saveGameAndBroadcast(game);
         advanceTurnToNextPlayer(gameId); 
     }
@@ -1017,6 +1023,7 @@ public class GameService {
 
         game.setCaboCalled(true);
         game.setCaboCalledByUserId(userId);
+        game.setCaboForcedByTimeout(true);
         saveGameAndBroadcast(game);
         advanceTurnToNextPlayer(gameId);
     }
@@ -1097,6 +1104,27 @@ public class GameService {
         return game.getRematchDecisionSeconds();
     }
 
+    public Map<String, Long> getGameRuntimeConfig(String gameId, String token) {
+        if (token == null || token.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid token");
+        }
+        User user = userRepository.findByToken(token);
+        if (user == null) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid token");
+        }
+        Game game = getGameById(gameId);
+        if (game.getOrderedPlayerIds() == null || !game.getOrderedPlayerIds().contains(user.getId())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Not a player in this game");
+        }
+        return Map.of(
+                "turnSeconds", game.getTurnSeconds(),
+                "initialPeekSeconds", game.getInitialPeekSeconds(),
+                "abilityRevealSeconds", game.getAbilityRevealSeconds(),
+                "afkTimeoutSeconds", game.getAfkTimeoutSeconds(),
+                "rematchDecisionSeconds", game.getRematchDecisionSeconds()
+        );
+    }
+
     private void resolveRematchDecision(String gameId, Game game, Long expectedCountIfAny) {
         if (game.getStatus() != GameStatus.ROUND_AWAITING_REMATCH) {
             return;
@@ -1120,6 +1148,7 @@ public class GameService {
         game.setStatus(GameStatus.ROUND_ENDED);
         game.setCaboCalled(false);
         game.setCaboCalledByUserId(null);
+        game.setCaboForcedByTimeout(false);
         game.setRematchDecisionByUserId(new HashMap<>());
         saveGameAndBroadcast(game);
 
@@ -1219,6 +1248,7 @@ public class GameService {
             game.setCurrentPlayerId(nextPlayerId);
             game.setCaboCalled(true);
             game.setCaboCalledByUserId(nextPlayerId);
+            game.setCaboForcedByTimeout(true);
             saveGameAndBroadcast(game);
             advanceTurnToNextPlayer(gameId);
             return;
@@ -1240,9 +1270,29 @@ public class GameService {
     }
 
     private boolean isTimedOutPlayer(Long playerId) {
-        return playerId != null
-                && lobbyService != null
-                && lobbyService.isPlayerTimedOutInPlaying(playerId);
+        if (playerId == null || lobbyService == null) {
+            return false;
+        }
+        if (!lobbyService.isPlayerTimedOutInPlaying(playerId)) {
+            return false;
+        }
+        // Self-heal stale timeout flags to avoid false auto-Cabo.
+        if (hasFreshHeartbeat(playerId, 45)) {
+            lobbyService.clearTimedOutPlayingFlag(playerId);
+            return false;
+        }
+        return true;
+    }
+
+    private boolean hasFreshHeartbeat(Long userId, long freshnessWindowSeconds) {
+        if (userId == null || freshnessWindowSeconds <= 0) {
+            return false;
+        }
+        return userRepository.findById(userId)
+                .map(User::getLastHeartbeat)
+                .filter(last -> last != null)
+                .map(last -> last.isAfter(Instant.now().minusSeconds(freshnessWindowSeconds)))
+                .orElse(false);
     }
 
     // start new turn alarm for specified player

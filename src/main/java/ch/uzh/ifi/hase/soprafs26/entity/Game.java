@@ -75,6 +75,10 @@ public class Game {
     @Column
     private Long caboCalledByUserId;
 
+    // True when Cabo was auto-called due to timeout/disconnect (not manual button press).
+    @Column(nullable = false)
+    private boolean caboForcedByTimeout = false;
+
     // tracks if the current player already used their special peek ability
     @Column(nullable = false)
     private boolean specialPeekUsed = false;
@@ -219,6 +223,14 @@ public class Game {
 
     public void setCaboCalledByUserId(Long caboCalledByUserId) {
         this.caboCalledByUserId = caboCalledByUserId;
+    }
+
+    public boolean isCaboForcedByTimeout() {
+        return caboForcedByTimeout;
+    }
+
+    public void setCaboForcedByTimeout(boolean caboForcedByTimeout) {
+        this.caboForcedByTimeout = caboForcedByTimeout;
     }
 
     public boolean isSpecialPeekUsed() {
