@@ -199,14 +199,26 @@ public class UserService {
     	if (user == null) return;
         java.time.Instant now = java.time.Instant.now();
         java.time.Instant last = user.getLastHeartbeat();
-        if (last == null || now.isAfter(last.plusSeconds(HEARTBEAT_WRITE_THROTTLE_SECONDS))) {
-    	    user.setLastHeartbeat(now);
-   	 	    userRepository.save(user);
+        UserStatus resolvedStatus = resolveStatusForLogin(user.getId());
+        boolean statusNeedsUpdate = user.getStatus() != resolvedStatus;
+        boolean shouldSaveHeartbeat = last == null || now.isAfter(last.plusSeconds(HEARTBEAT_WRITE_THROTTLE_SECONDS));
+        boolean shouldPersist = shouldSaveHeartbeat || statusNeedsUpdate;
+        if (shouldPersist) {
+            if (shouldSaveHeartbeat) {
+                user.setLastHeartbeat(now);
+            }
+            if (statusNeedsUpdate) {
+                user.setStatus(resolvedStatus);
+            }
+            userRepository.save(user);
         }
         if (disconnectService != null) {
             // A fresh authenticated heartbeat means the user is back and active.
             // Clear any stale "timed out in playing" flag to prevent false auto-Cabo.
             disconnectService.handleReconnect(user.getId());
+        }
+        if (statusNeedsUpdate) {
+            onlineUsersEventPublisher.broadcastOnlineUsers();
         }
 	}
 }

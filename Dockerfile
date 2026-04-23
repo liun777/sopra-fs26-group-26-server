@@ -9,6 +9,10 @@ RUN sed -i 's/\r$//' ./gradlew && chmod +x ./gradlew
 # Copy build script and source code
 COPY build.gradle settings.gradle /app/
 COPY src /app/src
+# Run tests and coverage report during image build so failures are visible in docker build logs
+RUN ./gradlew test jacocoTestReport --no-daemon --max-workers=1 \
+    -Dorg.gradle.daemon=false \
+    -Dorg.gradle.jvmargs="-Xms256m -Xmx768m -XX:MaxMetaspaceSize=512m -Dfile.encoding=UTF-8"
 # Build the server
 RUN ./gradlew clean bootJar --no-daemon --max-workers=1 -x test \
     -Dorg.gradle.daemon=false \

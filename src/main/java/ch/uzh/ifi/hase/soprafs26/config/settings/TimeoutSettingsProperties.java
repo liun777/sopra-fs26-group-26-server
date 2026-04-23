@@ -24,7 +24,7 @@ public class TimeoutSettingsProperties {
 
     // Default long-inactivity threshold before auto logout (except active games)
     @Min(1)
-    private long autoLogoutSeconds = 21600;
+    private long autoLogoutSeconds = 3600;
 
     // Poll interval (milliseconds) for idle-user checks
     @Min(1000)

@@ -16,6 +16,7 @@ import ch.uzh.ifi.hase.soprafs26.repository.LobbyRepository;
 import ch.uzh.ifi.hase.soprafs26.repository.UserRepository;
 
 import java.util.List;
+import java.time.Instant;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.verify;
@@ -155,6 +156,65 @@ public class UserServiceTest {
         
         // Verify the database was never touched
         Mockito.verify(userRepository, Mockito.never()).save(Mockito.any());
+    }
+
+    @Test
+    public void heartbeat_offlineUserWithoutLobby_setsOnline() {
+        User user = new User();
+        user.setId(10L);
+        user.setToken("token-online");
+        user.setStatus(UserStatus.OFFLINE);
+        user.setLastHeartbeat(Instant.now());
+
+        when(userRepository.findByToken("token-online")).thenReturn(user);
+        when(lobbyRepository.existsByStatusAndPlayerId("PLAYING", 10L)).thenReturn(false);
+        when(lobbyRepository.existsByStatusAndPlayerId("WAITING", 10L)).thenReturn(false);
+
+        userService.heartbeat("token-online");
+
+        assertEquals(UserStatus.ONLINE, user.getStatus());
+        verify(userRepository, Mockito.atLeastOnce()).save(user);
+        verify(onlineUsersEventPublisher, Mockito.times(1)).broadcastOnlineUsers();
+        verify(disconnectService, Mockito.times(1)).handleReconnect(10L);
+    }
+
+    @Test
+    public void heartbeat_offlineUserInWaitingLobby_setsLobby() {
+        User user = new User();
+        user.setId(11L);
+        user.setToken("token-lobby");
+        user.setStatus(UserStatus.OFFLINE);
+        user.setLastHeartbeat(Instant.now());
+
+        when(userRepository.findByToken("token-lobby")).thenReturn(user);
+        when(lobbyRepository.existsByStatusAndPlayerId("PLAYING", 11L)).thenReturn(false);
+        when(lobbyRepository.existsByStatusAndPlayerId("WAITING", 11L)).thenReturn(true);
+
+        userService.heartbeat("token-lobby");
+
+        assertEquals(UserStatus.LOBBY, user.getStatus());
+        verify(userRepository, Mockito.atLeastOnce()).save(user);
+        verify(onlineUsersEventPublisher, Mockito.times(1)).broadcastOnlineUsers();
+        verify(disconnectService, Mockito.times(1)).handleReconnect(11L);
+    }
+
+    @Test
+    public void heartbeat_offlineUserInPlayingLobby_setsPlaying() {
+        User user = new User();
+        user.setId(12L);
+        user.setToken("token-playing");
+        user.setStatus(UserStatus.OFFLINE);
+        user.setLastHeartbeat(Instant.now());
+
+        when(userRepository.findByToken("token-playing")).thenReturn(user);
+        when(lobbyRepository.existsByStatusAndPlayerId("PLAYING", 12L)).thenReturn(true);
+
+        userService.heartbeat("token-playing");
+
+        assertEquals(UserStatus.PLAYING, user.getStatus());
+        verify(userRepository, Mockito.atLeastOnce()).save(user);
+        verify(onlineUsersEventPublisher, Mockito.times(1)).broadcastOnlineUsers();
+        verify(disconnectService, Mockito.times(1)).handleReconnect(12L);
     }
 
 }
