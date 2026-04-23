@@ -141,8 +141,8 @@ public class LobbyServiceTest {
 		User host = new User();
 		host.setId(1L);
 		host.setUsername("host");
-		Mockito.when(userRepository.findById(1L)).thenReturn(Optional.of(host));
-		Mockito.when(userRepository.findById(2L)).thenReturn(Optional.of(member));
+		Mockito.when(userRepository.findAllById(Mockito.anyIterable()))
+				.thenReturn(List.of(host, member));
 
 		Lobby lobby = new Lobby();
 		lobby.setId(10L);
@@ -264,6 +264,7 @@ public class LobbyServiceTest {
 		game.setId("G1");
 		game.setStatus(GameStatus.ROUND_ACTIVE);
 		game.setOrderedPlayerIds(new ArrayList<>(List.of(2L, 1L)));
+		Mockito.when(lobbyRepository.existsByStatusAndPlayerId("PLAYING", 2L)).thenReturn(true);
 		Mockito.when(gameRepository.findGamesByPlayerId(2L)).thenReturn(List.of(game));
 
 		ResponseStatusException ex = assertThrows(ResponseStatusException.class,
@@ -306,6 +307,7 @@ public class LobbyServiceTest {
 		game.setId("G2");
 		game.setStatus(GameStatus.ROUND_ACTIVE);
 		game.setOrderedPlayerIds(new ArrayList<>(List.of(2L, 7L)));
+		Mockito.when(lobbyRepository.existsByStatusAndPlayerId("PLAYING", 2L)).thenReturn(true);
 		Mockito.when(gameRepository.findGamesByPlayerId(2L)).thenReturn(List.of(game));
 
 		ResponseStatusException ex = assertThrows(ResponseStatusException.class,
@@ -348,9 +350,8 @@ public class LobbyServiceTest {
 		User u2 = new User();
 		u2.setId(2L);
 		u2.setStatus(UserStatus.LOBBY);
-		Mockito.when(userRepository.findById(1L)).thenReturn(Optional.of(u1));
-		Mockito.when(userRepository.findById(2L)).thenReturn(Optional.of(u2));
-		Mockito.when(userRepository.save(Mockito.any(User.class))).thenAnswer(inv -> inv.getArgument(0));
+		Mockito.when(userRepository.findAllById(Mockito.anyIterable())).thenReturn(new ArrayList<>(List.of(u1, u2)));
+		Mockito.when(userRepository.saveAll(Mockito.anyIterable())).thenAnswer(inv -> inv.getArgument(0));
 
 		lobbyService.markLobbyAsPlaying("S1");
 

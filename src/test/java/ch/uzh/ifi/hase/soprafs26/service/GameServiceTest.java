@@ -1259,7 +1259,7 @@ public class GameServiceTest {
 
         // player 4 takes final turn — next would be player 1 (who called cabo) so round ends
         gameService.advanceTurnToNextPlayer("g-cabo");
-        assertEquals(GameStatus.ROUND_AWAITING_REMATCH, game.getStatus());
+        assertEquals(GameStatus.CABO_REVEAL, game.getStatus());
     }
 
     // #83: Cabo caller must not act as current player during the post-Cabo final lap (draw / swap)
