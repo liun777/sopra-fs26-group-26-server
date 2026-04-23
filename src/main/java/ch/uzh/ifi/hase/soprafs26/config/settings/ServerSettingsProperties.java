@@ -10,19 +10,19 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Server runtime knobs loaded from `app.server.*`.
- * Used for CORS and shared scheduler sizing.
+ * Server runtime settings loaded from `app.server.*`
+ * Contains shared scheduler sizing and allowed CORS origins
  */
 @Component
 @Validated
 @ConfigurationProperties(prefix = "app.server")
 public class ServerSettingsProperties {
 
-    // Shared scheduler size used for game timers and scheduled transitions.
+    // Shared scheduler thread-pool size for timers and scheduled transitions
     @Min(1)
     private int gameSchedulerThreadPoolSize = 10;
 
-    // Frontend origins allowed to call backend HTTP endpoints.
+    // Frontend origins allowed to call backend HTTP endpoints
     @NotEmpty
     private List<String> corsAllowedOrigins = new ArrayList<>(List.of(
             "http://localhost:3000",

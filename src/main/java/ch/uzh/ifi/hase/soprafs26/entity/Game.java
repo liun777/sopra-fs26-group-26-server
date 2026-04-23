@@ -94,7 +94,13 @@ public class Game {
     private long abilityRevealSeconds = 5L;
 
     @Column(nullable = false)
-    private long rematchDecisionSeconds = 60L;
+    private long abilitySwapSeconds = 10L;
+
+    @Column(nullable = false)
+    private long caboRevealSeconds = 30L;
+
+    @Column(nullable = false)
+    private long rematchDecisionSeconds = 30L;
 
     @Column(nullable = false)
     private long afkTimeoutSeconds = 300L;
@@ -274,12 +280,28 @@ public class Game {
         this.abilityRevealSeconds = abilityRevealSeconds;
     }
 
+    public long getAbilitySwapSeconds() {
+        return abilitySwapSeconds;
+    }
+
+    public void setAbilitySwapSeconds(long abilitySwapSeconds) {
+        this.abilitySwapSeconds = abilitySwapSeconds;
+    }
+
     public long getRematchDecisionSeconds() {
         return rematchDecisionSeconds;
     }
 
     public void setRematchDecisionSeconds(long rematchDecisionSeconds) {
         this.rematchDecisionSeconds = rematchDecisionSeconds;
+    }
+
+    public long getCaboRevealSeconds() {
+        return caboRevealSeconds;
+    }
+
+    public void setCaboRevealSeconds(long caboRevealSeconds) {
+        this.caboRevealSeconds = caboRevealSeconds;
     }
 
     public long getAfkTimeoutSeconds() {

@@ -39,6 +39,8 @@ public class GameStateBroadcastMapper {
         dto.setTurnSeconds(game.getTurnSeconds());
         dto.setInitialPeekSeconds(game.getInitialPeekSeconds());
         dto.setAbilityRevealSeconds(game.getAbilityRevealSeconds());
+        dto.setAbilitySwapSeconds(game.getAbilitySwapSeconds());
+        dto.setCaboRevealSeconds(game.getCaboRevealSeconds());
         dto.setRematchDecisionSeconds(game.getRematchDecisionSeconds());
         dto.setAfkTimeoutSeconds(game.getAfkTimeoutSeconds());
         dto.setLastMoveEvent(toMoveEventDTO(game.getLastMoveEvent()));
@@ -140,7 +142,9 @@ public class GameStateBroadcastMapper {
         v.setPosition(position);
         boolean isOwner = handOwnerId.equals(viewerUserId);
         boolean isViewerCurrentPlayer = viewerUserId.equals(currentPlayerId);
-        boolean revealAll = gameStatus == GameStatus.ROUND_AWAITING_REMATCH || gameStatus == GameStatus.ROUND_ENDED;
+        boolean revealAll = gameStatus == GameStatus.CABO_REVEAL
+                || gameStatus == GameStatus.ROUND_AWAITING_REMATCH
+                || gameStatus == GameStatus.ROUND_ENDED;
 
         // Default (initial peek, 7/8 self-peek, round play): owner sees own cards marked visible
         // ABILITY_PEEK_OPPONENT (9/10): only the current player (spy) may see a visible card on another hand

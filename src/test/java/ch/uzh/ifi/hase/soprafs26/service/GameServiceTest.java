@@ -90,6 +90,8 @@ public class GameServiceTest {
         Mockito.when(gameSettings.getTurnSeconds()).thenReturn(30L);
         Mockito.when(gameSettings.getAbilitySeconds()).thenReturn(30L);
         Mockito.when(gameSettings.getPostPeekAutoEndSeconds()).thenReturn(5L);
+        Mockito.when(gameSettings.getAbilitySwapSeconds()).thenReturn(10L);
+        Mockito.when(gameSettings.getCaboRevealSeconds()).thenReturn(30L);
         Mockito.when(gameSettings.getRematchDecisionSeconds()).thenReturn(60L);
         Mockito.when(lobbyService.isPlayerTimedOutInPlaying(Mockito.anyLong())).thenReturn(false);
         // mock timer without waiting for it

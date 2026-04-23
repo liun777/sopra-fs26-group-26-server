@@ -6,45 +6,53 @@ import org.springframework.stereotype.Component;
 import org.springframework.validation.annotation.Validated;
 
 /**
- * Tunable gameplay settings loaded from application*.properties under `app.game.*`.
- * Keep defaults sensible so local dev works even if a key is missing.
+ * Global gameplay defaults loaded from `app.game.*`
+ * Lobby timer settings (from `app.lobby-settings.*`) may override some values per lobby/game!
  */
 @Component
 @Validated
 @ConfigurationProperties(prefix = "app.game")
 public class GameSettingsProperties {
 
-    // Minimum number of players required to start a game.
+    // Minimum number of players required to start a game
     @Min(2)
     private int minPlayers = 2;
 
-    // Maximum number of players allowed in one game.
+    // Maximum number of players allowed in one game
     @Min(2)
     private int maxPlayers = 4;
 
-    // Number of hand cards dealt to each player at game start.
+    // Number of hand cards dealt to each player at game start
     @Min(1)
     private int starterCardsPerPlayer = 4;
 
-    // Length of the initial "memorize cards" phase.
+    // Default initial peek duration when no lobby-specific value is provided
     @Min(1)
     private long initialPeekSeconds = 10;
 
-    // Turn timeout for normal round actions.
+    // Default turn duration when no lobby-specific value is provided
     @Min(1)
     private long turnSeconds = 30;
 
-    // Fallback timeout for ability phases.
+    // Legacy default ability-phase duration, kept for compatibility
     @Min(1)
     private long abilitySeconds = 30;
 
-    // How long peek/spy result stays visible before turn auto-ends.
+    // Default reveal duration (seconds) after peek/spy before the phase auto-ends
     @Min(1)
     private long postPeekAutoEndSeconds = 5;
 
-    // Maximum time players can decide rematch vs no-rematch after Cabo round closes.
+    // Default swap ability window (seconds) when no lobby-specific value is provided
     @Min(1)
-    private long rematchDecisionSeconds = 60;
+    private long abilitySwapSeconds = 10;
+
+    // Cabo cards unveil duration shown at round end before rematch decisions begin
+    @Min(1)
+    private long caboRevealSeconds = 30;
+
+    // Rematch decision duration after a round ends
+    @Min(1)
+    private long rematchDecisionSeconds = 30;
 
     public int getMinPlayers() {
         return minPlayers;
@@ -102,11 +110,27 @@ public class GameSettingsProperties {
         this.postPeekAutoEndSeconds = postPeekAutoEndSeconds;
     }
 
+    public long getAbilitySwapSeconds() {
+        return abilitySwapSeconds;
+    }
+
+    public void setAbilitySwapSeconds(long abilitySwapSeconds) {
+        this.abilitySwapSeconds = abilitySwapSeconds;
+    }
+
     public long getRematchDecisionSeconds() {
         return rematchDecisionSeconds;
     }
 
     public void setRematchDecisionSeconds(long rematchDecisionSeconds) {
         this.rematchDecisionSeconds = rematchDecisionSeconds;
+    }
+
+    public long getCaboRevealSeconds() {
+        return caboRevealSeconds;
+    }
+
+    public void setCaboRevealSeconds(long caboRevealSeconds) {
+        this.caboRevealSeconds = caboRevealSeconds;
     }
 }

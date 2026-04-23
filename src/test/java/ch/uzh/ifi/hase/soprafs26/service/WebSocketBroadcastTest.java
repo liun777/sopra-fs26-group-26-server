@@ -79,6 +79,8 @@ class WebSocketBroadcastTest {
         Mockito.when(gameSettings.getTurnSeconds()).thenReturn(30L);
         Mockito.when(gameSettings.getAbilitySeconds()).thenReturn(30L);
         Mockito.when(gameSettings.getPostPeekAutoEndSeconds()).thenReturn(5L);
+        Mockito.when(gameSettings.getAbilitySwapSeconds()).thenReturn(10L);
+        Mockito.when(gameSettings.getCaboRevealSeconds()).thenReturn(30L);
         Mockito.when(gameSettings.getRematchDecisionSeconds()).thenReturn(60L);
         Mockito.when(lobbySettings.getAfkTimeoutMinSeconds()).thenReturn(180L);
         Mockito.when(lobbySettings.getAfkTimeoutMaxSeconds()).thenReturn(1200L);
@@ -88,6 +90,9 @@ class WebSocketBroadcastTest {
         Mockito.when(lobbySettings.getTurnMaxSeconds()).thenReturn(60L);
         Mockito.when(lobbySettings.getAbilityRevealMinSeconds()).thenReturn(3L);
         Mockito.when(lobbySettings.getAbilityRevealMaxSeconds()).thenReturn(10L);
+        Mockito.when(lobbySettings.getAbilitySwapMinSeconds()).thenReturn(5L);
+        Mockito.when(lobbySettings.getAbilitySwapMaxSeconds()).thenReturn(30L);
+        Mockito.when(lobbySettings.getAbilitySwapDefaultSeconds()).thenReturn(10L);
         Mockito.when(lobbySettings.getRematchDecisionMinSeconds()).thenReturn(10L);
         Mockito.when(lobbySettings.getRematchDecisionMaxSeconds()).thenReturn(60L);
         Mockito.when(lobbySettings.getWebsocketGraceMinSeconds()).thenReturn(180L);

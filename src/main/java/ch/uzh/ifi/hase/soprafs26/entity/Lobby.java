@@ -54,9 +54,13 @@ public class Lobby implements Serializable {
     @Column(nullable = false)
     private Long abilityRevealSeconds = 5L;
 
+    // Per-lobby swap ability timer before auto-end.
+    @Column(nullable = false)
+    private Long abilitySwapSeconds = 10L;
+
     // Per-lobby rematch decision window.
     @Column(nullable = false)
-    private Long rematchDecisionSeconds = 60L;
+    private Long rematchDecisionSeconds = 30L;
 
     // Per-lobby websocket disconnect grace period before timeout handling.
     @Column(nullable = false)
@@ -97,6 +101,9 @@ public class Lobby implements Serializable {
 
     public Long getAbilityRevealSeconds() { return abilityRevealSeconds; }
     public void setAbilityRevealSeconds(Long abilityRevealSeconds) { this.abilityRevealSeconds = abilityRevealSeconds; }
+
+    public Long getAbilitySwapSeconds() { return abilitySwapSeconds; }
+    public void setAbilitySwapSeconds(Long abilitySwapSeconds) { this.abilitySwapSeconds = abilitySwapSeconds; }
 
     public Long getRematchDecisionSeconds() { return rematchDecisionSeconds; }
     public void setRematchDecisionSeconds(Long rematchDecisionSeconds) { this.rematchDecisionSeconds = rematchDecisionSeconds; }

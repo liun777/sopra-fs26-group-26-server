@@ -203,6 +203,12 @@ public class GameService {
         long resolvedAbilityRevealSeconds = resolvePositiveOrDefault(
                 lobbyConfig != null ? lobbyConfig.getAbilityRevealSeconds() : null,
                 gameSettings.getPostPeekAutoEndSeconds());
+        long resolvedAbilitySwapSeconds = resolvePositiveOrDefault(
+                lobbyConfig != null ? lobbyConfig.getAbilitySwapSeconds() : null,
+                gameSettings.getAbilitySwapSeconds());
+        long resolvedCaboRevealSeconds = resolvePositiveOrDefault(
+                null,
+                gameSettings.getCaboRevealSeconds());
         // Rematch decision timer is fixed globally (not lobby-adjustable).
         long resolvedRematchDecisionSeconds = resolvePositiveOrDefault(
                 null,
@@ -214,6 +220,8 @@ public class GameService {
         newGame.setTurnSeconds(resolvedTurnSeconds);
         newGame.setInitialPeekSeconds(resolvedInitialPeekSeconds);
         newGame.setAbilityRevealSeconds(resolvedAbilityRevealSeconds);
+        newGame.setAbilitySwapSeconds(resolvedAbilitySwapSeconds);
+        newGame.setCaboRevealSeconds(resolvedCaboRevealSeconds);
         newGame.setRematchDecisionSeconds(resolvedRematchDecisionSeconds);
         newGame.setAfkTimeoutSeconds(resolvedAfkTimeoutSeconds);
         // Save first to get a generated game id, then start the timer.
@@ -758,20 +766,23 @@ public class GameService {
             // peek at own card
             game.setStatus(GameStatus.ABILITY_PEEK_SELF);
             saveGameAndBroadcast(game);
-            // start ability timer to auto-end ability phase if player does nothing
-            startAbilityTimer(game.getId());
+            // allow target selection with a full turn window;
+            // after selection we switch to short reveal timer.
+            startAbilityTimer(game.getId(), game.getTurnSeconds());
         } else if (value == 9 || value == 10) {
             // peek at opponent's card
             game.setStatus(GameStatus.ABILITY_PEEK_OPPONENT);
             saveGameAndBroadcast(game);
-            startAbilityTimer(game.getId());
+            // allow target selection with a full turn window;
+            // after selection we switch to short reveal timer.
+            startAbilityTimer(game.getId(), game.getTurnSeconds());
         } else if (value == 11 || value == 12) {
             // swap cards with opponent
             game.setStatus(GameStatus.ABILITY_SWAP);
             saveGameAndBroadcast(game);
-            // Swap requires two clicks (own card + opponent card), so use turn timer budget,
+            // Swap requires two clicks (own card + opponent card), so use dedicated swap timer,
             // not short peek/spy reveal duration.
-            startAbilityTimer(game.getId(), game.getTurnSeconds());
+            startAbilityTimer(game.getId(), game.getAbilitySwapSeconds());
         } else {
             // no ability — just advance turn normally
             saveGameAndBroadcast(game);
@@ -1017,6 +1028,7 @@ public class GameService {
     
         // Safety checks
         if (game.getStatus() == GameStatus.ROUND_ENDED
+                || game.getStatus() == GameStatus.CABO_REVEAL
                 || game.getStatus() == GameStatus.ROUND_AWAITING_REMATCH
                 || game.isCaboCalled()) {
             return;
@@ -1130,6 +1142,8 @@ public class GameService {
                 "turnSeconds", game.getTurnSeconds(),
                 "initialPeekSeconds", game.getInitialPeekSeconds(),
                 "abilityRevealSeconds", game.getAbilityRevealSeconds(),
+                "abilitySwapSeconds", game.getAbilitySwapSeconds(),
+                "caboRevealSeconds", game.getCaboRevealSeconds(),
                 "afkTimeoutSeconds", game.getAfkTimeoutSeconds(),
                 "rematchDecisionSeconds", game.getRematchDecisionSeconds()
         );
@@ -1206,7 +1220,6 @@ public class GameService {
     // save in db and send filtered representations to all players 
     private Game saveGameAndBroadcast(Game game) {
         Game saved = gameRepository.save(game);
-        gameRepository.flush();
         gameEventPublisher.publishFilteredState(saved);
         return saved;
     }
@@ -1274,11 +1287,11 @@ public class GameService {
 
         // makes sure the game only advances one round after cabo is called
         if (game.isCaboCalled() && nextPlayerId.equals(game.getCaboCalledByUserId())) {
-            game.setStatus(GameStatus.ROUND_AWAITING_REMATCH);
+            game.setStatus(GameStatus.CABO_REVEAL);
             game.setRematchDecisionByUserId(new HashMap<>());
             cancelTurnTimer(gameId);
             saveGameAndBroadcast(game);
-            startRematchDecisionTimer(gameId);
+            startRoundRevealTimer(gameId);
             return;
         }
 
@@ -1341,6 +1354,7 @@ public class GameService {
         }
 
         cancelTurnTimer(gameId);
+        Game gameAtScheduling = getGameById(gameId);
         long scheduledCount = rematchDecisionTimerCounts
                 .computeIfAbsent(gameId, ignored -> new AtomicLong(0))
                 .incrementAndGet();
@@ -1354,9 +1368,44 @@ public class GameService {
             } catch (Exception e) {
                 System.err.println("Rematch decision timer failed for game " + gameId + ": " + e.getMessage());
             }
-        }, getGameById(gameId).getRematchDecisionSeconds(), TimeUnit.SECONDS);
+        }, gameAtScheduling.getRematchDecisionSeconds(), TimeUnit.SECONDS);
 
         gameTimers.put(gameId, future);
+    }
+
+    private void startRoundRevealTimer(String gameId) {
+        if (gameId == null || gameId.isBlank()) {
+            return;
+        }
+
+        cancelTurnTimer(gameId);
+        Game gameAtScheduling = getGameById(gameId);
+        ScheduledFuture<?> future = scheduler.schedule(() -> {
+            try {
+                Game game = getGameById(gameId);
+                if (game.getStatus() != GameStatus.CABO_REVEAL) {
+                    return;
+                }
+                enterRoundAwaitingRematchPhase(gameId, game);
+            } catch (Exception e) {
+                System.err.println("Round reveal timer failed for game " + gameId + ": " + e.getMessage());
+            }
+        }, gameAtScheduling.getCaboRevealSeconds(), TimeUnit.SECONDS);
+        gameTimers.put(gameId, future);
+    }
+
+    private void enterRoundAwaitingRematchPhase(String gameId, Game game) {
+        if (game.getStatus() == GameStatus.ROUND_AWAITING_REMATCH) {
+            return;
+        }
+        if (game.getStatus() != GameStatus.CABO_REVEAL) {
+            return;
+        }
+
+        game.setStatus(GameStatus.ROUND_AWAITING_REMATCH);
+        game.setRematchDecisionByUserId(new HashMap<>());
+        saveGameAndBroadcast(game);
+        startRematchDecisionTimer(gameId);
     }
 
     private boolean isCurrentRematchDecisionTimerCount(String gameId, long scheduledCount) {

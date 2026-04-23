@@ -21,6 +21,8 @@ public class GameStateBroadcastDTO {
     private long turnSeconds;
     private long initialPeekSeconds;
     private long abilityRevealSeconds;
+    private long abilitySwapSeconds;
+    private long caboRevealSeconds;
     private long rematchDecisionSeconds;
     private long afkTimeoutSeconds;
     private List<Long> timedOutPlayerIds = new ArrayList<>();
@@ -115,12 +117,28 @@ public class GameStateBroadcastDTO {
         this.abilityRevealSeconds = abilityRevealSeconds;
     }
 
+    public long getAbilitySwapSeconds() {
+        return abilitySwapSeconds;
+    }
+
+    public void setAbilitySwapSeconds(long abilitySwapSeconds) {
+        this.abilitySwapSeconds = abilitySwapSeconds;
+    }
+
     public long getRematchDecisionSeconds() {
         return rematchDecisionSeconds;
     }
 
     public void setRematchDecisionSeconds(long rematchDecisionSeconds) {
         this.rematchDecisionSeconds = rematchDecisionSeconds;
+    }
+
+    public long getCaboRevealSeconds() {
+        return caboRevealSeconds;
+    }
+
+    public void setCaboRevealSeconds(long caboRevealSeconds) {
+        this.caboRevealSeconds = caboRevealSeconds;
     }
 
     public long getAfkTimeoutSeconds() {

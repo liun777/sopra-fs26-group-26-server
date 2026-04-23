@@ -51,6 +51,12 @@ public class DisconnectService {
         if (hasActiveWebSocketSession(userId)) {
             return;
         }
+        // Outside lobby/game context, websocket disconnect alone should not force offline.
+        // Presence there is governed by heartbeat idle checks.
+        if (lobbyService != null && !lobbyService.isUserInLobbyContext(userId)) {
+            cancelDisconnectTimer(userId);
+            return;
+        }
         // In active games, do not fast-timeout on websocket disconnect alone (tab switch/background throttling).
         // AFK handling should follow the configured game AFK timer via heartbeat idle checks.
         if (lobbyService != null && lobbyService.isUserInActiveGame(userId)) {

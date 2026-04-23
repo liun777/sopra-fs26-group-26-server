@@ -6,31 +6,31 @@ import org.springframework.stereotype.Component;
 import org.springframework.validation.annotation.Validated;
 
 /**
- * User presence/disconnect timing controls loaded from `app.timeouts.*`.
- * These values directly affect AFK, grace disconnect, and auto-logout behavior.
+ * Global timeout defaults loaded from `app.timeouts.*`
+ * These values are used as system-wide defaults and may be overridden by lobby-specific timer settings!
  */
 @Component
 @Validated
 @ConfigurationProperties(prefix = "app.timeouts")
 public class TimeoutSettingsProperties {
 
-    // Grace window after websocket disconnect before permanent disconnect handling starts.
+    // Default websocket-disconnect grace window
     @Min(1)
     private long websocketGraceSeconds = 300;
 
-    // AFK threshold; if last heartbeat is older than this, user is considered idle.
+    // Default AFK threshold based on last heartbeat activity
     @Min(1)
     private long idleSeconds = 300;
 
-    // Long inactivity threshold after which auth token is invalidated (except active games).
+    // Default long-inactivity threshold before auto logout (except active games)
     @Min(1)
     private long autoLogoutSeconds = 21600;
 
-    // Scheduler frequency for checking idle users.
+    // Poll interval (milliseconds) for idle-user checks
     @Min(1000)
     private long idleCheckIntervalMs = 60000;
 
-    // Scheduler frequency for checking auto-logout users.
+    // Poll interval (milliseconds) for auto-logout checks
     @Min(1000)
     private long autoLogoutCheckIntervalMs = 300000;
 

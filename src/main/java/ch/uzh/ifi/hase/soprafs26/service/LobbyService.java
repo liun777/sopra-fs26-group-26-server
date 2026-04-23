@@ -22,8 +22,10 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Collections;
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -77,6 +79,9 @@ public class LobbyService {
             return;
         }
         userRepository.findById(userId).ifPresent(user -> {
+            if (status.equals(user.getStatus())) {
+                return;
+            }
             user.setStatus(status);
             userRepository.save(user);
         });
@@ -87,8 +92,25 @@ public class LobbyService {
         if (userIds == null || status == null) {
             return;
         }
-        for (Long userId : userIds) {
-            setUserStatus(userId, status);
+        List<Long> distinctUserIds = userIds.stream()
+                .filter(id -> id != null)
+                .distinct()
+                .toList();
+        if (distinctUserIds.isEmpty()) {
+            return;
+        }
+
+        List<User> users = userRepository.findAllById(distinctUserIds);
+        boolean hasChanges = false;
+        for (User user : users) {
+            if (user == null || status.equals(user.getStatus())) {
+                continue;
+            }
+            user.setStatus(status);
+            hasChanges = true;
+        }
+        if (hasChanges) {
+            userRepository.saveAll(users);
         }
     }
 
@@ -168,6 +190,16 @@ public class LobbyService {
             changed = true;
         }
 
+        long normalizedAbilitySwap = normalizeTimerValue(
+                lobby.getAbilitySwapSeconds(),
+                lobbySettings.getAbilitySwapMinSeconds(),
+                lobbySettings.getAbilitySwapMaxSeconds(),
+                lobbySettings.getAbilitySwapDefaultSeconds());
+        if (!Long.valueOf(normalizedAbilitySwap).equals(lobby.getAbilitySwapSeconds())) {
+            lobby.setAbilitySwapSeconds(normalizedAbilitySwap);
+            changed = true;
+        }
+
         long normalizedRematchDecision = normalizeTimerValue(
                 lobby.getRematchDecisionSeconds(),
                 lobbySettings.getRematchDecisionMinSeconds(),
@@ -199,6 +231,7 @@ public class LobbyService {
         lobby.setInitialPeekSeconds(lobbySettings.getInitialPeekDefaultSeconds());
         lobby.setTurnSeconds(lobbySettings.getTurnDefaultSeconds());
         lobby.setAbilityRevealSeconds(lobbySettings.getAbilityRevealDefaultSeconds());
+        lobby.setAbilitySwapSeconds(lobbySettings.getAbilitySwapDefaultSeconds());
         lobby.setRematchDecisionSeconds(lobbySettings.getRematchDecisionDefaultSeconds());
         lobby.setWebsocketGraceSeconds(lobbySettings.getWebsocketGraceDefaultSeconds());
     }
@@ -216,9 +249,25 @@ public class LobbyService {
         if (userId == null || gameRepository == null) {
             return false;
         }
+        // Fast-path: if user is not in any PLAYING lobby, there cannot be an active game.
+        if (!lobbyRepository.existsByStatusAndPlayerId("PLAYING", userId)) {
+            return false;
+        }
         return gameRepository.findGamesByPlayerId(userId).stream()
                 .filter(game -> game != null && game.getStatus() != GameStatus.ROUND_ENDED)
                 .anyMatch(game -> game.getOrderedPlayerIds() != null && game.getOrderedPlayerIds().contains(userId));
+    }
+
+    /**
+     * True when the user currently belongs to a waiting or active-playing lobby.
+     * Used by disconnect handling to decide whether websocket grace timers apply.
+     */
+    public boolean isUserInLobbyContext(Long userId) {
+        if (userId == null) {
+            return false;
+        }
+        return lobbyRepository.existsByStatusAndPlayerId("WAITING", userId)
+                || lobbyRepository.existsByStatusAndPlayerId("PLAYING", userId);
     }
 
     public Set<Long> getPlayingLobbyPlayerIdsSnapshot() {
@@ -430,6 +479,13 @@ public class LobbyService {
                 .sorted()
                 .forEach(orderedIds::add);
 
+        Map<Long, User> usersById = new HashMap<>();
+        for (User participant : userRepository.findAllById(orderedIds)) {
+            if (participant != null && participant.getId() != null) {
+                usersById.put(participant.getId(), participant);
+            }
+        }
+
         WaitingLobbyViewDTO dto = new WaitingLobbyViewDTO();
         dto.setLobbyId(lobby.getId());
         dto.setSessionId(lobby.getSessionId());
@@ -438,13 +494,14 @@ public class LobbyService {
         dto.setInitialPeekSeconds(lobby.getInitialPeekSeconds());
         dto.setTurnSeconds(lobby.getTurnSeconds());
         dto.setAbilityRevealSeconds(lobby.getAbilityRevealSeconds());
+        dto.setAbilitySwapSeconds(lobby.getAbilitySwapSeconds());
         dto.setRematchDecisionSeconds(lobby.getRematchDecisionSeconds());
         dto.setWebsocketGraceSeconds(lobby.getWebsocketGraceSeconds());
         dto.setViewerIsHost(user.getId().equals(hostId));
     
         List<WaitingLobbyPlayerRowDTO> rows = new ArrayList<>();
         for (Long pid : orderedIds) {
-            User u = userRepository.findById(pid).orElse(null);
+            User u = usersById.get(pid);
             if (u == null) continue;
 
             WaitingLobbyPlayerRowDTO row = new WaitingLobbyPlayerRowDTO();
@@ -477,6 +534,7 @@ public class LobbyService {
                 || body.getInitialPeekSeconds() != null
                 || body.getTurnSeconds() != null
                 || body.getAbilityRevealSeconds() != null
+                || body.getAbilitySwapSeconds() != null
                 || body.getWebsocketGraceSeconds() != null;
         if (!hasAnySetting) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "No settings to update");
@@ -525,6 +583,13 @@ public class LobbyService {
                     lobbySettings.getAbilityRevealMinSeconds(),
                     lobbySettings.getAbilityRevealMaxSeconds());
             lobby.setAbilityRevealSeconds(value);
+        }
+        if (body.getAbilitySwapSeconds() != null) {
+            long value = clamp(
+                    body.getAbilitySwapSeconds(),
+                    lobbySettings.getAbilitySwapMinSeconds(),
+                    lobbySettings.getAbilitySwapMaxSeconds());
+            lobby.setAbilitySwapSeconds(value);
         }
         if (body.getWebsocketGraceSeconds() != null) {
             long value = clamp(
@@ -693,6 +758,7 @@ public class LobbyService {
             freshLobby.setInitialPeekSeconds(currentLobby.getInitialPeekSeconds());
             freshLobby.setTurnSeconds(currentLobby.getTurnSeconds());
             freshLobby.setAbilityRevealSeconds(currentLobby.getAbilityRevealSeconds());
+            freshLobby.setAbilitySwapSeconds(currentLobby.getAbilitySwapSeconds());
             freshLobby.setRematchDecisionSeconds(currentLobby.getRematchDecisionSeconds());
             freshLobby.setWebsocketGraceSeconds(currentLobby.getWebsocketGraceSeconds());
             freshLobby = lobbyRepository.save(freshLobby);

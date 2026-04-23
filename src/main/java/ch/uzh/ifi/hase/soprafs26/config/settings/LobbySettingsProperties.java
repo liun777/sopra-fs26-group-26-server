@@ -6,14 +6,15 @@ import org.springframework.stereotype.Component;
 import org.springframework.validation.annotation.Validated;
 
 /**
- * Host-configurable lobby/game timer ranges and defaults.
- * These values are used to clamp incoming lobby settings updates.
+ * Lobby timer defaults and allowed ranges loaded from `app.lobby-settings.*`
+ * Hosts can adjust these timers in lobby settings; values are clamped to the configured min/max bounds!
  */
 @Component
 @Validated
 @ConfigurationProperties(prefix = "app.lobby-settings")
 public class LobbySettingsProperties {
 
+    // AFK timeout: default applied to new lobbies and host-adjustable within min/max
     @Min(1)
     private long afkTimeoutDefaultSeconds = 300;
     @Min(1)
@@ -21,6 +22,7 @@ public class LobbySettingsProperties {
     @Min(1)
     private long afkTimeoutMaxSeconds = 600;
 
+    // Initial peek timer: default and host-adjustable range
     @Min(1)
     private long initialPeekDefaultSeconds = 10;
     @Min(1)
@@ -28,6 +30,7 @@ public class LobbySettingsProperties {
     @Min(1)
     private long initialPeekMaxSeconds = 60;
 
+    // Turn timer: default and host-adjustable range
     @Min(1)
     private long turnDefaultSeconds = 30;
     @Min(1)
@@ -35,6 +38,7 @@ public class LobbySettingsProperties {
     @Min(1)
     private long turnMaxSeconds = 60;
 
+    // Ability reveal timer: default and host-adjustable range
     @Min(1)
     private long abilityRevealDefaultSeconds = 5;
     @Min(1)
@@ -42,13 +46,23 @@ public class LobbySettingsProperties {
     @Min(1)
     private long abilityRevealMaxSeconds = 10;
 
+    // Ability swap timer: default and host-adjustable range
     @Min(1)
-    private long rematchDecisionDefaultSeconds = 60;
+    private long abilitySwapDefaultSeconds = 10;
     @Min(1)
-    private long rematchDecisionMinSeconds = 10;
+    private long abilitySwapMinSeconds = 5;
     @Min(1)
-    private long rematchDecisionMaxSeconds = 60;
+    private long abilitySwapMaxSeconds = 30;
 
+    // Rematch decision timer: default and host-adjustable range
+    @Min(1)
+    private long rematchDecisionDefaultSeconds = 30;
+    @Min(1)
+    private long rematchDecisionMinSeconds = 30;
+    @Min(1)
+    private long rematchDecisionMaxSeconds = 30;
+
+    // Websocket disconnect grace timer: default and host-adjustable range
     @Min(1)
     private long websocketGraceDefaultSeconds = 300;
     @Min(1)
@@ -83,6 +97,13 @@ public class LobbySettingsProperties {
     public void setAbilityRevealMinSeconds(long abilityRevealMinSeconds) { this.abilityRevealMinSeconds = abilityRevealMinSeconds; }
     public long getAbilityRevealMaxSeconds() { return abilityRevealMaxSeconds; }
     public void setAbilityRevealMaxSeconds(long abilityRevealMaxSeconds) { this.abilityRevealMaxSeconds = abilityRevealMaxSeconds; }
+
+    public long getAbilitySwapDefaultSeconds() { return abilitySwapDefaultSeconds; }
+    public void setAbilitySwapDefaultSeconds(long abilitySwapDefaultSeconds) { this.abilitySwapDefaultSeconds = abilitySwapDefaultSeconds; }
+    public long getAbilitySwapMinSeconds() { return abilitySwapMinSeconds; }
+    public void setAbilitySwapMinSeconds(long abilitySwapMinSeconds) { this.abilitySwapMinSeconds = abilitySwapMinSeconds; }
+    public long getAbilitySwapMaxSeconds() { return abilitySwapMaxSeconds; }
+    public void setAbilitySwapMaxSeconds(long abilitySwapMaxSeconds) { this.abilitySwapMaxSeconds = abilitySwapMaxSeconds; }
 
     public long getRematchDecisionDefaultSeconds() { return rematchDecisionDefaultSeconds; }
     public void setRematchDecisionDefaultSeconds(long rematchDecisionDefaultSeconds) { this.rematchDecisionDefaultSeconds = rematchDecisionDefaultSeconds; }
