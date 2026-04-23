@@ -23,6 +23,7 @@ import org.mockito.MockitoAnnotations;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -1390,6 +1391,89 @@ public class GameServiceTest {
         assertNotNull(game.getDrawnCard());
         assertEquals("8D", game.getDrawnCard().getCode());
     }
+
+    // #84: rematch decision timer expires -  broadcast sends ROUND_ENDED + all hands are visible
+    @Test
+    void rematchDecisionTimerExpires_publishesRoundEndedWithRevealedHands() throws Exception {
+        // list of scheduled tasks
+        List<Runnable> scheduled = new ArrayList<>();
+        // @BeforeEach that applies to all tests mocks scheduler in a way that does not give us access to scheduled runnables (tasks)
+        // in this test we reset the general mock and implement a new mock that gives us access to scheduled runnables (tasks)
+        Mockito.reset(scheduler);
+        // when we schedule a task, add them all to scheduled list
+        Mockito.when(scheduler.schedule(Mockito.any(Runnable.class), Mockito.anyLong(), Mockito.any(TimeUnit.class)))
+                .thenAnswer(invocation -> {
+                    // runnable that was passed to the scheduler as argument
+                    scheduled.add(invocation.getArgument(0));
+                    return Mockito.mock(ScheduledFuture.class);
+                });
+
+        User user1 = new User();
+        user1.setId(1L);
+        User user2 = new User();
+        user2.setId(2L);
+        Mockito.when(userRepository.findByToken("t1")).thenReturn(user1);
+        Mockito.when(userRepository.findByToken("t2")).thenReturn(user2);
+
+        Game game = new Game();
+        game.setId("g-84-timer");
+        game.setStatus(GameStatus.ROUND_AWAITING_REMATCH);
+        game.setOrderedPlayerIds(new ArrayList<>(List.of(1L, 2L)));
+        game.setRematchDecisionByUserId(new HashMap<>());
+        game.setCaboCalled(true);
+        game.setCaboCalledByUserId(1L);
+        game.setCurrentPlayerId(2L);
+        game.setRematchDecisionSeconds(60L);
+
+        Map<Long, List<Card>> hands = new HashMap<>();
+        for (Long playerId : List.of(1L, 2L)) {
+            Card c = new Card();
+            c.setValue(playerId.intValue());
+            c.setCode(playerId + "X");
+            c.setVisibility(false);
+            hands.put(playerId, new ArrayList<>(List.of(c)));
+        }
+        game.setPlayerHands(hands);
+        game.setDiscardPile(new ArrayList<>());
+        Card deckTop = new Card();
+        deckTop.setValue(10);
+        deckTop.setCode("AC");
+        game.setDrawPile(new ArrayList<>(List.of(deckTop)));
+
+        Mockito.when(gameRepository.findById("g-84-timer")).thenReturn(Optional.of(game));
+        Mockito.when(gameRepository.save(Mockito.any(Game.class))).thenAnswer(inv -> inv.getArgument(0));
+        Mockito.doNothing().when(gameRepository).flush();
+
+        Method startRematchTimer = GameService.class.getDeclaredMethod("startRematchDecisionTimer", String.class);
+        // make private method accessible in this test
+        startRematchTimer.setAccessible(true);
+        // this call will add a runnable (task) to the scheduled list
+        startRematchTimer.invoke(gameService, "g-84-timer");
+
+        assertEquals(1, scheduled.size());
+        // run the scheduled runnable (task)
+        scheduled.get(0).run();
+
+        assertEquals(GameStatus.ROUND_ENDED, game.getStatus());
+
+        // verify publishFilteredState for game was called 
+        Mockito.verify(gameEventPublisher, Mockito.times(1)).publishFilteredState(game);
+
+        GameStateBroadcastMapper broadcastMapper = new GameStateBroadcastMapper(lobbyService);
+        GameStateBroadcastDTO asPlayer1 = broadcastMapper.toBroadcastForViewer(game, 1L);
+        // verify player 1 sees game status as ROUND_ENDED
+        assertEquals(GameStatus.ROUND_ENDED, asPlayer1.getStatus());
+        // get first card of player 2 from 1st player's game representation
+        CardViewDTO player2CardFromPlayer1View = asPlayer1.getPlayers().stream()
+                .filter(p -> Long.valueOf(2L).equals(p.getUserId())) // user with id 2
+                .findFirst()
+                .orElseThrow()
+                .getCards()
+                .get(0); // first card
+        assertEquals(2, player2CardFromPlayer1View.getValue().intValue());
+        assertEquals("2X", player2CardFromPlayer1View.getCode());
+    }
+
 
     // reshuffle when draw pile is empty
     @Test

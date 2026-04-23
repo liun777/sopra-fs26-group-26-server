@@ -57,16 +57,15 @@ public class GameStateBroadcastMapper {
 
         Card drawnCard = game.getDrawnCard();
         if (drawnCard != null) {
-            
             CardViewDTO drawnCardDTO = new CardViewDTO();
-            // allow the user that drew the card to see its fields
-            if (viewerUserId.equals(game.getCurrentPlayerId())) {
+            GameStatus status = game.getStatus();
+            boolean roundEndReveal = status == GameStatus.ROUND_AWAITING_REMATCH
+                    || status == GameStatus.ROUND_ENDED;
+            if (roundEndReveal || viewerUserId.equals(game.getCurrentPlayerId())) {
                 drawnCardDTO.setValue(drawnCard.getValue());
                 drawnCardDTO.setCode(drawnCard.getCode());
                 drawnCardDTO.setFaceDown(false);
-            }
-            // everyone else is not allowed to see it
-            else {
+            } else {
                 drawnCardDTO.setValue(null);
                 drawnCardDTO.setCode(null);
                 drawnCardDTO.setFaceDown(true);

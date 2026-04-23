@@ -19,6 +19,7 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
@@ -248,6 +249,63 @@ class GameStateBroadcastMapperTest {
             assertNull(slot0.getValue());
             assertNull(slot0.getCode());
         }
+    }
+
+    // #84: game status ROUND_ENDED or ROUND_AWAITING_REMATCH: drawn card revealed to everyone
+    @Test
+    void roundEndedOrAwaitingRematch_drawnCardRevealedToAllViewers() {
+        for (GameStatus status : List.of(GameStatus.ROUND_ENDED, GameStatus.ROUND_AWAITING_REMATCH)) {
+            Game game = new Game();
+            game.setId("g-84-drawn-" + status.name());
+            game.setStatus(status);
+            // owns the drawn card
+            game.setCurrentPlayerId(2L);
+            game.setOrderedPlayerIds(List.of(1L, 2L));
+
+            Card drawn = new Card();
+            drawn.setValue(11);
+            drawn.setCode("11S");
+            game.setDrawnCard(drawn);
+
+            // both players see drawn card
+            for (Long viewerId : List.of(1L, 2L)) {
+                GameStateBroadcastDTO dto = mapper.toBroadcastForViewer(game, viewerId);
+                assertNotNull(dto.getDrawnCard());
+                assertEquals(11, dto.getDrawnCard().getValue().intValue());
+                assertEquals("11S", dto.getDrawnCard().getCode());
+                assertFalse(dto.getDrawnCard().isFaceDown());
+            }
+        }
+    }
+
+    // #84: game status ROUND_ENDED or ROUND_AWAITING_REMATCH: all hand cards revealed to everyone
+    @Test
+    void roundEndedOrAwaitingRematch_allHandValuesRevealedToOpponentViewer() {
+        for (GameStatus status : List.of(GameStatus.ROUND_ENDED, GameStatus.ROUND_AWAITING_REMATCH)) {
+            Game game = new Game();
+            game.setId("g-84-hands-" + status.name());
+            game.setStatus(status);
+            game.setCurrentPlayerId(1L);
+            game.setOrderedPlayerIds(List.of(1L, 2L));
+
+            Map<Long, List<Card>> hands = new HashMap<>();
+            hands.put(1L, List.of(faceDownCard(8, "8H")));
+            hands.put(2L, List.of(faceDownCard(12, "QD")));
+            game.setPlayerHands(hands);
+
+            GameStateBroadcastDTO asPlayer1 = mapper.toBroadcastForViewer(game, 1L);
+            CardViewDTO player2CardViewedByPlayer1 = findPlayerHand(asPlayer1, 2L).getCards().get(0);
+            assertEquals(12, player2CardViewedByPlayer1.getValue().intValue());
+            assertEquals("QD", player2CardViewedByPlayer1.getCode());
+        }
+    }
+
+    private static Card faceDownCard(int value, String code) {
+        Card c = new Card();
+        c.setValue(value);
+        c.setCode(code);
+        c.setVisibility(false);
+        return c;
     }
 
     // helper to get the PlayerHandViewDTO instance from GameStateBroadcastDTO instance based on userId match
