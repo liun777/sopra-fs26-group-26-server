@@ -36,6 +36,16 @@ public class Session {
     @Column(nullable = false, unique = false)
     private List<Map<Long, Integer>> userScoresPerRound = new ArrayList<>();
 
+    // session total score per player (updated at round end)
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(nullable = false, unique = false)
+    private Map<Long, Integer> totalScoreByUserId = new java.util.HashMap<>();
+
+    // tracks whether the "totalScore == 100 -> 50" correction was already applied for a player
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(nullable = false, unique = false)
+    private Map<Long, Boolean> hundredReductionAppliedByUserId = new java.util.HashMap<>();
+
     public Long getId() {
         return id;
     }
@@ -74,5 +84,23 @@ public class Session {
 
     public void setUserScoresPerRound(List<Map<Long, Integer>> userScoresPerRound) {
         this.userScoresPerRound = userScoresPerRound != null ? userScoresPerRound : new ArrayList<>();
+    }
+
+    public Map<Long, Integer> getTotalScoreByUserId() {
+        return totalScoreByUserId;
+    }
+
+    public void setTotalScoreByUserId(Map<Long, Integer> totalScoreByUserId) {
+        this.totalScoreByUserId = totalScoreByUserId != null ? totalScoreByUserId : new java.util.HashMap<>();
+    }
+
+    public Map<Long, Boolean> getHundredReductionAppliedByUserId() {
+        return hundredReductionAppliedByUserId;
+    }
+
+    public void setHundredReductionAppliedByUserId(Map<Long, Boolean> hundredReductionAppliedByUserId) {
+        this.hundredReductionAppliedByUserId = hundredReductionAppliedByUserId != null
+                ? hundredReductionAppliedByUserId
+                : new java.util.HashMap<>();
     }
 }

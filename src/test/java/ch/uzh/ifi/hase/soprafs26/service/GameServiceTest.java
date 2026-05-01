@@ -4,8 +4,10 @@ import ch.uzh.ifi.hase.soprafs26.config.settings.GameSettingsProperties;
 import ch.uzh.ifi.hase.soprafs26.constant.GameStatus;
 import ch.uzh.ifi.hase.soprafs26.entity.Card;
 import ch.uzh.ifi.hase.soprafs26.entity.Game;
+import ch.uzh.ifi.hase.soprafs26.entity.Session;
 import ch.uzh.ifi.hase.soprafs26.entity.User;
 import ch.uzh.ifi.hase.soprafs26.repository.GameRepository;
+import ch.uzh.ifi.hase.soprafs26.repository.SessionRepository;
 import ch.uzh.ifi.hase.soprafs26.repository.UserRepository;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.CardDTO;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.CardViewDTO;
@@ -73,6 +75,9 @@ public class GameServiceTest {
 
     @Mock
     private LobbyService lobbyService;
+
+    @Mock
+    private SessionRepository sessionRepository;
 
     @InjectMocks
     private GameService gameService;
@@ -1474,6 +1479,101 @@ public class GameServiceTest {
                 .get(0); // first card
         assertEquals(2, player2CardFromPlayer1View.getValue().intValue());
         assertEquals("2X", player2CardFromPlayer1View.getCode());
+    }
+
+    @Test
+    void resolveRematchDecision_totalScoreHits100_reducesTo50Once() throws Exception {
+        Game game = new Game();
+        game.setId("g-91");
+        game.setStatus(GameStatus.ROUND_AWAITING_REMATCH);
+        game.setOrderedPlayerIds(new ArrayList<>(List.of(1L, 2L)));
+        game.setRematchDecisionByUserId(new HashMap<>(Map.of(
+                1L, GameService.REMATCH_DECISION_NONE,
+                2L, GameService.REMATCH_DECISION_NONE
+        )));
+        Mockito.when(gameRepository.findById("g-91")).thenReturn(Optional.of(game));
+        Mockito.when(gameRepository.save(Mockito.any(Game.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        Session session = new Session();
+        session.setSessionId("S91");
+        session.setUserScoresPerRound(new ArrayList<>(List.of(
+                // round 1 user 1: 60
+                // round 1 user 2: 12
+                // round 2 user 1: 40
+                // round 2 user 2: 5
+                new HashMap<>(Map.of(1L, 60, 2L, 12)),
+                new HashMap<>(Map.of(1L, 40, 2L, 5))
+        )));
+        Mockito.when(lobbyService.findPlayingSessionIdForPlayers(game.getOrderedPlayerIds())).thenReturn("S91");
+        Mockito.when(sessionRepository.findBySessionId("S91")).thenReturn(session);
+        Mockito.when(sessionRepository.save(Mockito.any(Session.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        // get the resolve method
+        Method resolve = GameService.class.getDeclaredMethod("resolveRematchDecisionLocked", String.class, Game.class, Long.class);
+        // set accessible because method is private
+        resolve.setAccessible(true);
+        // code not triggered by timer, so last argument null
+        resolve.invoke(gameService, "g-91", game, null);
+
+        // round counts start from 0, so at index 1 we have second round
+        // last round's score is reduced by 50 to compensate (40 -> -10)
+        assertEquals(-10, session.getUserScoresPerRound().get(1).get(1L));
+        // second user's score from last round unaffected
+        assertEquals(5, session.getUserScoresPerRound().get(1).get(2L));
+        // first user's score 50 instead of 100
+        assertEquals(50, session.getTotalScoreByUserId().get(1L));
+        // second user's score is just the total of rounds, unaffected
+        assertEquals(17, session.getTotalScoreByUserId().get(2L));
+        // 100 -> 50 reduction applied to 1st user, but not 2nd user
+        assertTrue(Boolean.TRUE.equals(session.getHundredReductionAppliedByUserId().get(1L)));
+        assertNull(session.getHundredReductionAppliedByUserId().get(2L));
+    }
+
+    @Test
+    void resolveRematchDecision_totalScoreHits100Again_noSecondReductionForSamePlayer() throws Exception {
+        Game game = new Game();
+        game.setId("g-91-once");
+        game.setStatus(GameStatus.ROUND_AWAITING_REMATCH);
+        game.setOrderedPlayerIds(new ArrayList<>(List.of(1L)));
+        game.setRematchDecisionByUserId(new HashMap<>(Map.of(1L, GameService.REMATCH_DECISION_NONE)));
+        Mockito.when(gameRepository.findById("g-91-once")).thenReturn(Optional.of(game));
+        Mockito.when(gameRepository.save(Mockito.any(Game.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        Session session = new Session();
+        session.setSessionId("S91-ONCE");
+        session.setUserScoresPerRound(new ArrayList<>(List.of(
+                new HashMap<>(Map.of(1L, 60)),
+                new HashMap<>(Map.of(1L, 40))
+        )));
+        Mockito.when(lobbyService.findPlayingSessionIdForPlayers(game.getOrderedPlayerIds())).thenReturn("S91-ONCE");
+        Mockito.when(sessionRepository.findBySessionId("S91-ONCE")).thenReturn(session);
+        Mockito.when(sessionRepository.save(Mockito.any(Session.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        // get the resolve method
+        Method resolve = GameService.class.getDeclaredMethod("resolveRematchDecisionLocked", String.class, Game.class, Long.class);
+        // set accessible because method is private
+        resolve.setAccessible(true);
+        // code not triggered by timer, so last argument null
+        resolve.invoke(gameService, "g-91-once", game, null);
+        // resolve subtracted 50 from last rounds score to compensate (40 -> -10)
+        // and set the total score from 100 to 50
+        assertEquals(-10, session.getUserScoresPerRound().get(1).get(1L));
+        assertEquals(50, session.getTotalScoreByUserId().get(1L));
+
+        // resolve changed the status, but to check to logic that the "100 -> 50" rule does not run again,
+        // we need to be in this status again
+        game.setStatus(GameStatus.ROUND_AWAITING_REMATCH);
+        // total is 100 again
+        session.getUserScoresPerRound().add(new HashMap<>(Map.of(1L, 50))); 
+        session.getTotalScoreByUserId().put(1L, 100);
+        // resolve again, given adjusted scores
+        resolve.invoke(gameService, "g-91-once", game, null);
+
+        // last round's score stays 50
+        assertEquals(50, session.getUserScoresPerRound().get(2).get(1L));
+        // total stays 100, does not get rewritten
+        assertEquals(100, session.getTotalScoreByUserId().get(1L));
+        assertTrue(Boolean.TRUE.equals(session.getHundredReductionAppliedByUserId().get(1L)));
     }
 
 
