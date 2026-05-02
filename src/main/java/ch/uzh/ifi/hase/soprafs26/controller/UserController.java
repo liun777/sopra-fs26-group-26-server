@@ -1,18 +1,25 @@
 package ch.uzh.ifi.hase.soprafs26.controller;
 
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 
+import ch.uzh.ifi.hase.soprafs26.entity.Game;
 import ch.uzh.ifi.hase.soprafs26.entity.User;
+import ch.uzh.ifi.hase.soprafs26.rest.dto.GameHistoryDTO;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.UserGetDTO;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.UserPostDTO;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.UserPutDTO;
 import ch.uzh.ifi.hase.soprafs26.rest.mapper.DTOMapper;
 import ch.uzh.ifi.hase.soprafs26.service.UserService;
+import ch.uzh.ifi.hase.soprafs26.service.HistoryService;
+import ch.uzh.ifi.hase.soprafs26.repository.UserRepository;
 import jakarta.validation.Valid;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.nio.charset.StandardCharsets;
 import java.net.URLDecoder;
 
@@ -30,9 +37,13 @@ import java.net.URLDecoder;
 public class UserController {
 
 	private final UserService userService; // zugriff auf den userService für Logik
+    private final HistoryService historyService;
+    private final UserRepository userRepository;
 
-	UserController(UserService userService) {
+	UserController(UserService userService, HistoryService historyService, UserRepository userRepository) {
 		this.userService = userService;
+        this.historyService = historyService;
+        this.userRepository = userRepository;
 	} // UserService wird automatisch von Spring injiziert
 
     // GET /users - alle User laden (zb auf Userliste) von frontend aufgerufen
@@ -132,6 +143,24 @@ public class UserController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void handleHeartbeat(@RequestHeader("Authorization") String token) {
         userService.heartbeat(token);
+    }
+
+    @GetMapping("/users/{id}/history")
+    public List<GameHistoryDTO> getUserHistory(@PathVariable Long id, @RequestHeader("Authorization") String token) {
+        
+        User user = userRepository.findByToken(token);
+        if (user == null) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid token!");
+        }
+        
+        // only allow a player to see their own game history
+        if (!user.getId().equals(id)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "No access to other users game history");
+        }
+
+        List<Game> gameHistory = historyService.getUserGameHistory(id);
+        List<GameHistoryDTO> gameHistoryDTOs = DTOMapper.INSTANCE.convertEntityListToGameHistoryDTOList(gameHistory);
+        return gameHistoryDTOs;
     }
 
 }

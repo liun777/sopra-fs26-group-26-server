@@ -1473,7 +1473,7 @@ public class GameServiceTest {
         // get first card of player 2 from 1st player's game representation
         CardViewDTO player2CardFromPlayer1View = asPlayer1.getPlayers().stream()
                 .filter(p -> Long.valueOf(2L).equals(p.getUserId())) // user with id 2
-                .findFirst()
+                .findFirst()    
                 .orElseThrow()
                 .getCards()
                 .get(0); // first card

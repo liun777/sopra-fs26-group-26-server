@@ -9,7 +9,9 @@ import ch.uzh.ifi.hase.soprafs26.rest.dto.UserGetDTO;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.UserPostDTO;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.UserPutDTO;
 import ch.uzh.ifi.hase.soprafs26.entity.Card;
+import ch.uzh.ifi.hase.soprafs26.entity.Game;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.CardDTO;
+import ch.uzh.ifi.hase.soprafs26.rest.dto.GameHistoryDTO;
 import ch.uzh.ifi.hase.soprafs26.entity.Lobby;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.LobbyGetDTO;
 
@@ -65,6 +67,13 @@ public interface DTOMapper {
     User convertUserPutDTOtoEntity(UserPutDTO userPutDTO);
     // für Änderung des Passwortes
 
+
+    @Mapping(source="id", target="id")
+    @Mapping(source="playerHands", target="playerHands")
+    @Mapping(source="orderedPlayerIds", target="orderedPlayerIds")
+    @Mapping(source="caboCalledByUserId", target="caboCalledByUserId")
+    GameHistoryDTO convertEntityToGameHistoryDTO(Game game);
+
     // we cannot use mapping since the api returns a card code but we also need a value and mapping 
     // doesnt know which value a card code implies or what the visibilit should be so we use this 
     // default method to overwrite MapStruct. This allows us to inject our game logic for the cards
@@ -111,5 +120,7 @@ public interface DTOMapper {
     // converts a lobby to a lobby dto
     LobbyGetDTO convertEntityToLobbyGetDTO(Lobby lobby);
     List<LobbyGetDTO> convertEntityListToLobbyGetDTOList(List<Lobby> lobbies);
+
+    List<GameHistoryDTO> convertEntityListToGameHistoryDTOList(List<Game> gameHistory);
 }
 
