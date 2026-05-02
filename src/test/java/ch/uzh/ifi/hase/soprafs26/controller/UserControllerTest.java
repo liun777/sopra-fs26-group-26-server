@@ -6,6 +6,7 @@ import tools.jackson.databind.ObjectMapper;
 
 import ch.uzh.ifi.hase.soprafs26.constant.UserStatus;
 import ch.uzh.ifi.hase.soprafs26.entity.Game;
+import ch.uzh.ifi.hase.soprafs26.entity.Session;
 import ch.uzh.ifi.hase.soprafs26.entity.User;
 import ch.uzh.ifi.hase.soprafs26.repository.UserRepository;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.UserPostDTO;
@@ -148,19 +149,22 @@ public class UserControllerTest {
                 .andExpect(status().isForbidden()); // Expecting our 403 Forbidden check to trigger!
     }
 
-	@Test
+    @Test
     public void getUserHistory_validTokenAndId_returnsHistory() throws Exception {
         // 1. Arrange
         User mockUser = new User();
         mockUser.setId(1L);
         mockUser.setToken("valid-token");
 
-        Game mockGame = new Game();
-        mockGame.setId("game-123");
+        Session mockSession = new Session();
+        mockSession.setId(10L); // Internal ID is now a Long
+        mockSession.setSessionId("session-123"); // The string identifier
         // Add any other necessary fields your DTO mapping requires
         
         Mockito.when(userRepository.findByToken("valid-token")).thenReturn(mockUser);
-        Mockito.when(historyService.getUserGameHistory(1L)).thenReturn(List.of(mockGame));
+        
+        // Updated service method call
+        Mockito.when(historyService.getUserSessionHistory(1L)).thenReturn(List.of(mockSession));
 
         // 2. Act & 3. Assert
         mockMvc.perform(MockMvcRequestBuilders.get("/users/1/history")
@@ -168,6 +172,7 @@ public class UserControllerTest {
                 .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$", hasSize(1)))
-                .andExpect(jsonPath("$[0].id", is("game-123")));
+                .andExpect(jsonPath("$[0].id", is(10))) // Asserting the Long ID
+                .andExpect(jsonPath("$[0].sessionId", is("session-123"))); // Asserting the String sessionId
     }
 }

@@ -6,8 +6,9 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
 import ch.uzh.ifi.hase.soprafs26.entity.Game;
+import ch.uzh.ifi.hase.soprafs26.entity.Session;
 import ch.uzh.ifi.hase.soprafs26.entity.User;
-import ch.uzh.ifi.hase.soprafs26.rest.dto.GameHistoryDTO;
+import ch.uzh.ifi.hase.soprafs26.rest.dto.SessionHistoryDTO;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.UserGetDTO;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.UserPostDTO;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.UserPutDTO;
@@ -146,7 +147,7 @@ public class UserController {
     }
 
     @GetMapping("/users/{id}/history")
-    public List<GameHistoryDTO> getUserHistory(@PathVariable Long id, @RequestHeader("Authorization") String token) {
+    public List<SessionHistoryDTO> getUserHistory(@PathVariable Long id, @RequestHeader("Authorization") String token) {
         
         User user = userRepository.findByToken(token);
         if (user == null) {
@@ -158,9 +159,9 @@ public class UserController {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "No access to other users game history");
         }
 
-        List<Game> gameHistory = historyService.getUserGameHistory(id);
-        List<GameHistoryDTO> gameHistoryDTOs = DTOMapper.INSTANCE.convertEntityListToGameHistoryDTOList(gameHistory);
-        return gameHistoryDTOs;
+        List<Session> sessionHistory = historyService.getUserSessionHistory(id);
+        List<SessionHistoryDTO> sessionHistoryDTOs = DTOMapper.INSTANCE.convertEntityListToSessionHistoryDTOList(sessionHistory);
+        return sessionHistoryDTOs;
     }
 
 }
