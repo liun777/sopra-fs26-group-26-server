@@ -10,11 +10,18 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import ch.uzh.ifi.hase.soprafs26.constant.UserStatus;
+import ch.uzh.ifi.hase.soprafs26.entity.Session;
 import ch.uzh.ifi.hase.soprafs26.entity.User;
 import ch.uzh.ifi.hase.soprafs26.repository.LobbyRepository;
+import ch.uzh.ifi.hase.soprafs26.repository.SessionRepository;
 import ch.uzh.ifi.hase.soprafs26.repository.UserRepository;
 
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import java.time.LocalDate;
 
@@ -38,15 +45,18 @@ public class UserService {
 
 	private final UserRepository userRepository;
     private final LobbyRepository lobbyRepository;
+    private final SessionRepository sessionRepository;
 	private final OnlineUsersEventPublisher onlineUsersEventPublisher;
     private final DisconnectService disconnectService;
 
 	public UserService(@Qualifier("userRepository") UserRepository userRepository,
                        @Qualifier("lobbyRepository") LobbyRepository lobbyRepository,
+                       @Lazy SessionRepository sessionRepository,
 	                   OnlineUsersEventPublisher onlineUsersEventPublisher,
                        @Lazy DisconnectService disconnectService) {
 		this.userRepository = userRepository;
         this.lobbyRepository = lobbyRepository;
+        this.sessionRepository = sessionRepository;
 		this.onlineUsersEventPublisher = onlineUsersEventPublisher;
 		this.disconnectService = disconnectService;
 	}
@@ -60,8 +70,165 @@ public class UserService {
 
     // holt alle user aus Datenbank und gibt sie dem controller
 	public List<User> getUsers() {
-		return this.userRepository.findAll();
+        List<User> users = this.userRepository.findAll();
+        recalculateGlobalRankingFromSessions(users);
+		return users;
 	}
+
+    // #102: global ranking 
+    // gamesWon, averageScorePerSession - based on totalScore from ended sessions
+    // roundsWon, averageScorePerRound - from all rounds of all sessions (ended + ongoing)
+    private void recalculateGlobalRankingFromSessions(List<User> users) {
+        if (users == null || users.isEmpty() || sessionRepository == null) {
+            return;
+        }
+
+        Map<Long, Integer> sessionWinsByUserId = new HashMap<>();
+        Map<Long, Long> cumulativeSessionScoreByUserId = new HashMap<>();
+        Map<Long, Integer> playedSessionsByUserId = new HashMap<>();
+
+        Map<Long, Integer> roundWinsByUserId = new HashMap<>();
+        Map<Long, Long> cumulativeRoundScoreByUserId = new HashMap<>();
+        Map<Long, Integer> roundsPlayedByUserId = new HashMap<>();
+
+        for (Session session : sessionRepository.findAll()) {
+            // skip invalid sessions
+            if (session == null) {
+                continue;
+            }
+
+            // get round scores for session
+            List<Map<Long, Integer>> perRound = session.getUserScoresPerRound();
+
+            // skip invalid per round scores
+            if (perRound != null) {
+                // get the "user id - score" map for each round of current session
+                for (Map<Long, Integer> roundMap : perRound) {
+                    // skip invalid round score maps
+                    if (roundMap == null || roundMap.isEmpty()) {
+                        continue;
+                    }
+                    // get winning score for the round
+                    Integer bestRoundScore = null;
+                    // iterate all scores of current round
+                    for (Integer s : roundMap.values()) {
+                        // skip invalid scores
+                        if (s == null) {
+                            continue;
+                        }
+                        // update best score for the round
+                        if (bestRoundScore == null || s < bestRoundScore) {
+                            bestRoundScore = s;
+                        }
+                    }
+                    // if nothing was written to the best round score - skip
+                    if (bestRoundScore == null) {
+                        continue;
+                    }
+                    // go through "user id - score" pairs of round scores map
+                    for (Map.Entry<Long, Integer> entry : roundMap.entrySet()) {
+                        Long userId = entry.getKey();
+                        Integer score = entry.getValue();
+                        // if user id or score invalid - skip
+                        if (userId == null || score == null) {
+                            continue;
+                        }
+                        // update aggregated round metrics
+                        cumulativeRoundScoreByUserId.merge(userId, score.longValue(), Long::sum);
+                        roundsPlayedByUserId.merge(userId, 1, Integer::sum);
+                        // increment the round wins only when score matches best score  (or for all users that tie)
+                        if (Objects.equals(score, bestRoundScore)) {
+                            roundWinsByUserId.merge(userId, 1, Integer::sum);
+                        }
+                    }
+                }
+            }
+
+            // we now proceed to session level metrics - games won, average score per session
+            // these are calculated only over ended sessions - otherwise skip
+            if (!session.isEnded()) {
+                continue;
+            }
+
+            // get total score map (user id - total score) for current session
+            Map<Long, Integer> totalScoreByUserId = session.getTotalScoreByUserId();
+            // if total score map is invalid - skip
+            if (totalScoreByUserId == null || totalScoreByUserId.isEmpty()) {
+                continue;
+            }
+
+            // get best total score for current session
+            Integer bestSessionScore = totalScoreByUserId.values().stream()
+                    .filter(Objects::nonNull) // leave out nulls 
+                    .min(Integer::compareTo) // get smallest total score
+                    .orElse(null); // if nothing is left after filtering - return null
+            // if best session score is invalid - skip
+            if (bestSessionScore == null) {
+                continue;
+            }
+            // iterate all "user id - totalScore" pairs for current session
+            for (Map.Entry<Long, Integer> entry : totalScoreByUserId.entrySet()) {
+                Long userId = entry.getKey();
+                Integer score = entry.getValue();
+                // if "user id - totalScore" pair invalid - skip
+                if (userId == null || score == null) {
+                    continue;
+                }
+                // update aggregated session metrics
+                cumulativeSessionScoreByUserId.merge(userId, score.longValue(), Long::sum);
+                playedSessionsByUserId.merge(userId, 1, Integer::sum);
+                // increment the session wins for best scoring user only (or all users that tie)
+                if (Objects.equals(score, bestSessionScore)) {
+                    sessionWinsByUserId.merge(userId, 1, Integer::sum);
+                }
+            }
+        }
+
+        
+        List<User> ordered = new ArrayList<>(users);
+        // per user, calculate average scores (round and session based)
+        // get win values (round and session based) from temporary maps
+        for (User user : ordered) {
+            Long userId = user.getId();
+            // if no values were added to the maps: return 0
+            int sessionWins = sessionWinsByUserId.getOrDefault(userId, 0);
+            int playedSessions = playedSessionsByUserId.getOrDefault(userId, 0);
+            long cumulativeSession = cumulativeSessionScoreByUserId.getOrDefault(userId, 0L);
+            // if no sessions were played - set 0. otherwise calculate average
+            int averageSession = playedSessions == 0 ? 0
+                    : (int) Math.round((double) cumulativeSession / playedSessions);
+
+            // if no values were added to the maps: return 0
+            int roundsPlayed = roundsPlayedByUserId.getOrDefault(userId, 0);
+            long cumulativeRound = cumulativeRoundScoreByUserId.getOrDefault(userId, 0L);
+            // if no rounds were played - set 0. otherwise calculate average
+            int averageRound = roundsPlayed == 0 ? 0
+                    : (int) Math.round((double) cumulativeRound / roundsPlayed);
+
+            // set average scores and win values to user objects
+            user.setGamesWon(sessionWins);
+            user.setRoundsWon(roundWinsByUserId.getOrDefault(userId, 0));
+            user.setAverageScorePerSession(averageSession);
+            user.setAverageScorePerRound(averageRound);
+        }
+
+        // order users
+        // first by games won, descending
+        // then by average score over sessions, ascending
+        // then by ids, ascending
+        ordered.sort(Comparator
+                .comparing(User::getGamesWon, Comparator.nullsFirst(Comparator.reverseOrder()))
+                .thenComparing(User::getAverageScorePerSession, Comparator.nullsFirst(Integer::compareTo))
+                .thenComparing(User::getId, Comparator.nullsFirst(Long::compareTo)));
+
+        // calculate and assign ranks to users, based on the above sort order
+        int rank = 1;
+        for (User user : ordered) {
+            user.setOverallRank(rank++);
+            userRepository.save(user);
+        }
+        userRepository.flush();
+    }
 
 	public User createUser(User newUser) {
         if (newUser.getUsername() != null && newUser.getUsername().length() > 16) {

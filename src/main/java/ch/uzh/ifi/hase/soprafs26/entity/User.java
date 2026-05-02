@@ -53,10 +53,16 @@ public class User implements Serializable { // public: Klasse kann von überall 
     @Column(nullable = false) // added by me for creation date S1
     private LocalDate creationDate;
 
-    @Column(nullable = false) // number of games won,updated aftereach game
+    @Column(nullable = false) // session wins (tied to best totalScore in ended sessions)
     private Integer gamesWon = 0;
 
-    @Column(nullable = false) // average score perround across all games
+    @Column(nullable = false) // rounds won (tied to lowest score in round maps)
+    private Integer roundsWon = 0;
+
+    @Column(nullable = false) // mean of totalScore across ended sessions
+    private Integer averageScorePerSession = 0;
+
+    @Column(nullable = false) // mean of round scores (only rounds user appears in)
     private Integer averageScorePerRound = 0;
 
     @Column(nullable = false) // overall rank compared to all other users - global leaderborad
@@ -143,6 +149,14 @@ public class User implements Serializable { // public: Klasse kann von überall 
     public Integer getGamesWon() {return gamesWon;}
 
     public void setGamesWon(Integer gamesWon) {this.gamesWon = gamesWon;}
+
+    public Integer getRoundsWon() { return roundsWon; }
+
+    public void setRoundsWon(Integer roundsWon) { this.roundsWon = roundsWon; }
+
+    public Integer getAverageScorePerSession() { return averageScorePerSession;}
+
+    public void setAverageScorePerSession(Integer averageScorePerSession) {this.averageScorePerSession = averageScorePerSession;}
 
     public Integer getAverageScorePerRound() { return averageScorePerRound;}
 

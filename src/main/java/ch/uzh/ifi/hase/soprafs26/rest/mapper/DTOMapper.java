@@ -51,6 +51,8 @@ public interface DTOMapper {
     @Mapping(source = "bio", target = "bio")
     @Mapping(source = "creationDate", target = "creationDate")
     @Mapping(source = "gamesWon", target = "gamesWon")
+    @Mapping(source = "roundsWon", target = "roundsWon")
+    @Mapping(source = "averageScorePerSession", target = "averageScorePerSession")
     @Mapping(source = "averageScorePerRound", target = "averageScorePerRound")
     @Mapping(source = "overallRank", target = "overallRank")
 	UserGetDTO convertEntityToUserGetDTO(User user);
