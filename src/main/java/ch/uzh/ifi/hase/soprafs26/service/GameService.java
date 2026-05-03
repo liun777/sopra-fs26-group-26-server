@@ -1601,5 +1601,82 @@ public class GameService {
         advanceTurnToNextPlayer(gameId);
     }
 
+    /**
+     * Pipeline method to persist round scores, update session totals, 
+     * and check for game-over conditions.
+     * 
+     * @param gameId The ID of the current game.
+     * @param calculatedRoundScores The scores for this round (provided by the teammate's counting logic).
+     * @return boolean True if the session is over, False if another round should start.
+     */
+    public boolean saveRoundScoreAndCheckGameOver(String gameId, Map<Long, Integer> calculatedRoundScores) {
+
+        // retrieve session 
+        Game game = getGameById(gameId);
+        List<Long> orderedPlayers = game.getOrderedPlayerIds();
+
+        String sessionId = lobbyService.findPlayingSessionIdForPlayers(orderedPlayers);
+
+        if (sessionId == null || sessionId.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "No active session found");
+        }
+        
+        Session session = sessionRepository.findBySessionId(sessionId);
+
+        // update session fields
+        List<Map<Long, Integer>> perRoundScores = session.getUserScoresPerRound();
+        if (perRoundScores == null) {
+            perRoundScores = new ArrayList<>();
+        }
+
+        perRoundScores.add(calculatedRoundScores);
+        session.setUserScoresPerRound(perRoundScores);
+
+        Map<Long, Integer> totalScores = session.getTotalScoreByUserId();
+        if (totalScores == null) {
+            totalScores = new HashMap<>();
+        }
+
+        // .entrySet() creates a set of pairs containing a player id and their score for the round
+        for (Map.Entry<Long, Integer> entry: calculatedRoundScores.entrySet()) {
+            // add the round score to the total score by getting the player id (getKey), their round 
+            // score (getValue) and adding to their total score if they already have a score (::sum)
+            totalScores.merge(entry.getKey(), entry.getValue(), Integer::sum);
+        }
+
+        session.setTotalScoreByUserId(totalScores);
+
+        // check if ending conditions are met
+        boolean isGameOver = checkGameOverConditions(session);
+
+        if (isGameOver) {
+            session.setEnded(true);
+        }
+
+        sessionRepository.save(session);
+
+        return isGameOver;
+    }
+
+    private boolean checkGameOverConditions(Session session) {
+        
+        int maxRounds = gameSettings.getRoundLimit();
+        int maxScore = gameSettings.getScoreLimit();
+
+        if (session.getUserScoresPerRound().size() >= maxRounds) {
+            return true;
+        }
+
+        for (Integer totalScore : session.getTotalScoreByUserId().values()) {
+            if (totalScore >= maxScore) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+
+
     
 }   
