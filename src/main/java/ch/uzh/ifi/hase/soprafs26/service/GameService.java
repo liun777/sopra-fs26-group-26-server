@@ -1360,6 +1360,17 @@ public class GameService {
 
         // makes sure the game only advances one round after cabo is called
         if (game.isCaboCalled() && nextPlayerId.equals(game.getCaboCalledByUserId())) {
+
+            // Please overwrite this as soon as scoring logic is implemented
+            Map<Long, Integer> roundScores = new HashMap<>();
+
+            boolean isSessionOver = saveRoundScoreAndCheckGameOver(gameId, roundScores);
+
+            if (isSessionOver) {
+                // didnt know what we want to do if game is over...
+                System.out.println("Session has reached its limit and is now over!");
+            }
+
             game.setStatus(GameStatus.CABO_REVEAL);
             game.setRematchDecisionByUserId(new HashMap<>());
             cancelTurnTimer(gameId);
@@ -1675,8 +1686,4 @@ public class GameService {
 
         return false;
     }
-
-
-
-    
 }   
