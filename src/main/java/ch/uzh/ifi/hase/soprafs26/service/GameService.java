@@ -239,6 +239,30 @@ public class GameService {
         return saved;
     }
 
+    public Game resumeGame(Long sessionId) {
+        // 1. get session from DB
+        Session session = sessionRepository.findById(sessionId)
+            .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Session not found"));
+
+        if (session.isEnded()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Session already finished");
+        }
+
+        // 2. get player ID's
+        List<Long> playerIds = new ArrayList<>(session.getTotalScoreByUserId().keySet()); 
+
+        if (playerIds.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "No players found in this session");
+        }
+
+        // 3. start new game with those players
+        Game resumedGame = startGame(playerIds);
+    
+        resumedGame.setResumedFromSessionId(sessionId);
+
+        return gameRepository.save(resumedGame);
+    }
+
     private List<Long> sanitizePlayerIds(List<Long> playerIds) {
         if (playerIds == null) {
             return List.of();

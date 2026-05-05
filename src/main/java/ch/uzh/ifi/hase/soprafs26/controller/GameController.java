@@ -13,6 +13,9 @@ import ch.uzh.ifi.hase.soprafs26.entity.Lobby;
 import ch.uzh.ifi.hase.soprafs26.service.GameService;
 import ch.uzh.ifi.hase.soprafs26.service.LobbyService;
 import org.springframework.web.server.ResponseStatusException;
+import ch.uzh.ifi.hase.soprafs26.entity.Game;
+import ch.uzh.ifi.hase.soprafs26.rest.dto.GameStateBroadcastDTO;
+import ch.uzh.ifi.hase.soprafs26.rest.mapper.DTOMapper;
 
 @RestController
 public class GameController {
@@ -267,6 +270,14 @@ public class GameController {
             @PathVariable String gameId,
             @RequestHeader("Authorization") String token) {
         gameService.skipAbility(gameId, token);
+    }
+
+    @PostMapping("/games/resume/{sessionId}")
+    @ResponseStatus(HttpStatus.CREATED)
+    @ResponseBody
+    public GameStateBroadcastDTO resumeGame(@PathVariable Long sessionId) {
+        Game resumedGame = gameService.resumeGame(sessionId);
+        return DTOMapper.INSTANCE.convertEntityToGameStateBroadcastDTO(resumedGame);
     }
 
 }

@@ -14,6 +14,8 @@ import ch.uzh.ifi.hase.soprafs26.rest.dto.CardDTO;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.SessionHistoryDTO;
 import ch.uzh.ifi.hase.soprafs26.entity.Lobby;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.LobbyGetDTO;
+import ch.uzh.ifi.hase.soprafs26.entity.Game;
+import ch.uzh.ifi.hase.soprafs26.rest.dto.GameStateBroadcastDTO;
 
 @Mapper
 public interface DTOMapper {
@@ -87,4 +89,7 @@ public interface DTOMapper {
 
     // Updated List mapping method name
     List<SessionHistoryDTO> convertEntityListToSessionHistoryDTOList(List<Session> sessionHistory);
+
+    @Mapping(source = "resumedFromSessionId", target = "resumedFromSessionId")
+    GameStateBroadcastDTO convertEntityToGameStateBroadcastDTO(Game game);
 }

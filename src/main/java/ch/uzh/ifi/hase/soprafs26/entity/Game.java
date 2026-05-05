@@ -328,4 +328,15 @@ public class Game {
         this.lastMoveSequence = lastMoveSequence;
     }
 
+    @Column
+    private Long resumedFromSessionId;
+
+    public Long getResumedFromSessionId() {
+        return resumedFromSessionId;
+    }
+
+    public void setResumedFromSessionId(Long resumedFromSessionId) {
+        this.resumedFromSessionId = resumedFromSessionId;
+    }
+
 }
