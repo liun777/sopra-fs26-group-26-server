@@ -1670,15 +1670,15 @@ public class GameService {
     }
 
     /**
-    * Calculate round scores including Kamikaze special rule. 
-    * Scoring rules:
-    * 1. Kamikaze: If a player has exactly 2×12 and 2×13, they get 0 points and all others get 50
-    * 2. Normal: Player(s) with lowest sum get 0 points, others get their card sum
-    * 3. Cabo penalty: If Cabo caller doesn't have lowest sum, they get +5 penalty points
-    * 
-    * @param game The game instance at round end
-    * @return Map of userId -> round score for each player
-    */
+     * Calculate round scores including Kamikaze special rule. 
+     * Scoring rules:
+     * 1. Kamikaze: If a player has exactly 2×12 and 2×13, they get 0 points and all others get 50
+     * 2. Normal: Player(s) with lowest sum get 0 points, others get their card sum
+     * 3. Cabo penalty: If Cabo caller doesn't have lowest sum, they get +5 penalty points
+     * 
+     * @param game The game instance at round end
+     * @return Map of userId -> round score for each player
+     */
     private Map<Long, Integer> calculatedRoundScores(Game game) {
         Map<Long, Integer> roundScores = new HashMap<>();
         Map<Long, List<Card>> playerHands = game.getPlayerHands();
@@ -1830,73 +1830,90 @@ public class GameService {
      * and check for game-over conditions.
      * 
      * @param gameId The ID of the current game.
-     * @param calculatedRoundScores The scores for this round (provided by the teammate's counting logic).
+     * @param calculatedRoundScores The scores for this round.
      * @return boolean True if the session is over, False if another round should start.
      */
     public boolean saveRoundScoreAndCheckGameOver(String gameId, Map<Long, Integer> calculatedRoundScores) {
+        try {
+            // retrieve session 
+            Game game = getGameById(gameId);
+            List<Long> orderedPlayers = game.getOrderedPlayerIds();
 
-        // retrieve session 
-        Game game = getGameById(gameId);
-        List<Long> orderedPlayers = game.getOrderedPlayerIds();
+            String sessionId = lobbyService.findPlayingSessionIdForPlayers(orderedPlayers);
 
-        String sessionId = lobbyService.findPlayingSessionIdForPlayers(orderedPlayers);
+            if (sessionId == null || sessionId.isBlank()) {
+                System.err.println("Warning: No active session found for game. Skipping score save.");
+                return false;
+            }
+            
+            Session session = sessionRepository.findBySessionId(sessionId);
 
-        if (sessionId == null || sessionId.isBlank()) {
-            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "No active session found");
+            if (session == null) {
+                System.err.println("Warning: Session entity not found in DB. Skipping score save.");
+                return false;
+            }
+
+            // update session fields
+            List<Map<Long, Integer>> perRoundScores = session.getUserScoresPerRound();
+            if (perRoundScores == null) {
+                perRoundScores = new ArrayList<>();
+            }
+
+            perRoundScores.add(calculatedRoundScores);
+            session.setUserScoresPerRound(perRoundScores);
+
+            Map<Long, Integer> totalScores = session.getTotalScoreByUserId();
+            if (totalScores == null) {
+                totalScores = new HashMap<>();
+            }
+
+            if (calculatedRoundScores != null) {
+                for (Map.Entry<Long, Integer> entry: calculatedRoundScores.entrySet()) {
+                    totalScores.merge(entry.getKey(), entry.getValue(), Integer::sum);
+                }
+            }
+
+            session.setTotalScoreByUserId(totalScores);
+
+            // check if ending conditions are met
+            boolean isGameOver = checkGameOverConditions(session);
+
+            if (isGameOver) {
+                session.setEnded(true);
+            }
+
+            sessionRepository.save(session);
+
+            return isGameOver;
+        } catch (Exception e) {
+            System.err.println("Critical error during scoring pipeline: " + e.getMessage());
+            e.printStackTrace();
+            return false;
         }
-        
-        Session session = sessionRepository.findBySessionId(sessionId);
-
-        // update session fields
-        List<Map<Long, Integer>> perRoundScores = session.getUserScoresPerRound();
-        if (perRoundScores == null) {
-            perRoundScores = new ArrayList<>();
-        }
-
-        perRoundScores.add(calculatedRoundScores);
-        session.setUserScoresPerRound(perRoundScores);
-
-        Map<Long, Integer> totalScores = session.getTotalScoreByUserId();
-        if (totalScores == null) {
-            totalScores = new HashMap<>();
-        }
-
-        // .entrySet() creates a set of pairs containing a player id and their score for the round
-        for (Map.Entry<Long, Integer> entry: calculatedRoundScores.entrySet()) {
-            // add the round score to the total score by getting the player id (getKey), their round 
-            // score (getValue) and adding to their total score if they already have a score (::sum)
-            totalScores.merge(entry.getKey(), entry.getValue(), Integer::sum);
-        }
-
-        session.setTotalScoreByUserId(totalScores);
-
-        // check if ending conditions are met
-        boolean isGameOver = checkGameOverConditions(session);
-
-        if (isGameOver) {
-            session.setEnded(true);
-        }
-
-        sessionRepository.save(session);
-
-        return isGameOver;
     }
 
     private boolean checkGameOverConditions(Session session) {
-        
-        int maxRounds = gameSettings.getRoundLimit();
-        int maxScore = gameSettings.getScoreLimit();
+        try {
+            int maxRounds = gameSettings.getRoundLimit();
+            int maxScore = gameSettings.getScoreLimit();
 
-        if (session.getUserScoresPerRound().size() >= maxRounds) {
-            return true;
-        }
-
-        for (Integer totalScore : session.getTotalScoreByUserId().values()) {
-            if (totalScore >= maxScore) {
+            // Null check order fixed here!
+            if (session.getUserScoresPerRound() != null && session.getUserScoresPerRound().size() >= maxRounds) {
                 return true;
             }
-        }
 
-        return false;
+            if (session.getTotalScoreByUserId() != null) {
+                for (Integer totalScore : session.getTotalScoreByUserId().values()) {
+                    if (totalScore != null && totalScore >= maxScore) {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        } catch (Exception e) {
+            System.err.println("Error checking game over conditions: " + e.getMessage());
+            return false;
+        }
     }
 }   
