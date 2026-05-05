@@ -1817,6 +1817,28 @@ public class GameServiceTest {
         assertEquals(2L, game.getCurrentPlayerId(), "Turn should successfully advance to Player 2");
     }
 
+    @Test
+    public void saveRoundScores_noSession_returnsFalseGracefully() {
+        // 1. Arrange: Create a fake game
+        Game mockGame = new Game();
+        mockGame.setId("test-game-id");
+        mockGame.setOrderedPlayerIds(List.of(1L, 2L));
 
+        Mockito.when(gameRepository.findById("test-game-id")).thenReturn(Optional.of(mockGame));
+        
+        // Mock the lobby service to return null (simulating the bug environment)
+        Mockito.when(lobbyService.findPlayingSessionIdForPlayers(any())).thenReturn(null);
+
+        Map<Long, Integer> dummyScores = Map.of(1L, 10, 2L, 50);
+
+        // 2. Act: Run your pipeline
+        boolean isGameOver = gameService.saveRoundScoreAndCheckGameOver("test-game-id", dummyScores);
+
+        // 3. Assert: It should return false and NOT throw an exception!
+        assertFalse(isGameOver);
+        
+        // Verify the database save was never called
+        Mockito.verify(sessionRepository, Mockito.never()).save(any());
+    }
 
 }
