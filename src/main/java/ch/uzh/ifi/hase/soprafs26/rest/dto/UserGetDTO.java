@@ -17,6 +17,8 @@ public class UserGetDTO {
     private String bio;
     private LocalDate creationDate;
     private Integer gamesWon;
+    private Integer roundsWon;
+    private Integer averageScorePerSession;
     private Integer averageScorePerRound;
     private Integer overallRank;
 
@@ -76,11 +78,18 @@ public class UserGetDTO {
 
     public void setGamesWon(Integer gamesWon) { this.gamesWon = gamesWon; }
 
+    public Integer getRoundsWon() { return roundsWon; }
+
+    public void setRoundsWon(Integer roundsWon) { this.roundsWon = roundsWon; }
+
+    public Integer getAverageScorePerSession() { return averageScorePerSession; }
+
+    public void setAverageScorePerSession(Integer averageScorePerSession) { this.averageScorePerSession = averageScorePerSession; }
 
     public Integer getAverageScorePerRound() { return averageScorePerRound; }
 
     public void setAverageScorePerRound(Integer averageScorePerRound) { this.averageScorePerRound = averageScorePerRound; }
-
+	
 
     public Integer getOverallRank() { return overallRank; }
 

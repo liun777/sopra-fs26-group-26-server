@@ -54,6 +54,10 @@ public class GameSettingsProperties {
     @Min(1)
     private long rematchDecisionSeconds = 30;
 
+    private int scoreLimit = 100;
+
+    private int roundLimit = 100;
+
     public int getMinPlayers() {
         return minPlayers;
     }
@@ -132,5 +136,21 @@ public class GameSettingsProperties {
 
     public void setCaboRevealSeconds(long caboRevealSeconds) {
         this.caboRevealSeconds = caboRevealSeconds;
+    }
+
+    public int getScoreLimit() {
+        return scoreLimit;
+    }
+
+    public void setScoreLimit(int scoreLimit) {
+        this.scoreLimit = scoreLimit;
+    }
+
+    public int getRoundLimit() {
+        return roundLimit;
+    }
+
+    public void setRoundLimit(int roundLimit) {
+        this.roundLimit = roundLimit;
     }
 }

@@ -24,8 +24,10 @@ import ch.uzh.ifi.hase.soprafs26.entity.Game;
 import ch.uzh.ifi.hase.soprafs26.entity.GameMoveEvent;
 import ch.uzh.ifi.hase.soprafs26.entity.GameMoveStep;
 import ch.uzh.ifi.hase.soprafs26.entity.Lobby;
+import ch.uzh.ifi.hase.soprafs26.entity.Session;
 import ch.uzh.ifi.hase.soprafs26.entity.User;
 import ch.uzh.ifi.hase.soprafs26.repository.GameRepository;
+import ch.uzh.ifi.hase.soprafs26.repository.SessionRepository;
 import ch.uzh.ifi.hase.soprafs26.rest.mapper.DTOMapper;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.CardDTO;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.PeekSelectionDTO;
@@ -68,6 +70,7 @@ public class GameService {
     private final GameEventPublisher gameEventPublisher;
     private final ScheduledExecutorService scheduler;
     private final LobbyService lobbyService;
+    private final SessionRepository sessionRepository;
     private final GameSettingsProperties gameSettings;
     // map to store tasks - key: gameId, value: scheduled task
     private final Map<String, ScheduledFuture<?>> gameTimers = new ConcurrentHashMap<>();
@@ -128,7 +131,7 @@ public class GameService {
     public GameService(GameRepository gameRepository, DeckOfCardsAPIService deckOfCardsAPIService,
                        UserRepository userRepository, GameEventPublisher gameEventPublisher,
                        ScheduledExecutorService scheduler, GameSettingsProperties gameSettings) {
-        this(gameRepository, deckOfCardsAPIService, userRepository, gameEventPublisher, scheduler, null, gameSettings);
+        this(gameRepository, deckOfCardsAPIService, userRepository, gameEventPublisher, scheduler, null, null, gameSettings);
     }
 
     // Used by Spring: allows game lifecycle -> lobby lifecycle handoff after round end.
@@ -136,6 +139,7 @@ public class GameService {
     public GameService(GameRepository gameRepository, DeckOfCardsAPIService deckOfCardsAPIService,
                        UserRepository userRepository, GameEventPublisher gameEventPublisher,
                        ScheduledExecutorService scheduler, @Lazy LobbyService lobbyService,
+                       @Lazy SessionRepository sessionRepository,
                        GameSettingsProperties gameSettings) {
         this.gameRepository = gameRepository;
         this.deckOfCardsAPIService = deckOfCardsAPIService;
@@ -143,6 +147,7 @@ public class GameService {
         this.gameEventPublisher = gameEventPublisher;
         this.scheduler = scheduler;
         this.lobbyService = lobbyService;
+        this.sessionRepository = sessionRepository;
         this.gameSettings = gameSettings;
     }
 
@@ -1174,6 +1179,8 @@ public class GameService {
                 .filter(playerId -> decisions != null && REMATCH_DECISION_FRESH.equalsIgnoreCase(decisions.get(playerId)))
                 .toList();
 
+        applyHundredToFiftyReductionIfNeeded(orderedPlayers);
+
         cancelTurnTimer(gameId);
         game.setStatus(GameStatus.ROUND_ENDED);
         game.setCaboCalled(false);
@@ -1187,6 +1194,72 @@ public class GameService {
         }
         rematchDecisionTimerCounts.remove(gameId);
         rematchResolutionLocks.remove(gameId);
+    }
+
+    // #91: if a player's session score is 100, reduce to 50 once
+    private void applyHundredToFiftyReductionIfNeeded(List<Long> orderedPlayers) {
+        if (orderedPlayers == null || orderedPlayers.isEmpty() || lobbyService == null || sessionRepository == null) {
+            return;
+        }
+        String sessionId = lobbyService.findPlayingSessionIdForPlayers(orderedPlayers);
+        if (sessionId == null || sessionId.isBlank()) {
+            return;
+        }
+        Session session = sessionRepository.findBySessionId(sessionId);
+        if (session == null) {
+            return;
+        }
+        List<Map<Long, Integer>> perRound = session.getUserScoresPerRound();
+        if (perRound == null || perRound.isEmpty()) {
+            return;
+        }
+        Map<Long, Integer> latestRound = perRound.get(perRound.size() - 1);
+        if (latestRound == null) {
+            return;
+        }
+        Map<Long, Integer> totalScoreByUserId = session.getTotalScoreByUserId();
+        if (totalScoreByUserId == null) {
+            totalScoreByUserId = new HashMap<>();
+            session.setTotalScoreByUserId(totalScoreByUserId);
+        }
+        Map<Long, Boolean> alreadyApplied = session.getHundredReductionAppliedByUserId();
+        if (alreadyApplied == null) {
+            alreadyApplied = new HashMap<>();
+            session.setHundredReductionAppliedByUserId(alreadyApplied);
+        }
+
+        boolean changed = false;
+        for (Long playerId : orderedPlayers) {
+            if (playerId == null || Boolean.TRUE.equals(alreadyApplied.get(playerId))) {
+                continue;
+            }
+            Integer totalScoreObj = totalScoreByUserId.get(playerId);
+            if (totalScoreObj == null) {
+                int recomputedTotal = 0;
+                for (Map<Long, Integer> roundScores : perRound) {
+                    if (roundScores != null) {
+                        recomputedTotal += roundScores.getOrDefault(playerId, 0);
+                    }
+                }
+                totalScoreByUserId.put(playerId, recomputedTotal);
+                totalScoreObj = recomputedTotal;
+                changed = true;
+            }
+            int totalScore = totalScoreObj;
+            if (totalScore == 100) {
+                int latestScore = latestRound.getOrDefault(playerId, 0);
+                latestRound.put(playerId, latestScore - 50);
+                totalScoreByUserId.put(playerId, 50);
+                alreadyApplied.put(playerId, true);
+                changed = true;
+            }
+        }
+        if (changed) {
+            session.setUserScoresPerRound(perRound);
+            session.setTotalScoreByUserId(totalScoreByUserId);
+            session.setHundredReductionAppliedByUserId(alreadyApplied);
+            sessionRepository.save(session);
+        }
     }
 
     public Optional<Game> findActiveGameForUser(Long userId) {
@@ -1287,6 +1360,17 @@ public class GameService {
 
         // makes sure the game only advances one round after cabo is called
         if (game.isCaboCalled() && nextPlayerId.equals(game.getCaboCalledByUserId())) {
+
+            // Please overwrite this as soon as scoring logic is implemented
+            Map<Long, Integer> roundScores = new HashMap<>();
+
+            boolean isSessionOver = saveRoundScoreAndCheckGameOver(gameId, roundScores);
+
+            if (isSessionOver) {
+                // didnt know what we want to do if game is over...
+                System.out.println("Session has reached its limit and is now over!");
+            }
+
             game.setStatus(GameStatus.CABO_REVEAL);
             game.setRematchDecisionByUserId(new HashMap<>());
             cancelTurnTimer(gameId);
@@ -1526,5 +1610,80 @@ public class GameService {
         cancelTurnTimer(gameId);
         saveGameAndBroadcast(game);
         advanceTurnToNextPlayer(gameId);
+    }
+
+    /**
+     * Pipeline method to persist round scores, update session totals, 
+     * and check for game-over conditions.
+     * 
+     * @param gameId The ID of the current game.
+     * @param calculatedRoundScores The scores for this round (provided by the teammate's counting logic).
+     * @return boolean True if the session is over, False if another round should start.
+     */
+    public boolean saveRoundScoreAndCheckGameOver(String gameId, Map<Long, Integer> calculatedRoundScores) {
+
+        // retrieve session 
+        Game game = getGameById(gameId);
+        List<Long> orderedPlayers = game.getOrderedPlayerIds();
+
+        String sessionId = lobbyService.findPlayingSessionIdForPlayers(orderedPlayers);
+
+        if (sessionId == null || sessionId.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "No active session found");
+        }
+        
+        Session session = sessionRepository.findBySessionId(sessionId);
+
+        // update session fields
+        List<Map<Long, Integer>> perRoundScores = session.getUserScoresPerRound();
+        if (perRoundScores == null) {
+            perRoundScores = new ArrayList<>();
+        }
+
+        perRoundScores.add(calculatedRoundScores);
+        session.setUserScoresPerRound(perRoundScores);
+
+        Map<Long, Integer> totalScores = session.getTotalScoreByUserId();
+        if (totalScores == null) {
+            totalScores = new HashMap<>();
+        }
+
+        // .entrySet() creates a set of pairs containing a player id and their score for the round
+        for (Map.Entry<Long, Integer> entry: calculatedRoundScores.entrySet()) {
+            // add the round score to the total score by getting the player id (getKey), their round 
+            // score (getValue) and adding to their total score if they already have a score (::sum)
+            totalScores.merge(entry.getKey(), entry.getValue(), Integer::sum);
+        }
+
+        session.setTotalScoreByUserId(totalScores);
+
+        // check if ending conditions are met
+        boolean isGameOver = checkGameOverConditions(session);
+
+        if (isGameOver) {
+            session.setEnded(true);
+        }
+
+        sessionRepository.save(session);
+
+        return isGameOver;
+    }
+
+    private boolean checkGameOverConditions(Session session) {
+        
+        int maxRounds = gameSettings.getRoundLimit();
+        int maxScore = gameSettings.getScoreLimit();
+
+        if (session.getUserScoresPerRound().size() >= maxRounds) {
+            return true;
+        }
+
+        for (Integer totalScore : session.getTotalScoreByUserId().values()) {
+            if (totalScore >= maxScore) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }   
