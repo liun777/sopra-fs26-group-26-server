@@ -860,15 +860,23 @@ public class LobbyService {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Forbidden!");
         }
 
-        if (!lobby.getPlayerIds().contains(targetUserId)) {
+        boolean isPlayer = lobby.getPlayerIds().contains(targetUserId);
+        boolean isSpectator = lobby.getSpectatorIds() != null && lobby.getSpectatorIds().contains(targetUserId);
+
+        if (!isPlayer && !isSpectator) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "User is not part of this lobby");
         }
 
-        if ("PLAYING".equals(lobby.getStatus())) {
+        if ("PLAYING".equals(lobby.getStatus()) && isPlayer) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Players cannot be removed from an active game");
         }
 
-        lobby.getPlayerIds().remove(targetUserId);
+        if (isPlayer) {
+            lobby.getPlayerIds().remove(targetUserId);
+        } else {
+            lobby.getSpectatorIds().remove(targetUserId);
+        }
+
         clearTimedOutPlayingFlag(targetUserId);
         setUserStatus(targetUserId, UserStatus.ONLINE);
         if (isHost && !isSelf) {
@@ -880,15 +888,18 @@ public class LobbyService {
             }
         }
 
-        // if no players left — delete the lobby
-        if (lobby.getPlayerIds().isEmpty()) {
+        // if no players & no spectators left — delete the lobby
+        boolean noPlayers = lobby.getPlayerIds().isEmpty();
+        boolean noSpectators = (lobby.getSpectatorIds() == null || lobby.getSpectatorIds().isEmpty());
+
+        if (noPlayers && noSpectators) {
             lobbyRepository.delete(lobby);
             onlineUsersEventPublisher.broadcastOnlineUsers();
             return null;
         }
 
-        // if the removed player was the host — migrate to next player
-        if (lobby.getSessionHostUserId().equals(targetUserId)) {
+        // if the removed player was the host — migrate to next player -> spectator cannot be host
+        if (lobby.getSessionHostUserId().equals(targetUserId) && !lobby.getPlayerIds().isEmpty()) {
             lobby.setSessionHostUserId(lobby.getPlayerIds().get(0));
         }
 
@@ -932,22 +943,42 @@ public class LobbyService {
 
     public void removePlayerFromDisconnect(String sessionId, Long userId) {
         Lobby lobby = getLobbyBySessionId(sessionId);
-        if ("PLAYING".equals(lobby.getStatus())) {
+        // only players are disconnected, spectators are removed immediately
+        if ("PLAYING".equals(lobby.getStatus()) && lobby.getPlayerIds().contains(userId)) {
             timedOutInPlayingPlayerIds.add(userId);
             return;
         }
         lobby.getPlayerIds().remove(userId);
+        if (lobby.getSpectatorIds() != null) {
+            lobby.getSpectatorIds().remove(userId);
+        }
         clearTimedOutPlayingFlag(userId);
 
-        if (lobby.getPlayerIds().isEmpty()) {
+        boolean noPlayers = lobby.getPlayerIds().isEmpty();
+        boolean noSpectators = (lobby.getSpectatorIds() == null || lobby.getSpectatorIds().isEmpty());
+
+        if (noPlayers && noSpectators) {
             lobbyRepository.delete(lobby);
         } else {
-            if (lobby.getSessionHostUserId().equals(userId)) {
+            if (lobby.getSessionHostUserId().equals(userId) && !lobby.getPlayerIds().isEmpty()) {
                 lobby.setSessionHostUserId(lobby.getPlayerIds().get(0));
             }
             lobbyRepository.save(lobby);
             lobbyEventPublisher.broadcastLobbyUpdate(lobby.getId(), lobby);
         }
         onlineUsersEventPublisher.broadcastOnlineUsers();
+    }
+
+    public void removeSpectator(String sessionId, Long userId) {
+        Lobby lobby = lobbyRepository.findBySessionId(sessionId);
+        if (lobby == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Lobby not found");
+        }
+
+        if (lobby.getSpectatorIds() != null && lobby.getSpectatorIds().contains(userId)) {
+            lobby.getSpectatorIds().remove(userId);
+            lobbyRepository.save(lobby);
+            lobbyRepository.flush();
+        }
     }
 }
