@@ -27,6 +27,7 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -493,5 +494,41 @@ public class LobbyServiceTest {
 		assertEquals(3L, rematchLobby.getSessionHostUserId());
 		assertEquals(List.of(3L, 4L), rematchLobby.getPlayerIds());
 		Mockito.verify(lobbyRepository, Mockito.never()).delete(playingLobby);
+	}
+
+	@Test
+	public void findPlayingSessionIdForPlayers_exactSetMatch_returnsSessionId() {
+		// matching lobby
+		Lobby exactMatch = new Lobby();
+		exactMatch.setSessionId("PLAY123");
+		exactMatch.setStatus("PLAYING");
+		exactMatch.setPlayerIds(new ArrayList<>(List.of(2L, 1L, 3L)));
+
+		// non matching lobby
+		Lobby nonMatch = new Lobby();
+		nonMatch.setSessionId("OTHER");
+		nonMatch.setStatus("PLAYING");
+		nonMatch.setPlayerIds(new ArrayList<>(List.of(1L, 2L)));
+
+		// both lobbies returned when queried by status PLAYING
+		Mockito.when(lobbyRepository.findByStatus("PLAYING")).thenReturn(List.of(nonMatch, exactMatch));
+
+		// the matching lobby's session id
+		String sessionId = lobbyService.findPlayingSessionIdForPlayers(List.of(1L, 2L, 3L));
+
+		assertEquals("PLAY123", sessionId);
+	}
+
+	@Test
+	public void findPlayingSessionIdForPlayers_noExactMatchOrEmptyInput_returnsNull() {
+		Lobby onlyLobby = new Lobby();
+		onlyLobby.setSessionId("PLAY123");
+		onlyLobby.setStatus("PLAYING");
+		onlyLobby.setPlayerIds(new ArrayList<>(List.of(1L, 2L, 3L)));
+		Mockito.when(lobbyRepository.findByStatus("PLAYING")).thenReturn(List.of(onlyLobby));
+
+		assertNull(lobbyService.findPlayingSessionIdForPlayers(List.of(1L, 2L, 4L)));
+		assertNull(lobbyService.findPlayingSessionIdForPlayers(List.of()));
+		assertNull(lobbyService.findPlayingSessionIdForPlayers(null));
 	}
 }

@@ -61,7 +61,8 @@ public class GameStateBroadcastMapper {
         if (drawnCard != null) {
             CardViewDTO drawnCardDTO = new CardViewDTO();
             GameStatus status = game.getStatus();
-            boolean roundEndReveal = status == GameStatus.ROUND_AWAITING_REMATCH
+            boolean roundEndReveal = status == GameStatus.CABO_REVEAL
+                    || status == GameStatus.ROUND_AWAITING_REMATCH
                     || status == GameStatus.ROUND_ENDED;
             if (roundEndReveal || viewerUserId.equals(game.getCurrentPlayerId())) {
                 drawnCardDTO.setValue(drawnCard.getValue());

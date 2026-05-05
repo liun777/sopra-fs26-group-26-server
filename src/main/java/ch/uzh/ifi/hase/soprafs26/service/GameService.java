@@ -24,8 +24,10 @@ import ch.uzh.ifi.hase.soprafs26.entity.Game;
 import ch.uzh.ifi.hase.soprafs26.entity.GameMoveEvent;
 import ch.uzh.ifi.hase.soprafs26.entity.GameMoveStep;
 import ch.uzh.ifi.hase.soprafs26.entity.Lobby;
+import ch.uzh.ifi.hase.soprafs26.entity.Session;
 import ch.uzh.ifi.hase.soprafs26.entity.User;
 import ch.uzh.ifi.hase.soprafs26.repository.GameRepository;
+import ch.uzh.ifi.hase.soprafs26.repository.SessionRepository;
 import ch.uzh.ifi.hase.soprafs26.rest.mapper.DTOMapper;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.CardDTO;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.PeekSelectionDTO;
@@ -68,6 +70,7 @@ public class GameService {
     private final GameEventPublisher gameEventPublisher;
     private final ScheduledExecutorService scheduler;
     private final LobbyService lobbyService;
+    private final SessionRepository sessionRepository;
     private final GameSettingsProperties gameSettings;
     // map to store tasks - key: gameId, value: scheduled task
     private final Map<String, ScheduledFuture<?>> gameTimers = new ConcurrentHashMap<>();
@@ -128,7 +131,7 @@ public class GameService {
     public GameService(GameRepository gameRepository, DeckOfCardsAPIService deckOfCardsAPIService,
                        UserRepository userRepository, GameEventPublisher gameEventPublisher,
                        ScheduledExecutorService scheduler, GameSettingsProperties gameSettings) {
-        this(gameRepository, deckOfCardsAPIService, userRepository, gameEventPublisher, scheduler, null, gameSettings);
+        this(gameRepository, deckOfCardsAPIService, userRepository, gameEventPublisher, scheduler, null, null, gameSettings);
     }
 
     // Used by Spring: allows game lifecycle -> lobby lifecycle handoff after round end.
@@ -136,6 +139,7 @@ public class GameService {
     public GameService(GameRepository gameRepository, DeckOfCardsAPIService deckOfCardsAPIService,
                        UserRepository userRepository, GameEventPublisher gameEventPublisher,
                        ScheduledExecutorService scheduler, @Lazy LobbyService lobbyService,
+                       @Lazy SessionRepository sessionRepository,
                        GameSettingsProperties gameSettings) {
         this.gameRepository = gameRepository;
         this.deckOfCardsAPIService = deckOfCardsAPIService;
@@ -143,6 +147,7 @@ public class GameService {
         this.gameEventPublisher = gameEventPublisher;
         this.scheduler = scheduler;
         this.lobbyService = lobbyService;
+        this.sessionRepository = sessionRepository;
         this.gameSettings = gameSettings;
     }
 
@@ -232,6 +237,30 @@ public class GameService {
 
         // startTurnTimer(saved.getId(), saved.getCurrentPlayerId());
         return saved;
+    }
+
+    public Game resumeGame(Long sessionId) {
+        // 1. get session from DB
+        Session session = sessionRepository.findById(sessionId)
+            .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Session not found"));
+
+        if (session.isEnded()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Session already finished");
+        }
+
+        // 2. get player ID's
+        List<Long> playerIds = new ArrayList<>(session.getTotalScoreByUserId().keySet()); 
+
+        if (playerIds.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "No players found in this session");
+        }
+
+        // 3. start new game with those players
+        Game resumedGame = startGame(playerIds);
+    
+        resumedGame.setResumedFromSessionId(sessionId);
+
+        return gameRepository.save(resumedGame);
     }
 
     private List<Long> sanitizePlayerIds(List<Long> playerIds) {
@@ -608,6 +637,33 @@ public class GameService {
                 }
             }
         }
+    }
+
+    // #89 when round ends, all in-play cards are face-up in persisted game 
+    private void revealAllInPlayCardsForRoundEnd(Game game) {
+        Map<Long, List<Card>> hands = game.getPlayerHands();
+        if (hands != null) {
+            for (List<Card> hand : hands.values()) {
+                if (hand == null) {
+                    continue;
+                }
+                for (Card c : hand) {
+                    if (c != null) {
+                        c.setVisibility(true);
+                    }
+                }
+            }
+        }
+        Card drawn = game.getDrawnCard();
+        if (drawn != null) {
+            drawn.setVisibility(true);
+        }
+    }
+
+    private static boolean allInPlayCardsReveal(GameStatus status) {
+        return status == GameStatus.CABO_REVEAL
+                || status == GameStatus.ROUND_AWAITING_REMATCH
+                || status == GameStatus.ROUND_ENDED;
     }
 
     // to save and broadcast: saveGameAndBroadcast(game)
@@ -1174,6 +1230,8 @@ public class GameService {
                 .filter(playerId -> decisions != null && REMATCH_DECISION_FRESH.equalsIgnoreCase(decisions.get(playerId)))
                 .toList();
 
+        applyHundredToFiftyReductionIfNeeded(orderedPlayers);
+
         cancelTurnTimer(gameId);
         game.setStatus(GameStatus.ROUND_ENDED);
         game.setCaboCalled(false);
@@ -1187,6 +1245,72 @@ public class GameService {
         }
         rematchDecisionTimerCounts.remove(gameId);
         rematchResolutionLocks.remove(gameId);
+    }
+
+    // #91: if a player's session score is 100, reduce to 50 once
+    private void applyHundredToFiftyReductionIfNeeded(List<Long> orderedPlayers) {
+        if (orderedPlayers == null || orderedPlayers.isEmpty() || lobbyService == null || sessionRepository == null) {
+            return;
+        }
+        String sessionId = lobbyService.findPlayingSessionIdForPlayers(orderedPlayers);
+        if (sessionId == null || sessionId.isBlank()) {
+            return;
+        }
+        Session session = sessionRepository.findBySessionId(sessionId);
+        if (session == null) {
+            return;
+        }
+        List<Map<Long, Integer>> perRound = session.getUserScoresPerRound();
+        if (perRound == null || perRound.isEmpty()) {
+            return;
+        }
+        Map<Long, Integer> latestRound = perRound.get(perRound.size() - 1);
+        if (latestRound == null) {
+            return;
+        }
+        Map<Long, Integer> totalScoreByUserId = session.getTotalScoreByUserId();
+        if (totalScoreByUserId == null) {
+            totalScoreByUserId = new HashMap<>();
+            session.setTotalScoreByUserId(totalScoreByUserId);
+        }
+        Map<Long, Boolean> alreadyApplied = session.getHundredReductionAppliedByUserId();
+        if (alreadyApplied == null) {
+            alreadyApplied = new HashMap<>();
+            session.setHundredReductionAppliedByUserId(alreadyApplied);
+        }
+
+        boolean changed = false;
+        for (Long playerId : orderedPlayers) {
+            if (playerId == null || Boolean.TRUE.equals(alreadyApplied.get(playerId))) {
+                continue;
+            }
+            Integer totalScoreObj = totalScoreByUserId.get(playerId);
+            if (totalScoreObj == null) {
+                int recomputedTotal = 0;
+                for (Map<Long, Integer> roundScores : perRound) {
+                    if (roundScores != null) {
+                        recomputedTotal += roundScores.getOrDefault(playerId, 0);
+                    }
+                }
+                totalScoreByUserId.put(playerId, recomputedTotal);
+                totalScoreObj = recomputedTotal;
+                changed = true;
+            }
+            int totalScore = totalScoreObj;
+            if (totalScore == 100) {
+                int latestScore = latestRound.getOrDefault(playerId, 0);
+                latestRound.put(playerId, latestScore - 50);
+                totalScoreByUserId.put(playerId, 50);
+                alreadyApplied.put(playerId, true);
+                changed = true;
+            }
+        }
+        if (changed) {
+            session.setUserScoresPerRound(perRound);
+            session.setTotalScoreByUserId(totalScoreByUserId);
+            session.setHundredReductionAppliedByUserId(alreadyApplied);
+            sessionRepository.save(session);
+        }
     }
 
     public Optional<Game> findActiveGameForUser(Long userId) {
@@ -1287,7 +1411,19 @@ public class GameService {
 
         // makes sure the game only advances one round after cabo is called
         if (game.isCaboCalled() && nextPlayerId.equals(game.getCaboCalledByUserId())) {
+
+            // Calculate round scores with special rule
+            Map<Long, Integer> roundScores = calculatedRoundScores(game);
+
+            boolean isSessionOver = saveRoundScoreAndCheckGameOver(gameId, roundScores);
+
+            if (isSessionOver) {
+                // didnt know what we want to do if game is over...
+                System.out.println("Session has reached its limit and is now over!");
+            }
+
             game.setStatus(GameStatus.CABO_REVEAL);
+            revealAllInPlayCardsForRoundEnd(game);
             game.setRematchDecisionByUserId(new HashMap<>());
             cancelTurnTimer(gameId);
             saveGameAndBroadcast(game);
@@ -1499,8 +1635,13 @@ public class GameService {
         }
 
         Game game = getGameById(gameId);
+        List<Long> players = game.getOrderedPlayerIds();
+        boolean participant = players != null && players.contains(user.getId());
 
-        // Nur aktueller Spieler darf Karte sehen
+        if (allInPlayCardsReveal(game.getStatus()) && participant) {
+            return game.getDrawnCard();
+        }
+
         if (!user.getId().equals(game.getCurrentPlayerId())) {
             return null;
         }
@@ -1527,104 +1668,252 @@ public class GameService {
         saveGameAndBroadcast(game);
         advanceTurnToNextPlayer(gameId);
     }
-<<<<<<< Updated upstream
-=======
+
+    /**
+     * Calculate round scores including Kamikaze special rule. 
+     * Scoring rules:
+     * 1. Kamikaze: If a player has exactly 2×12 and 2×13, they get 0 points and all others get 50
+     * 2. Normal: Player(s) with lowest sum get 0 points, others get their card sum
+     * 3. Cabo penalty: If Cabo caller doesn't have lowest sum, they get +5 penalty points
+     * 
+     * @param game The game instance at round end
+     * @return Map of userId -> round score for each player
+     */
+    private Map<Long, Integer> calculatedRoundScores(Game game) {
+        Map<Long, Integer> roundScores = new HashMap<>();
+        Map<Long, List<Card>> playerHands = game.getPlayerHands();
+    
+        if (playerHands == null || playerHands.isEmpty()) {
+            return roundScores;
+        }
+    
+        List<Long> players = game.getOrderedPlayerIds();
+        if (players == null) {
+            return roundScores;
+        }
+    
+        // First check: Does anyone have the Kamikaze combination (2×12 and 2×13)?
+        Long kamikazePlayer = null;
+    
+        for (Long playerId : players) {
+            List<Card> hand = playerHands.get(playerId);
+            if (hand != null && hasKamikazeCombination(hand)) {
+                kamikazePlayer = playerId;
+                break; // Only one player can trigger this per round
+            }
+        }
+    
+        // If Kamikaze rule applies: winner gets 0, everyone else gets 50
+        if (kamikazePlayer != null) {
+            for (Long playerId : players) {
+                if (playerId.equals(kamikazePlayer)) {
+                    roundScores.put(playerId, 0);
+                } else {
+                    roundScores.put(playerId, 50);
+                }
+            }
+            return roundScores;
+        }
+    
+        // Normal scoring: calculate hand values for all players
+        Map<Long, Integer> handValues = new HashMap<>();
+        int minValue = Integer.MAX_VALUE;
+    
+        for (Long playerId : players) {
+            List<Card> hand = playerHands.get(playerId);
+            int handValue = calculateHandValue(hand);
+            handValues.put(playerId, handValue);
+            minValue = Math.min(minValue, handValue);
+        }
+    
+        // Find all players with the minimum hand value
+        List<Long> playersWithMinValue = new ArrayList<>();
+        for (Long playerId : players) {
+            if (handValues.get(playerId) == minValue) {
+                playersWithMinValue.add(playerId);
+            }
+        }
+    
+        Long caboCallerId = game.getCaboCalledByUserId();
+        boolean caboCallerHasMinValue = caboCallerId != null && playersWithMinValue.contains(caboCallerId);
+    
+        // Assign scores based on rules
+        for (Long playerId : players) {
+            int handValue = handValues.get(playerId);
+        
+            if (handValue == minValue) {
+                // Player has minimum value
+                if (playersWithMinValue.size() == 1) {
+                    // Clear winner: 0 points
+                    roundScores.put(playerId, 0);
+                } else {
+                    // Tie for minimum
+                    if (caboCallerHasMinValue) {
+                        // Cabo caller is part of the tie -> only they get 0
+                        if (playerId.equals(caboCallerId)) {
+                            roundScores.put(playerId, 0);
+                        } else {
+                            roundScores.put(playerId, handValue);
+                        }
+                    } else {
+                        // Cabo caller not in tie -> all tied players get 0
+                        roundScores.put(playerId, 0);
+                    }
+                }
+            } else {
+                // Player does not have minimum value
+                int score = handValue;
+            
+                // Apply Cabo penalty if applicable
+                if (playerId.equals(caboCallerId)) {
+                    score += 5; // Cabo caller penalty
+                }
+            
+                roundScores.put(playerId, score);
+            }
+        }
+    
+        return roundScores;
+    }
+
+    /**
+    * Check if a hand contains exactly 2×12 and 2×13 (Kamikaze rule).
+    * 
+    * @param hand The player's hand
+    * @return true if hand has exactly two 12s and two 13s
+    */
+    private boolean hasKamikazeCombination(List<Card> hand) {
+        if (hand == null || hand.size() != 4) {
+            return false;
+        }
+    
+        int count12 = 0;
+        int count13 = 0;
+    
+        for (Card card : hand) {
+            if (card == null) {
+                continue;
+            }
+            int value = card.getValue();
+            if (value == 12) {
+                count12++;
+            } else if (value == 13) {
+                count13++;
+            }
+        }
+    
+        return count12 == 2 && count13 == 2;
+    }
+
+    /**
+    * Calculate the sum of card values in a hand (normal scoring).
+    * 
+    * @param hand The player's hand
+    * @return Sum of all card values
+    */
+    private int calculateHandValue(List<Card> hand) {
+        if (hand == null) {
+            return 0;
+        }   
+    
+        int sum = 0;
+        for (Card card : hand) {
+            if (card != null) {
+                sum += card.getValue();
+            }
+        }
+        return sum;
+    }
 
     /**
      * Pipeline method to persist round scores, update session totals, 
      * and check for game-over conditions.
      * 
      * @param gameId The ID of the current game.
-     * @param calculatedRoundScores The scores for this round (provided by the teammate's counting logic).
+     * @param calculatedRoundScores The scores for this round.
      * @return boolean True if the session is over, False if another round should start.
      */
     public boolean saveRoundScoreAndCheckGameOver(String gameId, Map<Long, Integer> calculatedRoundScores) {
-
         try {
-        // retrieve session 
-        Game game = getGameById(gameId);
-        List<Long> orderedPlayers = game.getOrderedPlayerIds();
+            // retrieve session 
+            Game game = getGameById(gameId);
+            List<Long> orderedPlayers = game.getOrderedPlayerIds();
 
-        String sessionId = lobbyService.findPlayingSessionIdForPlayers(orderedPlayers);
+            String sessionId = lobbyService.findPlayingSessionIdForPlayers(orderedPlayers);
 
-        if (sessionId == null || sessionId.isBlank()) {
-            System.err.println("Warning: No active session found for game. Skipping score save.");
-            //throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "No active session found");
-            return false;
-        }
-        
-        Session session = sessionRepository.findBySessionId(sessionId);
-
-        if (session == null) {
-            System.err.println("Warning: Session entity not found in DB. Skipping score save.");
-            return false;
-        }
-
-        // update session fields
-        List<Map<Long, Integer>> perRoundScores = session.getUserScoresPerRound();
-        if (perRoundScores == null) {
-            perRoundScores = new ArrayList<>();
-        }
-
-        perRoundScores.add(calculatedRoundScores);
-        session.setUserScoresPerRound(perRoundScores);
-
-        Map<Long, Integer> totalScores = session.getTotalScoreByUserId();
-        if (totalScores == null) {
-            totalScores = new HashMap<>();
-        }
-
-        if (calculatedRoundScores != null) {
-            // .entrySet() creates a set of pairs containing a player id and their score for the round
-            for (Map.Entry<Long, Integer> entry: calculatedRoundScores.entrySet()) {
-                // add the round score to the total score by getting the player id (getKey), their round 
-                // score (getValue) and adding to their total score if they already have a score (::sum)
-                totalScores.merge(entry.getKey(), entry.getValue(), Integer::sum);
+            if (sessionId == null || sessionId.isBlank()) {
+                System.err.println("Warning: No active session found for game. Skipping score save.");
+                return false;
             }
-        }
+            
+            Session session = sessionRepository.findBySessionId(sessionId);
 
-        session.setTotalScoreByUserId(totalScores);
+            if (session == null) {
+                System.err.println("Warning: Session entity not found in DB. Skipping score save.");
+                return false;
+            }
 
-        // check if ending conditions are met
-        boolean isGameOver = checkGameOverConditions(session);
+            // update session fields
+            List<Map<Long, Integer>> perRoundScores = session.getUserScoresPerRound();
+            if (perRoundScores == null) {
+                perRoundScores = new ArrayList<>();
+            }
 
-        if (isGameOver) {
-            session.setEnded(true);
-        }
+            perRoundScores.add(calculatedRoundScores);
+            session.setUserScoresPerRound(perRoundScores);
 
-        sessionRepository.save(session);
+            Map<Long, Integer> totalScores = session.getTotalScoreByUserId();
+            if (totalScores == null) {
+                totalScores = new HashMap<>();
+            }
 
-        return isGameOver;
+            if (calculatedRoundScores != null) {
+                for (Map.Entry<Long, Integer> entry: calculatedRoundScores.entrySet()) {
+                    totalScores.merge(entry.getKey(), entry.getValue(), Integer::sum);
+                }
+            }
+
+            session.setTotalScoreByUserId(totalScores);
+
+            // check if ending conditions are met
+            boolean isGameOver = checkGameOverConditions(session);
+
+            if (isGameOver) {
+                session.setEnded(true);
+            }
+
+            sessionRepository.save(session);
+
+            return isGameOver;
         } catch (Exception e) {
-            System.err.println("Error checking game over conditions: " + e.getMessage());
+            System.err.println("Critical error during scoring pipeline: " + e.getMessage());
+            e.printStackTrace();
             return false;
         }
     }
 
     private boolean checkGameOverConditions(Session session) {
-        
         try {
-        int maxRounds = gameSettings.getRoundLimit();
-        int maxScore = gameSettings.getScoreLimit();
+            int maxRounds = gameSettings.getRoundLimit();
+            int maxScore = gameSettings.getScoreLimit();
 
-        if (session.getUserScoresPerRound().size() >= maxRounds && session.getUserScoresPerRound() != null) {
-            return true;
-        }
+            // Null check order fixed here!
+            if (session.getUserScoresPerRound() != null && session.getUserScoresPerRound().size() >= maxRounds) {
+                return true;
+            }
 
-        if (session.getTotalScoreByUserId() != null) {
-            for (Integer totalScore : session.getTotalScoreByUserId().values()) {
-                if (totalScore >= maxScore) {
-                    return true;
+            if (session.getTotalScoreByUserId() != null) {
+                for (Integer totalScore : session.getTotalScoreByUserId().values()) {
+                    if (totalScore != null && totalScore >= maxScore) {
+                        return true;
+                    }
                 }
             }
-        }
 
-        return false;
+            return false;
         } catch (Exception e) {
             System.err.println("Error checking game over conditions: " + e.getMessage());
             return false;
         }
-
     }
->>>>>>> Stashed changes
 }   

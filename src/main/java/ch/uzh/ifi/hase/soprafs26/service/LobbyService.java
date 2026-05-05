@@ -775,6 +775,20 @@ public class LobbyService {
         onlineUsersEventPublisher.broadcastOnlineUsers();
     }
 
+    // lookup of matching PLAYING status lobby while round-end resolve is in progress (same player set)
+    public String findPlayingSessionIdForPlayers(List<Long> gamePlayerIds) {
+        if (gamePlayerIds == null || gamePlayerIds.isEmpty()) {
+            return null;
+        }
+        Set<Long> expectedPlayers = new LinkedHashSet<>(gamePlayerIds);
+        return lobbyRepository.findByStatus("PLAYING").stream()
+                .filter(lobby -> lobby.getPlayerIds() != null)
+                .filter(lobby -> new LinkedHashSet<>(lobby.getPlayerIds()).equals(expectedPlayers))
+                .map(Lobby::getSessionId)
+                .findFirst()
+                .orElse(null);
+    }
+
     // GET /lobbies — get all public lobbies
     public List<Lobby> getPublicLobbies(String token) {
         User requester = getUserByToken(token);

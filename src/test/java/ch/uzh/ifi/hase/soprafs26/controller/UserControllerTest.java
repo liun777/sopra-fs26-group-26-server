@@ -5,9 +5,13 @@ import tools.jackson.databind.ObjectMapper;
 
 
 import ch.uzh.ifi.hase.soprafs26.constant.UserStatus;
+import ch.uzh.ifi.hase.soprafs26.entity.Game;
+import ch.uzh.ifi.hase.soprafs26.entity.Session;
 import ch.uzh.ifi.hase.soprafs26.entity.User;
+import ch.uzh.ifi.hase.soprafs26.repository.UserRepository;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.UserPostDTO;
 import ch.uzh.ifi.hase.soprafs26.service.GameService;
+import ch.uzh.ifi.hase.soprafs26.service.HistoryService;
 import ch.uzh.ifi.hase.soprafs26.service.UserService;
 
 import org.junit.jupiter.api.Test;
@@ -19,6 +23,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.Collections;
@@ -49,6 +54,12 @@ public class UserControllerTest {
 
 	@MockitoBean
 	private GameService gameService;
+
+	@MockitoBean
+	private HistoryService historyService;
+
+	@MockitoBean
+	private UserRepository userRepository;
 
 	@Test
 	public void givenUsers_whenGetUsers_thenReturnJsonArray() throws Exception {
@@ -121,4 +132,47 @@ public class UserControllerTest {
 					String.format("The request body could not be created.%s", e.toString()));
 		}
 	}
+
+	@Test
+    public void getUserHistory_wrongUser_throwsForbidden() throws Exception {
+        // 1. Arrange
+        User mockUser = new User();
+        mockUser.setId(2L); // Notice this ID is 2, but the URL requests ID 1
+        mockUser.setToken("valid-token");
+
+        Mockito.when(userRepository.findByToken("valid-token")).thenReturn(mockUser);
+
+        // 2. Act & 3. Assert
+        mockMvc.perform(MockMvcRequestBuilders.get("/users/1/history")
+                .header("Authorization", "valid-token")
+                .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isForbidden()); // Expecting our 403 Forbidden check to trigger!
+    }
+
+    @Test
+    public void getUserHistory_validTokenAndId_returnsHistory() throws Exception {
+        // 1. Arrange
+        User mockUser = new User();
+        mockUser.setId(1L);
+        mockUser.setToken("valid-token");
+
+        Session mockSession = new Session();
+        mockSession.setId(10L); // Internal ID is now a Long
+        mockSession.setSessionId("session-123"); // The string identifier
+        // Add any other necessary fields your DTO mapping requires
+        
+        Mockito.when(userRepository.findByToken("valid-token")).thenReturn(mockUser);
+        
+        // Updated service method call
+        Mockito.when(historyService.getUserSessionHistory(1L)).thenReturn(List.of(mockSession));
+
+        // 2. Act & 3. Assert
+        mockMvc.perform(MockMvcRequestBuilders.get("/users/1/history")
+                .header("Authorization", "valid-token")
+                .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasSize(1)))
+                .andExpect(jsonPath("$[0].id", is(10))) // Asserting the Long ID
+                .andExpect(jsonPath("$[0].sessionId", is("session-123"))); // Asserting the String sessionId
+    }
 }

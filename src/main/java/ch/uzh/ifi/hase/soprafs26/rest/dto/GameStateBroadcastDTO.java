@@ -172,4 +172,14 @@ public class GameStateBroadcastDTO {
     public void setPlayers(List<PlayerHandViewDTO> players) {
         this.players = players;
     }
+
+    private Long resumedFromSessionId;
+
+    public Long getResumedFromSessionId() {
+        return resumedFromSessionId;
+    }
+
+    public void setResumedFromSessionId(Long resumedFromSessionId) {
+        this.resumedFromSessionId = resumedFromSessionId;
+    }
 }
