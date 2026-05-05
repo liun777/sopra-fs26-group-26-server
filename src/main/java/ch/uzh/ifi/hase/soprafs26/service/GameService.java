@@ -1388,8 +1388,8 @@ public class GameService {
         // makes sure the game only advances one round after cabo is called
         if (game.isCaboCalled() && nextPlayerId.equals(game.getCaboCalledByUserId())) {
 
-            // Please overwrite this as soon as scoring logic is implemented
-            Map<Long, Integer> roundScores = new HashMap<>();
+            // Calculate round scores with special rule
+            Map<Long, Integer> roundScores = calculatedRoundScores(game);
 
             boolean isSessionOver = saveRoundScoreAndCheckGameOver(gameId, roundScores);
 
@@ -1643,6 +1643,162 @@ public class GameService {
         cancelTurnTimer(gameId);
         saveGameAndBroadcast(game);
         advanceTurnToNextPlayer(gameId);
+    }
+
+    /**
+    * Calculate round scores including Kamikaze special rule. 
+    * Scoring rules:
+    * 1. Kamikaze: If a player has exactly 2×12 and 2×13, they get 0 points and all others get 50
+    * 2. Normal: Player(s) with lowest sum get 0 points, others get their card sum
+    * 3. Cabo penalty: If Cabo caller doesn't have lowest sum, they get +5 penalty points
+    * 
+    * @param game The game instance at round end
+    * @return Map of userId -> round score for each player
+    */
+    private Map<Long, Integer> calculatedRoundScores(Game game) {
+        Map<Long, Integer> roundScores = new HashMap<>();
+        Map<Long, List<Card>> playerHands = game.getPlayerHands();
+    
+        if (playerHands == null || playerHands.isEmpty()) {
+            return roundScores;
+        }
+    
+        List<Long> players = game.getOrderedPlayerIds();
+        if (players == null) {
+            return roundScores;
+        }
+    
+        // First check: Does anyone have the Kamikaze combination (2×12 and 2×13)?
+        Long kamikazePlayer = null;
+    
+        for (Long playerId : players) {
+            List<Card> hand = playerHands.get(playerId);
+            if (hand != null && hasKamikazeCombination(hand)) {
+                kamikazePlayer = playerId;
+                break; // Only one player can trigger this per round
+            }
+        }
+    
+        // If Kamikaze rule applies: winner gets 0, everyone else gets 50
+        if (kamikazePlayer != null) {
+            for (Long playerId : players) {
+                if (playerId.equals(kamikazePlayer)) {
+                    roundScores.put(playerId, 0);
+                } else {
+                    roundScores.put(playerId, 50);
+                }
+            }
+            return roundScores;
+        }
+    
+        // Normal scoring: calculate hand values for all players
+        Map<Long, Integer> handValues = new HashMap<>();
+        int minValue = Integer.MAX_VALUE;
+    
+        for (Long playerId : players) {
+            List<Card> hand = playerHands.get(playerId);
+            int handValue = calculateHandValue(hand);
+            handValues.put(playerId, handValue);
+            minValue = Math.min(minValue, handValue);
+        }
+    
+        // Find all players with the minimum hand value
+        List<Long> playersWithMinValue = new ArrayList<>();
+        for (Long playerId : players) {
+            if (handValues.get(playerId) == minValue) {
+                playersWithMinValue.add(playerId);
+            }
+        }
+    
+        Long caboCallerId = game.getCaboCalledByUserId();
+        boolean caboCallerHasMinValue = caboCallerId != null && playersWithMinValue.contains(caboCallerId);
+    
+        // Assign scores based on rules
+        for (Long playerId : players) {
+            int handValue = handValues.get(playerId);
+        
+            if (handValue == minValue) {
+                // Player has minimum value
+                if (playersWithMinValue.size() == 1) {
+                    // Clear winner: 0 points
+                    roundScores.put(playerId, 0);
+                } else {
+                    // Tie for minimum
+                    if (caboCallerHasMinValue) {
+                        // Cabo caller is part of the tie -> only they get 0
+                        if (playerId.equals(caboCallerId)) {
+                            roundScores.put(playerId, 0);
+                        } else {
+                            roundScores.put(playerId, handValue);
+                        }
+                    } else {
+                        // Cabo caller not in tie -> all tied players get 0
+                        roundScores.put(playerId, 0);
+                    }
+                }
+            } else {
+                // Player does not have minimum value
+                int score = handValue;
+            
+                // Apply Cabo penalty if applicable
+                if (playerId.equals(caboCallerId)) {
+                    score += 5; // Cabo caller penalty
+                }
+            
+                roundScores.put(playerId, score);
+            }
+        }
+    
+        return roundScores;
+    }
+
+    /**
+    * Check if a hand contains exactly 2×12 and 2×13 (Kamikaze rule).
+    * 
+    * @param hand The player's hand
+    * @return true if hand has exactly two 12s and two 13s
+    */
+    private boolean hasKamikazeCombination(List<Card> hand) {
+        if (hand == null || hand.size() != 4) {
+            return false;
+        }
+    
+        int count12 = 0;
+        int count13 = 0;
+    
+        for (Card card : hand) {
+            if (card == null) {
+                continue;
+            }
+            int value = card.getValue();
+            if (value == 12) {
+                count12++;
+            } else if (value == 13) {
+                count13++;
+            }
+        }
+    
+        return count12 == 2 && count13 == 2;
+    }
+
+    /**
+    * Calculate the sum of card values in a hand (normal scoring).
+    * 
+    * @param hand The player's hand
+    * @return Sum of all card values
+    */
+    private int calculateHandValue(List<Card> hand) {
+        if (hand == null) {
+            return 0;
+        }   
+    
+        int sum = 0;
+        for (Card card : hand) {
+            if (card != null) {
+                sum += card.getValue();
+            }
+        }
+        return sum;
     }
 
     /**
