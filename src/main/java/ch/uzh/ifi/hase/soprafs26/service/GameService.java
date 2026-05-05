@@ -615,6 +615,33 @@ public class GameService {
         }
     }
 
+    // #89 when round ends, all in-play cards are face-up in persisted game 
+    private void revealAllInPlayCardsForRoundEnd(Game game) {
+        Map<Long, List<Card>> hands = game.getPlayerHands();
+        if (hands != null) {
+            for (List<Card> hand : hands.values()) {
+                if (hand == null) {
+                    continue;
+                }
+                for (Card c : hand) {
+                    if (c != null) {
+                        c.setVisibility(true);
+                    }
+                }
+            }
+        }
+        Card drawn = game.getDrawnCard();
+        if (drawn != null) {
+            drawn.setVisibility(true);
+        }
+    }
+
+    private static boolean allInPlayCardsReveal(GameStatus status) {
+        return status == GameStatus.CABO_REVEAL
+                || status == GameStatus.ROUND_AWAITING_REMATCH
+                || status == GameStatus.ROUND_ENDED;
+    }
+
     // to save and broadcast: saveGameAndBroadcast(game)
     public void moveDrawFromDrawPile(String gameId) {
         Game game = getGameById(gameId);
@@ -1372,6 +1399,7 @@ public class GameService {
             }
 
             game.setStatus(GameStatus.CABO_REVEAL);
+            revealAllInPlayCardsForRoundEnd(game);
             game.setRematchDecisionByUserId(new HashMap<>());
             cancelTurnTimer(gameId);
             saveGameAndBroadcast(game);
@@ -1583,8 +1611,13 @@ public class GameService {
         }
 
         Game game = getGameById(gameId);
+        List<Long> players = game.getOrderedPlayerIds();
+        boolean participant = players != null && players.contains(user.getId());
 
-        // Nur aktueller Spieler darf Karte sehen
+        if (allInPlayCardsReveal(game.getStatus()) && participant) {
+            return game.getDrawnCard();
+        }
+
         if (!user.getId().equals(game.getCurrentPlayerId())) {
             return null;
         }

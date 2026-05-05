@@ -251,6 +251,28 @@ class GameStateBroadcastMapperTest {
         }
     }
 
+    // #89: CABO_REVEAL must expose drawn card to all viewers (same as hands), not only current player
+    @Test
+    void caboReveal_drawnCardRevealedToNonCurrentPlayer() {
+        Game game = new Game();
+        game.setId("g-89-cabo-drawn");
+        game.setStatus(GameStatus.CABO_REVEAL);
+        game.setCurrentPlayerId(1L);
+        game.setOrderedPlayerIds(List.of(1L, 2L));
+
+        Card drawn = new Card();
+        drawn.setValue(5);
+        drawn.setCode("5S");
+        drawn.setVisibility(false);
+        game.setDrawnCard(drawn);
+
+        GameStateBroadcastDTO asPlayer2 = mapper.toBroadcastForViewer(game, 2L);
+        assertNotNull(asPlayer2.getDrawnCard());
+        assertEquals(5, asPlayer2.getDrawnCard().getValue().intValue());
+        assertEquals("5S", asPlayer2.getDrawnCard().getCode());
+        assertFalse(asPlayer2.getDrawnCard().isFaceDown());
+    }
+
     // #84: game status ROUND_ENDED or ROUND_AWAITING_REMATCH: drawn card revealed to everyone
     @Test
     void roundEndedOrAwaitingRematch_drawnCardRevealedToAllViewers() {

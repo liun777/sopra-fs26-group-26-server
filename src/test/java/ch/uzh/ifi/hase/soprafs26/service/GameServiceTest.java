@@ -1248,6 +1248,12 @@ public class GameServiceTest {
         Mockito.when(gameRepository.save(Mockito.any(Game.class))).thenAnswer(inv -> inv.getArgument(0));
         Mockito.doNothing().when(gameRepository).flush();
 
+        Session playingSession = new Session();
+        playingSession.setSessionId("session-g-cabo");
+        Mockito.when(lobbyService.findPlayingSessionIdForPlayers(game.getOrderedPlayerIds()))
+                .thenReturn("session-g-cabo");
+        Mockito.when(sessionRepository.findBySessionId("session-g-cabo")).thenReturn(playingSession);
+       
         // player 1 calls cabo
         gameService.moveCallCabo("g-cabo", "token-1");
         assertTrue(game.isCaboCalled());
@@ -1265,6 +1271,11 @@ public class GameServiceTest {
         // player 4 takes final turn — next would be player 1 (who called cabo) so round ends
         gameService.advanceTurnToNextPlayer("g-cabo");
         assertEquals(GameStatus.CABO_REVEAL, game.getStatus());
+        for (List<Card> hand : game.getPlayerHands().values()) {
+            for (Card c : hand) {
+                assertTrue(c.getVisibility(), "All hand cards should be face-up");
+            }
+        }
     }
 
     // #83: Cabo caller must not act as current player during the post-Cabo final lap (draw / swap)
@@ -1725,6 +1736,8 @@ public class GameServiceTest {
         
         Game game = new Game();
         game.setId("g-drawn-card-snoop");
+        game.setStatus(GameStatus.ROUND_ACTIVE);
+        game.setOrderedPlayerIds(new ArrayList<>(List.of(1L, 2L)));
         game.setCurrentPlayerId(1L);
 
         Card drawnCard = new Card();
@@ -1737,6 +1750,56 @@ public class GameServiceTest {
         Card result = gameService.getDrawnCard("g-drawn-card-snoop", snooperToken);
 
         assertNull(result, "Opponents should receive null to prevent cheating");
+    }
+
+    // #89: REST drawn card matches websocket — any participant sees it after CABO_REVEAL, not only current player
+    @Test
+    public void getDrawnCard_caboReveal_nonCurrentPlayerSeesDrawnCard() {
+        String token2 = "p2-token";
+        User player2 = new User();
+        player2.setId(2L);
+        player2.setToken(token2);
+
+        Game game = new Game();
+        game.setId("g-drawn-reveal");
+        game.setStatus(GameStatus.CABO_REVEAL);
+        game.setOrderedPlayerIds(new ArrayList<>(List.of(1L, 2L)));
+        game.setCurrentPlayerId(1L);
+        Card drawn = new Card();
+        drawn.setCode("KD");
+        drawn.setValue(13);
+        game.setDrawnCard(drawn);
+
+        when(userRepository.findByToken(token2)).thenReturn(player2);
+        when(gameRepository.findById("g-drawn-reveal")).thenReturn(Optional.of(game));
+
+        Card result = gameService.getDrawnCard("g-drawn-reveal", token2);
+        assertNotNull(result);
+        assertEquals("KD", result.getCode());
+    }
+
+    // #89: non-participants never receive drawn card via REST, even during reveal
+    @Test
+    public void getDrawnCard_caboReveal_notParticipant_returnsNull() {
+        String notParticipantToken = "not-participant-token";
+        User notParticipant = new User();
+        notParticipant.setId(99L);
+        notParticipant.setToken(notParticipantToken);
+
+        Game game = new Game();
+        game.setId("g-drawn-not-participant");
+        game.setStatus(GameStatus.CABO_REVEAL);
+        game.setOrderedPlayerIds(new ArrayList<>(List.of(1L, 2L)));
+        game.setCurrentPlayerId(1L);
+        Card drawn = new Card();
+        drawn.setCode("AC");
+        drawn.setValue(13);
+        game.setDrawnCard(drawn);
+
+        when(userRepository.findByToken(notParticipantToken)).thenReturn(notParticipant);
+        when(gameRepository.findById("g-drawn-not-participant")).thenReturn(Optional.of(game));
+
+        assertNull(gameService.getDrawnCard("g-drawn-not-participant", notParticipantToken));
     }
 
     // test that if a player times out without drawing, the game auto-draws a card for them and discards it, then advances the turn
