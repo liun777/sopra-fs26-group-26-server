@@ -56,11 +56,11 @@ public class LobbySettingsProperties {
 
     // Rematch decision timer: default and host-adjustable range
     @Min(1)
-    private long rematchDecisionDefaultSeconds = 30;
+    private long rematchDecisionDefaultSeconds = 60;
     @Min(1)
-    private long rematchDecisionMinSeconds = 30;
+    private long rematchDecisionMinSeconds = 60;
     @Min(1)
-    private long rematchDecisionMaxSeconds = 30;
+    private long rematchDecisionMaxSeconds = 60;
 
     // Websocket disconnect grace timer: default and host-adjustable range
     @Min(1)

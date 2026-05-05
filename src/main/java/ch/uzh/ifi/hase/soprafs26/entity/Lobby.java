@@ -60,7 +60,7 @@ public class Lobby implements Serializable {
 
     // Per-lobby rematch decision window.
     @Column(nullable = false)
-    private Long rematchDecisionSeconds = 30L;
+    private Long rematchDecisionSeconds = 60L;
 
     // Per-lobby websocket disconnect grace period before timeout handling.
     @Column(nullable = false)

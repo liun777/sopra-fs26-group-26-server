@@ -52,7 +52,7 @@ public class GameSettingsProperties {
 
     // Rematch decision duration after a round ends
     @Min(1)
-    private long rematchDecisionSeconds = 30;
+    private long rematchDecisionSeconds = 60;
 
     private int scoreLimit = 100;
 
