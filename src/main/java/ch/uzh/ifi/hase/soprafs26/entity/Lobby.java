@@ -66,6 +66,10 @@ public class Lobby implements Serializable {
     @Column(nullable = false)
     private Long websocketGraceSeconds = 300L;
 
+    // user ID's of the spectators
+    @ElementCollection
+    private List<Long> spectatorIds = new ArrayList<>();
+
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
 
@@ -110,4 +114,7 @@ public class Lobby implements Serializable {
 
     public Long getWebsocketGraceSeconds() { return websocketGraceSeconds; }
     public void setWebsocketGraceSeconds(Long websocketGraceSeconds) { this.websocketGraceSeconds = websocketGraceSeconds; }
+
+    public List<Long> getSpectatorIds() { return spectatorIds; }
+    public void setSpectatorIds(List<Long> spectatorIds) { this.spectatorIds = spectatorIds; }
 }

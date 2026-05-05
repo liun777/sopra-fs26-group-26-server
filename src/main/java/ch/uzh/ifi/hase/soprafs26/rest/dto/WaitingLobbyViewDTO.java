@@ -113,4 +113,9 @@ public class WaitingLobbyViewDTO {
     public void setPlayers(List<WaitingLobbyPlayerRowDTO> players) {
         this.players = players;
     }
+
+    private List<WaitingLobbyPlayerRowDTO> spectators = new ArrayList<>();
+
+    public List<WaitingLobbyPlayerRowDTO> getSpectators() { return spectators; }
+    public void setSpectators(List<WaitingLobbyPlayerRowDTO> spectators) { this.spectators = spectators; }
 }

@@ -462,7 +462,11 @@ public class LobbyService {
         User user = getUserByToken(token);
         Lobby lobby = lobbyRepository.findBySessionId(sessionId);
         if (lobby == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Lobby not found");
-        if (!lobby.getPlayerIds().contains(user.getId())) {
+       
+        boolean isPlayer = lobby.getPlayerIds().contains(user.getId());
+        boolean isSpectator = lobby.getSpectatorIds() != null && lobby.getSpectatorIds().contains(user.getId());
+    
+        if (!isPlayer && !isSpectator) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Not part of this lobby");
         }
         if (normalizeLobbySettingsInPlace(lobby)) {
@@ -475,12 +479,18 @@ public class LobbyService {
         List<Long> orderedIds = new ArrayList<>();
         orderedIds.add(hostId);
         lobby.getPlayerIds().stream()
-                .filter(id -> !id.equals(hostId))
-                .sorted()
-                .forEach(orderedIds::add);
+            .filter(id -> !id.equals(hostId))
+            .sorted()
+            .forEach(orderedIds::add);
+
+        // players and spectators
+        List<Long> allMemberIds = new ArrayList<>(orderedIds);
+        if (lobby.getSpectatorIds() != null) {
+            allMemberIds.addAll(lobby.getSpectatorIds()); // add spectators
+        }
 
         Map<Long, User> usersById = new HashMap<>();
-        for (User participant : userRepository.findAllById(orderedIds)) {
+        for (User participant : userRepository.findAllById(allMemberIds)) {
             if (participant != null && participant.getId() != null) {
                 usersById.put(participant.getId(), participant);
             }
@@ -521,7 +531,24 @@ public class LobbyService {
         
             rows.add(row);
         }
+
         dto.setPlayers(rows);
+
+        // fill spectator list
+        List<WaitingLobbyPlayerRowDTO> spectatorRows = new ArrayList<>();
+        if (lobby.getSpectatorIds() != null) {
+            for (Long sid : lobby.getSpectatorIds()) {
+                User u = usersById.get(sid);
+                if (u == null) continue;
+                WaitingLobbyPlayerRowDTO row = new WaitingLobbyPlayerRowDTO();
+                row.setUsername(u.getUsername());
+                // "you" status for spectator
+                row.setJoinStatus(sid.equals(user.getId()) ? "you" : "spectator"); 
+                spectatorRows.add(row);
+            }
+        }
+        dto.setSpectators(spectatorRows);
+
         return dto;
     }
 
