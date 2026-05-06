@@ -100,7 +100,7 @@ public class Game {
     private long caboRevealSeconds = 30L;
 
     @Column(nullable = false)
-    private long rematchDecisionSeconds = 30L;
+    private long rematchDecisionSeconds = 60L;
 
     @Column(nullable = false)
     private long afkTimeoutSeconds = 300L;
