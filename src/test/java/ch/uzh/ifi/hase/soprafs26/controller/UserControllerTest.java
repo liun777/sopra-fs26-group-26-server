@@ -159,4 +159,19 @@ public class UserControllerTest {
                 .andExpect(jsonPath("$[0].id", is(10))) // Asserting the Long ID
                 .andExpect(jsonPath("$[0].sessionId", is("session-123"))); // Asserting the String sessionId
     }
+
+	@Test
+    void getUserHistory_userDoesNotExist_returns404NotFound() throws Exception {
+
+		Mockito.when(userRepository.findByToken("testToken")).thenReturn(new User());
+		
+        Mockito.when(historyService.getUserSessionHistory(99L))
+               .thenThrow(new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found!"));
+
+        mockMvc.perform(get("/users/99/history")
+                .header("Authorization", "testToken")
+                .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isNotFound()); 
+    }
+
 }

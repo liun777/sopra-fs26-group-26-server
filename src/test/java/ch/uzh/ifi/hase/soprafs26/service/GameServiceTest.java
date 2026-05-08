@@ -1938,4 +1938,296 @@ public class GameServiceTest {
         Mockito.verify(sessionRepository, Mockito.never()).save(any());
     }
 
+    @Test
+    void moveDrawFromDrawPile_spectatorInterference_throwsForbidden() {
+        // Setup: A game where it is currently Player 1's turn
+        Game game = new Game();
+        game.setId("test-game-123");
+        game.setStatus(GameStatus.ROUND_ACTIVE);
+        game.setCurrentPlayerId(1L); 
+
+        // Setup: A spectator (User ID 99) who is trying to interfere
+        User spectator = new User();
+        spectator.setId(99L); // CRITICAL: This does NOT match the currentPlayerId
+        spectator.setToken("spectatorToken");
+
+        Mockito.when(gameRepository.findById("test-game-123")).thenReturn(Optional.of(game));
+        Mockito.when(userRepository.findByToken("spectatorToken")).thenReturn(spectator);
+
+        // Action & Assertion: Try to draw a card as the spectator, expect a 403 FORBIDDEN
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class, () -> {
+            gameService.moveDrawFromDrawPile("test-game-123", "spectatorToken");
+        });
+
+        assertEquals(HttpStatus.FORBIDDEN, exception.getStatusCode());
+        assertEquals("Not your turn", exception.getReason());
+    }
+
+    @Test
+    void moveCardToDiscardPile_spectatorInterference_throwsForbidden() {
+        // Setup: A game where it is currently Player 1's turn
+        Game game = new Game();
+        game.setId("test-game-123");
+        game.setStatus(GameStatus.ROUND_ACTIVE);
+        game.setCurrentPlayerId(1L); 
+        
+        // Give the game a drawn card so it doesn't fail for the wrong reason
+        Card drawnCard = new Card();
+        drawnCard.setValue(5);
+        game.setDrawnCard(drawnCard);
+
+        // Setup: A spectator (User ID 99) who is trying to interfere
+        User spectator = new User();
+        spectator.setId(99L); // CRITICAL: This does NOT match the currentPlayerId
+        spectator.setToken("spectatorToken");
+
+        Mockito.when(gameRepository.findById("test-game-123")).thenReturn(Optional.of(game));
+        Mockito.when(userRepository.findByToken("spectatorToken")).thenReturn(spectator);
+
+        // Action & Assertion: Try to discard the card as the spectator, expect a 403 FORBIDDEN
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class, () -> {
+            gameService.moveCardToDiscardPile("test-game-123", "spectatorToken");
+        });
+
+        assertEquals(HttpStatus.FORBIDDEN, exception.getStatusCode());
+        assertEquals("Not your turn", exception.getReason());
+        
+        // Verify that the game was NEVER saved because the move was rejected
+        Mockito.verify(gameRepository, Mockito.never()).save(Mockito.any(Game.class));
+    }
+
+    @Test
+    void saveRoundScoreAndCheckGameOver_limitsNotReached_returnsFalse() {
+        // 1. Mock Game Settings
+        Mockito.when(gameSettings.getRoundLimit()).thenReturn(5);
+        Mockito.when(gameSettings.getScoreLimit()).thenReturn(100);
+
+        // 2. Setup Game and Session
+        Game game = new Game();
+        game.setId("test-game-123");
+        game.setOrderedPlayerIds(List.of(1L, 2L));
+
+        Session session = new Session();
+        session.setSessionId("session-123");
+        // Simulate 2 rounds played so far (less than the limit of 5)
+        session.setUserScoresPerRound(new ArrayList<>(List.of(new HashMap<>(), new HashMap<>())));
+        // Simulate scores below 100
+        session.setTotalScoreByUserId(new HashMap<>(Map.of(1L, 45, 2L, 60)));
+
+        // 3. Mock Repositories and Services
+        Mockito.when(gameRepository.findById("test-game-123")).thenReturn(Optional.of(game));
+        Mockito.when(lobbyService.findPlayingSessionIdForPlayers(game.getOrderedPlayerIds())).thenReturn("session-123");
+        Mockito.when(sessionRepository.findBySessionId("session-123")).thenReturn(session);
+
+        // 4. Action
+        Map<Long, Integer> newRoundScores = Map.of(1L, 10, 2L, 5);
+        boolean isGameOver = gameService.saveRoundScoreAndCheckGameOver("test-game-123", newRoundScores);
+
+        // 5. Assertion
+        assertFalse(isGameOver, "Game should not be over yet.");
+        assertFalse(session.isEnded(), "Session should not be marked as ended.");
+        Mockito.verify(sessionRepository, Mockito.times(1)).save(session);
+    }
+
+    @Test
+    void saveRoundScoreAndCheckGameOver_scoreLimitReached_returnsTrue() {
+        // 1. Mock Game Settings
+        Mockito.when(gameSettings.getRoundLimit()).thenReturn(5);
+        Mockito.when(gameSettings.getScoreLimit()).thenReturn(100); // Score limit is 100
+
+        // 2. Setup Game and Session
+        Game game = new Game();
+        game.setId("test-game-123");
+        game.setOrderedPlayerIds(List.of(1L, 2L));
+
+        Session session = new Session();
+        session.setSessionId("session-123");
+        session.setUserScoresPerRound(new ArrayList<>());
+        
+        // Simulate Player 2 being dangerously close to the limit
+        session.setTotalScoreByUserId(new HashMap<>(Map.of(1L, 45, 2L, 95)));
+
+        Mockito.when(gameRepository.findById("test-game-123")).thenReturn(Optional.of(game));
+        Mockito.when(lobbyService.findPlayingSessionIdForPlayers(game.getOrderedPlayerIds())).thenReturn("session-123");
+        Mockito.when(sessionRepository.findBySessionId("session-123")).thenReturn(session);
+
+        // 3. Action: Player 2 gets 10 points, pushing them to 105 (over the limit!)
+        Map<Long, Integer> newRoundScores = Map.of(1L, 5, 2L, 10);
+        boolean isGameOver = gameService.saveRoundScoreAndCheckGameOver("test-game-123", newRoundScores);
+
+        // 4. Assertion
+        assertTrue(isGameOver, "Game should be over because score limit was reached.");
+        assertTrue(session.isEnded(), "Session should be marked as ended.");
+    }
+
+    @Test
+    void saveRoundScoreAndCheckGameOver_roundLimitReached_returnsTrue() {
+        // 1. Mock Game Settings
+        Mockito.when(gameSettings.getRoundLimit()).thenReturn(3); // Round limit is 3
+        Mockito.when(gameSettings.getScoreLimit()).thenReturn(100);
+
+        // 2. Setup Game and Session
+        Game game = new Game();
+        game.setId("test-game-123");
+        game.setOrderedPlayerIds(List.of(1L, 2L));
+
+        Session session = new Session();
+        session.setSessionId("session-123");
+        
+        // Simulate 2 rounds ALREADY played. 
+        // When the service runs, it will append the 3rd round, hitting the limit!
+        session.setUserScoresPerRound(new ArrayList<>(List.of(new HashMap<>(), new HashMap<>())));
+        session.setTotalScoreByUserId(new HashMap<>(Map.of(1L, 10, 2L, 15)));
+
+        Mockito.when(gameRepository.findById("test-game-123")).thenReturn(Optional.of(game));
+        Mockito.when(lobbyService.findPlayingSessionIdForPlayers(game.getOrderedPlayerIds())).thenReturn("session-123");
+        Mockito.when(sessionRepository.findBySessionId("session-123")).thenReturn(session);
+
+        // 3. Action: Play the 3rd round
+        Map<Long, Integer> newRoundScores = Map.of(1L, 5, 2L, 5);
+        boolean isGameOver = gameService.saveRoundScoreAndCheckGameOver("test-game-123", newRoundScores);
+
+        // 4. Assertion
+        assertTrue(isGameOver, "Game should be over because round limit was reached.");
+        assertTrue(session.isEnded(), "Session should be marked as ended.");
+    }
+
+    @Test
+    void saveRoundScore_firstRound_initializesAndSavesCorrectly() {
+        // 1. Mock Game Settings (to prevent null pointers during the game-over check)
+        Mockito.when(gameSettings.getRoundLimit()).thenReturn(5);
+        Mockito.when(gameSettings.getScoreLimit()).thenReturn(100);
+
+        // 2. Setup Game and a brand new Session (null scores)
+        Game game = new Game();
+        game.setId("test-game-123");
+        game.setOrderedPlayerIds(List.of(1L, 2L));
+
+        Session session = new Session();
+        session.setSessionId("session-123");
+        // A new session has null for these fields initially
+        session.setUserScoresPerRound(null); 
+        session.setTotalScoreByUserId(null);
+
+        Mockito.when(gameRepository.findById("test-game-123")).thenReturn(Optional.of(game));
+        Mockito.when(lobbyService.findPlayingSessionIdForPlayers(game.getOrderedPlayerIds())).thenReturn("session-123");
+        Mockito.when(sessionRepository.findBySessionId("session-123")).thenReturn(session);
+
+        // 3. Action: Save the first round scores
+        Map<Long, Integer> round1Scores = Map.of(1L, 10, 2L, 5);
+        gameService.saveRoundScoreAndCheckGameOver("test-game-123", round1Scores);
+
+        // 4. Assertion: Verify the DB save was called and the data is correct
+        Mockito.verify(sessionRepository, Mockito.times(1)).save(session);
+        
+        // Verify history list was created and populated
+        assertNotNull(session.getUserScoresPerRound());
+        assertEquals(1, session.getUserScoresPerRound().size());
+        assertEquals(10, session.getUserScoresPerRound().get(0).get(1L));
+
+        // Verify total scores were initialized
+        assertNotNull(session.getTotalScoreByUserId());
+        assertEquals(10, session.getTotalScoreByUserId().get(1L));
+        assertEquals(5, session.getTotalScoreByUserId().get(2L));
+    }
+
+    @Test
+    void saveRoundScore_subsequentRounds_accumulatesTotalsAndSaves() {
+        // 1. Mock Game Settings
+        Mockito.when(gameSettings.getRoundLimit()).thenReturn(5);
+        Mockito.when(gameSettings.getScoreLimit()).thenReturn(100);
+
+        // 2. Setup Game and an existing Session (has previous scores)
+        Game game = new Game();
+        game.setId("test-game-123");
+        game.setOrderedPlayerIds(List.of(1L, 2L));
+
+        Session session = new Session();
+        session.setSessionId("session-123");
+        
+        // Simulate Round 1 already existing in the database
+        List<Map<Long, Integer>> previousRounds = new ArrayList<>();
+        previousRounds.add(Map.of(1L, 20, 2L, 30));
+        session.setUserScoresPerRound(previousRounds);
+        session.setTotalScoreByUserId(new HashMap<>(Map.of(1L, 20, 2L, 30)));
+
+        Mockito.when(gameRepository.findById("test-game-123")).thenReturn(Optional.of(game));
+        Mockito.when(lobbyService.findPlayingSessionIdForPlayers(game.getOrderedPlayerIds())).thenReturn("session-123");
+        Mockito.when(sessionRepository.findBySessionId("session-123")).thenReturn(session);
+
+        // 3. Action: Save Round 2 scores
+        Map<Long, Integer> round2Scores = Map.of(1L, 15, 2L, 5);
+        gameService.saveRoundScoreAndCheckGameOver("test-game-123", round2Scores);
+
+        // 4. Assertion: Verify the DB save was called and the math is correct
+        Mockito.verify(sessionRepository, Mockito.times(1)).save(session);
+        
+        // Verify history list now has 2 entries
+        assertEquals(2, session.getUserScoresPerRound().size());
+        
+        // Verify the math! Player 1 (20 + 15 = 35), Player 2 (30 + 5 = 35)
+        assertEquals(35, session.getTotalScoreByUserId().get(1L));
+        assertEquals(35, session.getTotalScoreByUserId().get(2L));
+    }
+
+
+    @Test
+    void saveRoundScore_subsequentRound_appendsAndMergesCorrectly() {
+        // 1. Setup Game and an existing Session with Round 1 already played
+        Game game = new Game();
+        game.setId("test-game-123");
+        game.setOrderedPlayerIds(List.of(1L, 2L));
+
+        Session session = new Session();
+        session.setSessionId("session-123");
+        
+        // Setup Round 1 history
+        List<Map<Long, Integer>> history = new ArrayList<>();
+        history.add(new HashMap<>(Map.of(1L, 10, 2L, 5)));
+        session.setUserScoresPerRound(history);
+        
+        // Setup Round 1 totals
+        session.setTotalScoreByUserId(new HashMap<>(Map.of(1L, 10, 2L, 5)));
+
+        Mockito.when(gameSettings.getRoundLimit()).thenReturn(5);
+        Mockito.when(gameSettings.getScoreLimit()).thenReturn(100);
+        Mockito.when(gameRepository.findById("test-game-123")).thenReturn(Optional.of(game));
+        Mockito.when(lobbyService.findPlayingSessionIdForPlayers(game.getOrderedPlayerIds())).thenReturn("session-123");
+        Mockito.when(sessionRepository.findBySessionId("session-123")).thenReturn(session);
+
+        // 2. Action: Save round 2 scores
+        Map<Long, Integer> round2Scores = Map.of(1L, 15, 2L, 0); // Player 1 gets 15, Player 2 gets 0
+        gameService.saveRoundScoreAndCheckGameOver("test-game-123", round2Scores);
+
+        // 3. Assertion: Verify history is appended and totals are merged (added)
+        assertEquals(2, session.getUserScoresPerRound().size(), "Should now have 2 rounds recorded");
+        assertEquals(15, session.getUserScoresPerRound().get(1).get(1L), "Round 2 history for Player 1 should be 15");
+
+        // The totals should be: Player 1 (10 + 15 = 25), Player 2 (5 + 0 = 5)
+        assertEquals(25, session.getTotalScoreByUserId().get(1L), "Player 1 total should be mathematically merged to 25");
+        assertEquals(5, session.getTotalScoreByUserId().get(2L), "Player 2 total should remain 5");
+
+        Mockito.verify(sessionRepository, Mockito.times(1)).save(session);
+    }
+
+    @Test
+    void saveRoundScore_missingSessionId_abortsWithoutCrashing() {
+        // 1. Setup Game
+        Game game = new Game();
+        game.setId("test-game-123");
+        game.setOrderedPlayerIds(List.of(1L, 2L));
+
+        Mockito.when(gameRepository.findById("test-game-123")).thenReturn(Optional.of(game));
+        // Simulate the LobbyService failing to find an active session
+        Mockito.when(lobbyService.findPlayingSessionIdForPlayers(game.getOrderedPlayerIds())).thenReturn(null);
+
+        // 2. Action: Attempt to save scores
+        Map<Long, Integer> roundScores = Map.of(1L, 10, 2L, 5);
+        boolean isGameOver = gameService.saveRoundScoreAndCheckGameOver("test-game-123", roundScores);
+
+        // 3. Assertion: It should safely abort, return false, and NEVER call the database save
+        assertFalse(isGameOver, "Should return false if session is missing");
+        Mockito.verify(sessionRepository, Mockito.never()).save(Mockito.any(Session.class));
+    }
+
 }
