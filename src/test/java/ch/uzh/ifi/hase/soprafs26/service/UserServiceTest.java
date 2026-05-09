@@ -466,6 +466,7 @@ public class UserServiceTest {
 
         User passwordOnly = new User();
         passwordOnly.setPassword("newPw");
+        passwordOnly.setIsPublicLog(null); // simulate what UserPutDTO->User mapping produces
         // old user object updated with attribute values from new one
         userService.updateUser(42L, passwordOnly);
         assertEquals(true, user.getIsPublicLog());
