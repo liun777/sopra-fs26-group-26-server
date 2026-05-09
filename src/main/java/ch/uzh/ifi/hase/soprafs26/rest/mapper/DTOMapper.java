@@ -42,11 +42,13 @@ public interface DTOMapper {
     @Mapping(source = "averageScorePerSession", target = "averageScorePerSession")
     @Mapping(source = "averageScorePerRound", target = "averageScorePerRound")
     @Mapping(source = "overallRank", target = "overallRank")
+    @Mapping(source = "isPublicLog", target = "isPublicLog")
 	UserGetDTO convertEntityToUserGetDTO(User user);
 
     @BeanMapping(ignoreByDefault = true)
     @Mapping(source = "password", target = "password")
     @Mapping(source = "status", target = "status")
+    @Mapping(source = "isPublicLog", target = "isPublicLog")
     User convertUserPutDTOtoEntity(UserPutDTO userPutDTO);
 
     // Updated Map for Session -> SessionHistoryDTO

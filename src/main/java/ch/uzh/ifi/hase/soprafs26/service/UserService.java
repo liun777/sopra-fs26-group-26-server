@@ -297,6 +297,10 @@ public class UserService {
         if (userInput.getStatus() != null) {
             user.setStatus(userInput.getStatus());
         }
+        // #109: set isPublicLog if present
+        if (userInput.getIsPublicLog() != null) {
+            user.setIsPublicLog(userInput.getIsPublicLog());
+        }
         userRepository.save(user);
         userRepository.flush();
         onlineUsersEventPublisher.broadcastOnlineUsers();

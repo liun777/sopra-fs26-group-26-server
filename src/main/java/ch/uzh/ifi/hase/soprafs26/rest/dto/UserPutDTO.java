@@ -9,10 +9,14 @@ public class UserPutDTO {
     // private weil es nur innerhalb dieser Klasse direkt zugänglich ist
     private UserStatus status; // damit das passwort auf offline gesetzt werden kann bei logout
 
+    private Boolean isPublicLog;
+
 
     public String getPassword() { return password; }
     // Getter der Uns das Passwort im Forntend zurück gibt
     public UserStatus getStatus() {return status;}
+
+    public Boolean getIsPublicLog() { return isPublicLog; }
 
 
     // aufgerufen vom DTOMapper um ps zu lesen
@@ -20,6 +24,8 @@ public class UserPutDTO {
     // setter der das pw setzt
     // wird aufgerufen wenn frontend den Request schickt
     public void setStatus(UserStatus status) { this.status = status; }
+
+    public void setIsPublicLog(Boolean isPublicLog) { this.isPublicLog = isPublicLog; }
 
 }
 

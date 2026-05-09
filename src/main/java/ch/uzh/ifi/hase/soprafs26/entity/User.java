@@ -68,6 +68,10 @@ public class User implements Serializable { // public: Klasse kann von überall 
     @Column(nullable = false) // overall rank compared to all other users - global leaderborad
     private Integer overallRank = 0;
 
+    // #109 move privacy preference during game start; copied into Move.isPublic during move creation
+    @Column(nullable = false)
+    private Boolean isPublicLog = false;
+
     @Column(nullable = true) // for websocket timeout
     private java.time.Instant lastHeartbeat;
 
@@ -165,6 +169,10 @@ public class User implements Serializable { // public: Klasse kann von überall 
     public Integer getOverallRank() {return overallRank;}
 
     public void setOverallRank(Integer overallRank) {this.overallRank = overallRank;}
+
+    public Boolean getIsPublicLog() { return isPublicLog; }
+
+    public void setIsPublicLog(Boolean isPublicLog) { this.isPublicLog = isPublicLog; }
 
 
 }

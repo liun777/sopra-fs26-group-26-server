@@ -21,6 +21,7 @@ public class UserGetDTO {
     private Integer averageScorePerSession;
     private Integer averageScorePerRound;
     private Integer overallRank;
+    private Boolean isPublicLog;
 
 	public Long getId() {
 		return id;
@@ -94,6 +95,10 @@ public class UserGetDTO {
     public Integer getOverallRank() { return overallRank; }
 
     public void setOverallRank(Integer overallRank) { this.overallRank = overallRank; }
+
+    public Boolean getIsPublicLog() { return isPublicLog; }
+
+    public void setIsPublicLog(Boolean isPublicLog) { this.isPublicLog = isPublicLog; }
 
 
 }

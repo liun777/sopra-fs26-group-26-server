@@ -27,6 +27,10 @@ public class Move {
     @Column(nullable = true)
     private String details;
 
+    // #109 depends on player's privacy choice
+    @Column(nullable = false)
+    private Boolean isPublic = false;
+
     // Getter & Setter
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -45,4 +49,7 @@ public class Move {
 
     public String getDetails() { return details; }
     public void setDetails(String details) { this.details = details; }
+
+    public Boolean getIsPublic() { return isPublic; }
+    public void setIsPublic(Boolean isPublic) { this.isPublic = isPublic; }
 }

@@ -6,6 +6,7 @@ import ch.uzh.ifi.hase.soprafs26.constant.UserStatus;
 import ch.uzh.ifi.hase.soprafs26.entity.User;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.UserGetDTO;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.UserPostDTO;
+import ch.uzh.ifi.hase.soprafs26.rest.dto.UserPutDTO;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
@@ -48,5 +49,20 @@ public class DTOMapperTest {
 		assertEquals(user.getUsername(), userGetDTO.getUsername());
 		assertEquals(user.getStatus(), userGetDTO.getStatus());
 		assertEquals(user.getToken(), userGetDTO.getToken());
+	}
+
+	// #109: isPublicLog handled correctly during entity - dto conversion
+	@Test
+	public void isPublicLog_correctConversionBetweenEntityAndDTO() {
+		UserPutDTO putDTO = new UserPutDTO();
+		putDTO.setIsPublicLog(true);
+		User mapped = DTOMapper.INSTANCE.convertUserPutDTOtoEntity(putDTO);
+		assertEquals(true, mapped.getIsPublicLog());
+
+		User entity = new User();
+		entity.setUsername("publicLogUser");
+		entity.setIsPublicLog(true);
+		UserGetDTO getDTO = DTOMapper.INSTANCE.convertEntityToUserGetDTO(entity);
+		assertEquals(true, getDTO.getIsPublicLog());
 	}
 }

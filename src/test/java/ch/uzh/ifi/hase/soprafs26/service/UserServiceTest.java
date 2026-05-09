@@ -23,6 +23,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.verify;
@@ -444,6 +445,31 @@ public class UserServiceTest {
         assertEquals(0, u2.getRoundsWon());
         assertEquals(4, u1.getAverageScorePerRound());
         assertEquals(10, u2.getAverageScorePerRound());
+    }
+
+    // #109: PUT applies isPublicLog when present and leaves it untouched when null
+    @Test
+    public void updateUser_isPublicLog_setsWhenProvidedAndIgnoresWhenNull() {
+        User user = new User();
+        user.setId(42L);
+        user.setUsername("u42");
+        user.setIsPublicLog(false);
+
+        when(userRepository.findById(42L)).thenReturn(Optional.of(user));
+        when(userRepository.save(Mockito.any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        User userChangeToPublic = new User();
+        userChangeToPublic.setIsPublicLog(true);
+        // old user object updated with attribute values from new one
+        userService.updateUser(42L, userChangeToPublic);
+        assertEquals(true, user.getIsPublicLog());
+
+        User passwordOnly = new User();
+        passwordOnly.setPassword("newPw");
+        // old user object updated with attribute values from new one
+        userService.updateUser(42L, passwordOnly);
+        assertEquals(true, user.getIsPublicLog());
+        assertEquals("newPw", user.getPassword());
     }
 
     @Test
