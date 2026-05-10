@@ -48,6 +48,14 @@ public class LobbyController {
         return DTOMapper.INSTANCE.convertEntityToLobbyGetDTO(lobby);
     }
 
+    @PostMapping("/lobbies/{sessionId}/spectators")
+    @ResponseStatus(HttpStatus.OK)
+    public LobbyGetDTO joinLobbyAsSpectator(@PathVariable String sessionId,
+                                            @RequestHeader("Authorization") String token) {
+        Lobby lobby = lobbyService.joinLobbyAsSpectator(sessionId, token);
+        return DTOMapper.INSTANCE.convertEntityToLobbyGetDTO(lobby);
+    }
+
     @PatchMapping("/lobbies/{sessionId}/settings")
     @ResponseStatus(HttpStatus.OK)
     public LobbyGetDTO updateLobbySettings(@PathVariable String sessionId,

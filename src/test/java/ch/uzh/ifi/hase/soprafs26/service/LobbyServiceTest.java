@@ -86,6 +86,9 @@ public class LobbyServiceTest {
 		Mockito.when(lobbySettingsProperties.getRematchDecisionMaxSeconds()).thenReturn(60L);
 		Mockito.when(lobbySettingsProperties.getWebsocketGraceMinSeconds()).thenReturn(180L);
 		Mockito.when(lobbySettingsProperties.getWebsocketGraceMaxSeconds()).thenReturn(600L);
+		// by default return empty list
+		Mockito.when(lobbyRepository.findByStatusAndParticipantId(Mockito.anyString(), Mockito.anyLong()))
+				.thenReturn(List.of());
 	}
 
 	@Test
@@ -530,5 +533,64 @@ public class LobbyServiceTest {
 		assertNull(lobbyService.findPlayingSessionIdForPlayers(List.of(1L, 2L, 4L)));
 		assertNull(lobbyService.findPlayingSessionIdForPlayers(List.of()));
 		assertNull(lobbyService.findPlayingSessionIdForPlayers(null));
+	}
+
+	// #116 join as spectator: sets spectatorIds, SPECTATING status and broadcasts result
+	@Test
+	public void joinWaitingLobbyAsSpectator_addsSpectatorSetsStatusAndBroadcasts() {
+		User spectator = new User();
+		spectator.setId(5L);
+		spectator.setStatus(UserStatus.ONLINE);
+		Mockito.when(userRepository.findByToken("token")).thenReturn(spectator);
+		Mockito.when(userRepository.findById(5L)).thenReturn(Optional.of(spectator));
+
+		Lobby lobby = new Lobby();
+		lobby.setId(10L);
+		lobby.setSessionId("S1");
+		lobby.setSessionHostUserId(1L);
+		lobby.setStatus("WAITING");
+		lobby.setPlayerIds(new ArrayList<>(List.of(1L)));
+		Mockito.when(lobbyRepository.findBySessionId("S1")).thenReturn(lobby);
+		// when we call lobby repository to save a lobby, return the lobby that is being passed as argument
+		Mockito.when(lobbyRepository.save(Mockito.any(Lobby.class))).thenAnswer(inv -> inv.getArgument(0));
+
+		Lobby result = lobbyService.joinLobbyAsSpectator("S1", "token");
+
+		assertTrue(result.getSpectatorIds().contains(5L));
+		assertFalse(result.getPlayerIds().contains(5L));
+		assertEquals(UserStatus.SPECTATING, spectator.getStatus());
+		// verify that we have called broadcastLobbyUpdate once for lobby with id 10
+		Mockito.verify(lobbyEventPublisher, Mockito.times(1)).broadcastLobbyUpdate(Mockito.eq(10L), Mockito.any());
+		// verify that we have called broadcastOnlineUsers once
+		Mockito.verify(onlineUsersEventPublisher, Mockito.times(1)).broadcastOnlineUsers();
+	}
+
+	// #116: spectator joins as player on same lobby — removed from spectatorIds
+	@Test
+	public void joinLobby_changesSpectatorToPlayer_clearsSpectatorList() {
+		User joiner = new User();
+		joiner.setId(2L);
+		Mockito.when(userRepository.findByToken("token")).thenReturn(joiner);
+		Mockito.when(userRepository.findById(2L)).thenReturn(Optional.of(joiner));
+
+		Lobby lobby = new Lobby();
+		lobby.setId(10L);
+		lobby.setSessionId("S1");
+		lobby.setSessionHostUserId(1L);
+		lobby.setStatus("WAITING");
+		lobby.setPlayerIds(new ArrayList<>(List.of(1L)));
+		// add joiner's id to spectator's list
+		lobby.setSpectatorIds(new ArrayList<>(List.of(2L)));
+		Mockito.when(lobbyRepository.findBySessionId("S1")).thenReturn(lobby);
+		// when we call lobby repository to save a lobby, return the lobby that is being passed as argument
+		Mockito.when(lobbyRepository.save(Mockito.any(Lobby.class))).thenAnswer(inv -> inv.getArgument(0));
+
+		// join as player
+		lobbyService.joinLobby("S1", "token");
+
+		assertTrue(lobby.getPlayerIds().contains(2L));
+		assertFalse(lobby.getSpectatorIds().contains(2L));
+		// joiner's status is LOBBY, which is a status for players (not spectators) waiting in the lobby
+		assertEquals(UserStatus.LOBBY, joiner.getStatus());
 	}
 }

@@ -10,6 +10,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import ch.uzh.ifi.hase.soprafs26.constant.UserStatus;
+import ch.uzh.ifi.hase.soprafs26.entity.Lobby;
 import ch.uzh.ifi.hase.soprafs26.entity.Session;
 import ch.uzh.ifi.hase.soprafs26.entity.User;
 import ch.uzh.ifi.hase.soprafs26.repository.LobbyRepository;
@@ -65,7 +66,9 @@ public class UserService {
         if (userId == null || lobbyRepository == null) {
             return false;
         }
-        return lobbyRepository.existsByStatusAndPlayerId("PLAYING", userId);
+        // check only players, not spectators 
+        return lobbyRepository.findByStatusAndParticipantId("PLAYING", userId).stream()
+                .anyMatch(lobby -> lobby.getPlayerIds() != null && lobby.getPlayerIds().contains(userId));
     }
 
     // holt alle user aus Datenbank und gibt sie dem controller
@@ -329,14 +332,27 @@ public class UserService {
             return UserStatus.ONLINE;
         }
 
-        boolean inPlayingLobby = lobbyRepository.existsByStatusAndPlayerId("PLAYING", userId);
-        if (inPlayingLobby) {
-            return UserStatus.PLAYING;
+        // get playing lobby for this user
+        List<Lobby> playing = lobbyRepository.findByStatusAndParticipantId("PLAYING", userId);
+        if (!playing.isEmpty()) {
+            // there can be only 1 playing lobby for a user
+            Lobby l = playing.get(0);
+            // if in the list of players -> playing status
+            if (l.getPlayerIds() != null && l.getPlayerIds().contains(userId)) {
+                return UserStatus.PLAYING;
+            }
+            // else  -> spectating status
+            return UserStatus.SPECTATING;
         }
 
-        boolean inWaitingLobby = lobbyRepository.existsByStatusAndPlayerId("WAITING", userId);
-        if (inWaitingLobby) {
-            return UserStatus.LOBBY;
+        // same logic as above but for waiting lobby
+        List<Lobby> waiting = lobbyRepository.findByStatusAndParticipantId("WAITING", userId);
+        if (!waiting.isEmpty()) {
+            Lobby l = waiting.get(0);
+            if (l.getPlayerIds() != null && l.getPlayerIds().contains(userId)) {
+                return UserStatus.LOBBY;
+            }
+            return UserStatus.SPECTATING;
         }
 
         return UserStatus.ONLINE;

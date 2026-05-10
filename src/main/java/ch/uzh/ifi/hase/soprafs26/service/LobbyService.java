@@ -266,8 +266,8 @@ public class LobbyService {
         if (userId == null) {
             return false;
         }
-        return lobbyRepository.existsByStatusAndPlayerId("WAITING", userId)
-                || lobbyRepository.existsByStatusAndPlayerId("PLAYING", userId);
+        return lobbyRepository.existsByStatusAndParticipantId("WAITING", userId)
+                || lobbyRepository.existsByStatusAndParticipantId("PLAYING", userId);
     }
 
     public Set<Long> getPlayingLobbyPlayerIdsSnapshot() {
@@ -284,13 +284,13 @@ public class LobbyService {
         if (userId == null) {
             return null;
         }
-        Lobby waitingLobby = lobbyRepository.findByStatusAndPlayerId("WAITING", userId).stream()
+        Lobby waitingLobby = lobbyRepository.findByStatusAndParticipantId("WAITING", userId).stream()
                 .findFirst()
                 .orElse(null);
         if (waitingLobby != null && waitingLobby.getWebsocketGraceSeconds() != null && waitingLobby.getWebsocketGraceSeconds() > 0) {
             return waitingLobby.getWebsocketGraceSeconds();
         }
-        Lobby playingLobby = lobbyRepository.findByStatusAndPlayerId("PLAYING", userId).stream()
+        Lobby playingLobby = lobbyRepository.findByStatusAndParticipantId("PLAYING", userId).stream()
                 .findFirst()
                 .orElse(null);
         if (playingLobby != null && playingLobby.getWebsocketGraceSeconds() != null && playingLobby.getWebsocketGraceSeconds() > 0) {
@@ -318,21 +318,26 @@ public class LobbyService {
 
         for (Lobby staleLobby : stalePlayingLobbies) {
             List<Long> playerIds = new ArrayList<>(staleLobby.getPlayerIds());
+            List<Long> spectatorIds = staleLobby.getSpectatorIds() != null
+                    ? new ArrayList<>(staleLobby.getSpectatorIds())
+                    : List.of();
             lobbyRepository.delete(staleLobby);
             setUsersStatus(playerIds, UserStatus.ONLINE);
+            setUsersStatus(spectatorIds, UserStatus.ONLINE);
         }
         onlineUsersEventPublisher.broadcastOnlineUsers();
     }
 
-    private List<Lobby> findWaitingLobbiesForPlayer(Long userId) {
+    private List<Lobby> findWaitingLobbiesForParticipant(Long userId) {
         if (userId == null) {
             return List.of();
         }
-        return lobbyRepository.findByStatusAndPlayerId("WAITING", userId);
+        return lobbyRepository.findByStatusAndParticipantId("WAITING", userId);
     }
 
     public String findWaitingSessionIdForPlayer(Long userId) {
-        return findWaitingLobbiesForPlayer(userId).stream()
+        return findWaitingLobbiesForParticipant(userId).stream()
+                .filter(l -> l.getPlayerIds() != null && l.getPlayerIds().contains(userId))
                 .findFirst()
                 .map(Lobby::getSessionId)
                 .orElse(null);
@@ -343,12 +348,31 @@ public class LobbyService {
      * Keeps `keepSessionId` if provided and removes the player from all others.
      */
     private void leaveOtherWaitingLobbies(Long userId, String keepSessionId) {
-        List<Lobby> otherWaitingLobbies = findWaitingLobbiesForPlayer(userId).stream()
+        List<Lobby> otherWaitingLobbies = findWaitingLobbiesForParticipant(userId).stream()
                 .filter(lobby -> keepSessionId == null || !keepSessionId.equals(lobby.getSessionId()))
                 .toList();
 
         for (Lobby previousLobby : otherWaitingLobbies) {
             removePlayerFromDisconnect(previousLobby.getSessionId(), userId);
+        }
+    }
+
+    private void leaveOtherPlayingSpectatorMemberships(Long userId, String keepSessionId) {
+        if (userId == null) {
+            return;
+        }
+        List<Lobby> playing = lobbyRepository.findByStatusAndParticipantId("PLAYING", userId);
+        for (Lobby other : playing) {
+            if (keepSessionId != null && keepSessionId.equals(other.getSessionId())) {
+                continue;
+            }
+            if (other.getSpectatorIds() == null || !other.getSpectatorIds().contains(userId)) {
+                continue;
+            }
+            other.getSpectatorIds().remove(userId);
+            clearTimedOutPlayingFlag(userId);
+            lobbyRepository.save(other);
+            lobbyEventPublisher.broadcastLobbyUpdate(other.getId(), other);
         }
     }
 
@@ -369,6 +393,7 @@ public class LobbyService {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Cannot create a lobby during an active game");
         }
         leaveOtherWaitingLobbies(host.getId(), null);
+        leaveOtherPlayingSpectatorMemberships(host.getId(), null);
         cleanupStalePlayingLobbiesForHost(host.getId());
         boolean hostInActiveGame = isUserInActiveGame(host.getId());
 
@@ -432,8 +457,12 @@ public class LobbyService {
         if (lobby.getKickedUserIds() != null) {
             lobby.getKickedUserIds().remove(guestUserId);
         }
+        if (lobby.getSpectatorIds() != null) {
+            lobby.getSpectatorIds().remove(guestUserId);
+        }
         if (!lobby.getPlayerIds().contains(guestUserId)) {
             leaveOtherWaitingLobbies(guestUserId, lobby.getSessionId());
+            leaveOtherPlayingSpectatorMemberships(guestUserId, lobby.getSessionId());
             lobby.getPlayerIds().add(guestUserId);
             lobbyRepository.save(lobby);
             clearTimedOutPlayingFlag(guestUserId);
@@ -656,10 +685,50 @@ public class LobbyService {
         }
 
         leaveOtherWaitingLobbies(user.getId(), sessionId);
+        leaveOtherPlayingSpectatorMemberships(user.getId(), sessionId);
+        if (lobby.getSpectatorIds() != null) {
+            lobby.getSpectatorIds().remove(user.getId());
+        }
         lobby.getPlayerIds().add(user.getId());
         lobby = lobbyRepository.save(lobby);
         clearTimedOutPlayingFlag(user.getId());
         setUserStatus(user.getId(), UserStatus.LOBBY); // set user status to LOBBY after joining lobby
+        lobbyEventPublisher.broadcastLobbyUpdate(lobby.getId(), lobby);
+        onlineUsersEventPublisher.broadcastOnlineUsers();
+        return lobby;
+    }
+
+    public Lobby joinLobbyAsSpectator(String sessionId, String token) {
+        User user = getUserByToken(token);
+        Lobby lobby = lobbyRepository.findBySessionId(sessionId);
+        if (lobby == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Session could not be found");
+        }
+        if (!"WAITING".equals(lobby.getStatus()) && !"PLAYING".equals(lobby.getStatus())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Lobby is not joinable as spectator");
+        }
+        if (lobby.getKickedUserIds() != null && lobby.getKickedUserIds().contains(user.getId())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "You were kicked from this lobby");
+        }
+        if (lobby.getPlayerIds() != null && lobby.getPlayerIds().contains(user.getId())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Already a player in this lobby");
+        }
+        // if user is player in another game
+        if (isUserInActiveGame(user.getId())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Cannot spectate during an active game");
+        }
+        // if already spectator in this lobby: re-broadcast and return the lobby
+        if (lobby.getSpectatorIds() != null && lobby.getSpectatorIds().contains(user.getId())) {
+            lobbyEventPublisher.broadcastLobbyUpdate(lobby.getId(), lobby);
+            return lobby;
+        }
+
+        leaveOtherWaitingLobbies(user.getId(), sessionId);
+        leaveOtherPlayingSpectatorMemberships(user.getId(), sessionId);
+
+        lobby.getSpectatorIds().add(user.getId());
+        lobby = lobbyRepository.save(lobby);
+        setUserStatus(user.getId(), UserStatus.SPECTATING);
         lobbyEventPublisher.broadcastLobbyUpdate(lobby.getId(), lobby);
         onlineUsersEventPublisher.broadcastOnlineUsers();
         return lobby;
@@ -694,7 +763,7 @@ public class LobbyService {
         return lobby;
     }
 
-    // set players as PLAYING
+    // set players as PLAYING and spectators as SPECTATING
     public void markLobbyAsPlaying(String sessionId) {
         Lobby lobby = lobbyRepository.findBySessionId(sessionId);
         if (lobby == null) {
@@ -705,6 +774,9 @@ public class LobbyService {
         lobbyRepository.save(lobby);
         clearTimedOutPlayingFlags(lobby.getPlayerIds());
         setUsersStatus(lobby.getPlayerIds(), UserStatus.PLAYING);
+        if (lobby.getSpectatorIds() != null && !lobby.getSpectatorIds().isEmpty()) {
+            setUsersStatus(lobby.getSpectatorIds(), UserStatus.SPECTATING);
+        }
         lobbyEventPublisher.broadcastLobbyUpdate(lobby.getId(), lobby);
         onlineUsersEventPublisher.broadcastOnlineUsers();
     }
@@ -770,7 +842,12 @@ public class LobbyService {
             setUsersStatus(normalizedContinuePlayers, UserStatus.LOBBY);
             lobbyEventPublisher.broadcastLobbyUpdate(currentLobby.getId(), currentLobby);
         } else {
+            // if no rematch - set spectators' status from SPECTATING to ONLINE
+            List<Long> spectators = currentLobby.getSpectatorIds() != null
+                    ? new ArrayList<>(currentLobby.getSpectatorIds())
+                    : List.of();
             lobbyRepository.delete(currentLobby);
+            setUsersStatus(spectators, UserStatus.ONLINE);
         }
 
         if (normalizedFreshPlayers.size() >= 2) {
@@ -910,10 +987,9 @@ public class LobbyService {
     }
 
     public void handlePermanentDisconnect(Long userId) {
-        // Find the lobby the user was in
-        Lobby lobby = lobbyRepository.findByStatusAndPlayerId("WAITING", userId).stream()
+        Lobby lobby = lobbyRepository.findByStatusAndParticipantId("WAITING", userId).stream()
                 .findFirst()
-                .orElseGet(() -> lobbyRepository.findByStatusAndPlayerId("PLAYING", userId).stream()
+                .orElseGet(() -> lobbyRepository.findByStatusAndParticipantId("PLAYING", userId).stream()
                         .findFirst()
                         .orElse(null));
 
@@ -925,14 +1001,22 @@ public class LobbyService {
         }
 
         if ("WAITING".equals(lobby.getStatus())) {
-            // Lobby timeout: remove from waiting lobby and mark offline.
             clearTimedOutPlayingFlag(userId);
             setUserStatus(userId, UserStatus.OFFLINE);
             this.removePlayerFromDisconnect(lobby.getSessionId(), userId);
         } else if ("PLAYING".equals(lobby.getStatus())) {
-            // Midgame timeout: preserve game membership and mark player as timed out.
-            // Cabo is auto-called when this player's turn starts.
-            timedOutInPlayingPlayerIds.add(userId);
+            boolean isPlayer = lobby.getPlayerIds() != null && lobby.getPlayerIds().contains(userId);
+            if (isPlayer) {
+                timedOutInPlayingPlayerIds.add(userId);
+            } else {
+                // remove spectator on disconnect
+                if (lobby.getSpectatorIds() != null) {
+                    lobby.getSpectatorIds().remove(userId);
+                }
+                setUserStatus(userId, UserStatus.OFFLINE);
+                lobbyRepository.save(lobby);
+                lobbyEventPublisher.broadcastLobbyUpdate(lobby.getId(), lobby);
+            }
             onlineUsersEventPublisher.broadcastOnlineUsers();
         } else {
             clearTimedOutPlayingFlag(userId);
@@ -975,10 +1059,14 @@ public class LobbyService {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Lobby not found");
         }
 
-        if (lobby.getSpectatorIds() != null && lobby.getSpectatorIds().contains(userId)) {
-            lobby.getSpectatorIds().remove(userId);
-            lobbyRepository.save(lobby);
-            lobbyRepository.flush();
+        if (lobby.getSpectatorIds() == null || !lobby.getSpectatorIds().contains(userId)) {
+            return;
         }
+        lobby.getSpectatorIds().remove(userId);
+        setUserStatus(userId, UserStatus.ONLINE);
+        lobbyRepository.save(lobby);
+        lobbyRepository.flush();
+        lobbyEventPublisher.broadcastLobbyUpdate(lobby.getId(), lobby);
+        onlineUsersEventPublisher.broadcastOnlineUsers();
     }
 }

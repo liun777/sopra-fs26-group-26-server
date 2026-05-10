@@ -156,7 +156,7 @@ public class UserServiceTest {
 		user.setStatus(UserStatus.ONLINE);
 
 		when(userRepository.findByToken("token")).thenReturn(user);
-        when(lobbyRepository.existsByStatusAndPlayerId("PLAYING", 1L)).thenReturn(false);
+        when(lobbyRepository.findByStatusAndParticipantId("PLAYING", 1L)).thenReturn(List.of());
 
 		userService.logoutUser("token");
 		
@@ -176,7 +176,7 @@ public class UserServiceTest {
         playingLobby.setPlayerIds(List.of(7L, 8L));
 
         when(userRepository.findByToken("token")).thenReturn(user);
-        when(lobbyRepository.existsByStatusAndPlayerId("PLAYING", 7L)).thenReturn(true);
+        when(lobbyRepository.findByStatusAndParticipantId("PLAYING", 7L)).thenReturn(List.of(playingLobby));
 
         ResponseStatusException ex = assertThrows(ResponseStatusException.class, () -> userService.logoutUser("token"));
         assertEquals(409, ex.getStatusCode().value());
@@ -210,8 +210,8 @@ public class UserServiceTest {
         user.setLastHeartbeat(Instant.now());
 
         when(userRepository.findByToken("token-online")).thenReturn(user);
-        when(lobbyRepository.existsByStatusAndPlayerId("PLAYING", 10L)).thenReturn(false);
-        when(lobbyRepository.existsByStatusAndPlayerId("WAITING", 10L)).thenReturn(false);
+        when(lobbyRepository.findByStatusAndParticipantId("PLAYING", 10L)).thenReturn(List.of());
+        when(lobbyRepository.findByStatusAndParticipantId("WAITING", 10L)).thenReturn(List.of());
 
         userService.heartbeat("token-online");
 
@@ -230,8 +230,10 @@ public class UserServiceTest {
         user.setLastHeartbeat(Instant.now());
 
         when(userRepository.findByToken("token-lobby")).thenReturn(user);
-        when(lobbyRepository.existsByStatusAndPlayerId("PLAYING", 11L)).thenReturn(false);
-        when(lobbyRepository.existsByStatusAndPlayerId("WAITING", 11L)).thenReturn(true);
+        when(lobbyRepository.findByStatusAndParticipantId("PLAYING", 11L)).thenReturn(List.of());
+        Lobby waitingLobby = new Lobby();
+        waitingLobby.setPlayerIds(List.of(11L, 1L));
+        when(lobbyRepository.findByStatusAndParticipantId("WAITING", 11L)).thenReturn(List.of(waitingLobby));
 
         userService.heartbeat("token-lobby");
 
@@ -250,7 +252,9 @@ public class UserServiceTest {
         user.setLastHeartbeat(Instant.now());
 
         when(userRepository.findByToken("token-playing")).thenReturn(user);
-        when(lobbyRepository.existsByStatusAndPlayerId("PLAYING", 12L)).thenReturn(true);
+        Lobby playingLobby = new Lobby();
+        playingLobby.setPlayerIds(List.of(12L, 1L));
+        when(lobbyRepository.findByStatusAndParticipantId("PLAYING", 12L)).thenReturn(List.of(playingLobby));
 
         userService.heartbeat("token-playing");
 
@@ -258,6 +262,47 @@ public class UserServiceTest {
         verify(userRepository, Mockito.atLeastOnce()).save(user);
         verify(onlineUsersEventPublisher, Mockito.times(1)).broadcastOnlineUsers();
         verify(disconnectService, Mockito.times(1)).handleReconnect(12L);
+    }
+
+    // #116 heartbeat method in user service sets SPECTATING status to a user based on their id
+    // logout allowed when not in playerIds of PLAYING lobby 
+    @Test
+    public void spectator_heartbeatSetsSpectatingStatus_logoutAllowedForSpectator() {
+        User user = new User();
+        user.setId(13L);
+        user.setToken("t13");
+        user.setStatus(UserStatus.OFFLINE);
+
+        Lobby waitingLobby = new Lobby();
+        waitingLobby.setPlayerIds(List.of(1L));
+        waitingLobby.setSpectatorIds(new ArrayList<>(List.of(13L)));
+
+        when(userRepository.findByToken("t13")).thenReturn(user);
+        // return empty list for playing lobbies and user with id 13
+        when(lobbyRepository.findByStatusAndParticipantId("PLAYING", 13L)).thenReturn(List.of());
+        // return the waiting lobby for same user
+        when(lobbyRepository.findByStatusAndParticipantId("WAITING", 13L)).thenReturn(List.of(waitingLobby));
+        // heartbeat will set the SPECTATING status based on id
+        userService.heartbeat("t13");
+        assertEquals(UserStatus.SPECTATING, user.getStatus());
+
+        User userLogsOut = new User();
+        userLogsOut.setId(9L);
+        userLogsOut.setToken("t9");
+        userLogsOut.setStatus(UserStatus.SPECTATING);
+
+        Lobby playingLobby = new Lobby();
+        playingLobby.setPlayerIds(List.of(1L, 2L));
+        playingLobby.setSpectatorIds(new ArrayList<>(List.of(9L)));
+
+        when(userRepository.findByToken("t9")).thenReturn(userLogsOut);
+        when(lobbyRepository.findByStatusAndParticipantId("PLAYING", 9L)).thenReturn(List.of(playingLobby));
+        // log out spectator 
+        userService.logoutUser("t9");
+        // log out worked 
+        assertEquals(UserStatus.OFFLINE, userLogsOut.getStatus());
+        // logged out user was persisted
+        verify(userRepository, Mockito.times(1)).save(userLogsOut);
     }
 
     // in this test we set scores and respective totals directly 
