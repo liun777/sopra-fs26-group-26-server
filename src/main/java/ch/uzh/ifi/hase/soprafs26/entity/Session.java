@@ -31,6 +31,9 @@ public class Session {
     @Column(nullable = false)
     private boolean isEnded = false;
 
+    @Column(nullable = false)
+    private Long absentRoundPoints = 20L;
+
     // List entry = one round; map key=userId, value=score for that round.
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(nullable = false, unique = false)
@@ -76,6 +79,14 @@ public class Session {
 
     public void setEnded(boolean ended) {
         isEnded = ended;
+    }
+
+    public Long getAbsentRoundPoints() {
+        return absentRoundPoints;
+    }
+
+    public void setAbsentRoundPoints(Long absentRoundPoints) {
+        this.absentRoundPoints = absentRoundPoints;
     }
 
     public List<Map<Long, Integer>> getUserScoresPerRound() {

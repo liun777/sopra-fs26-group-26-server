@@ -8,7 +8,7 @@ public class LobbySettingsPatchDTO {
     private Long turnSeconds;
     private Long abilityRevealSeconds;
     private Long abilitySwapSeconds;
-    private Long rematchDecisionSeconds;
+    private Long absentRoundPoints;
     private Long websocketGraceSeconds;
 
     public Boolean getIsPublic() {
@@ -59,12 +59,12 @@ public class LobbySettingsPatchDTO {
         this.abilitySwapSeconds = abilitySwapSeconds;
     }
 
-    public Long getRematchDecisionSeconds() {
-        return rematchDecisionSeconds;
+    public Long getAbsentRoundPoints() {
+        return absentRoundPoints;
     }
 
-    public void setRematchDecisionSeconds(Long rematchDecisionSeconds) {
-        this.rematchDecisionSeconds = rematchDecisionSeconds;
+    public void setAbsentRoundPoints(Long absentRoundPoints) {
+        this.absentRoundPoints = absentRoundPoints;
     }
 
     public Long getWebsocketGraceSeconds() {

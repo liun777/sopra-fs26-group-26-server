@@ -58,9 +58,9 @@ public class Lobby implements Serializable {
     @Column(nullable = false)
     private Long abilitySwapSeconds = 10L;
 
-    // Per-lobby rematch decision window.
+    // Score added for players who did not attend a round in this session.
     @Column(nullable = false)
-    private Long rematchDecisionSeconds = 60L;
+    private Long absentRoundPoints = 20L;
 
     // Per-lobby websocket disconnect grace period before timeout handling.
     @Column(nullable = false)
@@ -109,8 +109,8 @@ public class Lobby implements Serializable {
     public Long getAbilitySwapSeconds() { return abilitySwapSeconds; }
     public void setAbilitySwapSeconds(Long abilitySwapSeconds) { this.abilitySwapSeconds = abilitySwapSeconds; }
 
-    public Long getRematchDecisionSeconds() { return rematchDecisionSeconds; }
-    public void setRematchDecisionSeconds(Long rematchDecisionSeconds) { this.rematchDecisionSeconds = rematchDecisionSeconds; }
+    public Long getAbsentRoundPoints() { return absentRoundPoints; }
+    public void setAbsentRoundPoints(Long absentRoundPoints) { this.absentRoundPoints = absentRoundPoints; }
 
     public Long getWebsocketGraceSeconds() { return websocketGraceSeconds; }
     public void setWebsocketGraceSeconds(Long websocketGraceSeconds) { this.websocketGraceSeconds = websocketGraceSeconds; }

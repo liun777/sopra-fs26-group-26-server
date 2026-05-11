@@ -1747,13 +1747,18 @@ public class GameServiceTest {
         List<Long> playerIds = List.of(1L, 2L, 3L);
         Game startedGame = gameService.startGame(playerIds);
 
-        assertEquals(GameStatus.INITIAL_PEEK, startedGame.getStatus(), "Game should start in INITIAL_PEEK");
-        assertTrue(scheduledTasks.size() >= 1, "The peeking timer should be scheduled");
+        assertEquals(GameStatus.INTRO, startedGame.getStatus(), "Game should start in INTRO");
+        assertTrue(scheduledTasks.size() >= 1, "The intro timer should be scheduled");
 
         when(gameRepository.findById("test-game-id")).thenReturn(Optional.of(startedGame));
         
+        // Intro timer completion transitions into INITIAL_PEEK and schedules the peek timer.
         scheduledTasks.get(0).run();
+        assertEquals(GameStatus.INITIAL_PEEK, startedGame.getStatus(), "Game should transition to INITIAL_PEEK after intro");
+        assertTrue(scheduledTasks.size() >= 2, "The peeking timer should be scheduled after intro");
 
+        // Initial peek timer completion transitions into ROUND_ACTIVE and assigns a starter.
+        scheduledTasks.get(1).run();
         assertEquals(GameStatus.ROUND_ACTIVE, startedGame.getStatus(), "Game should transition to ROUND_ACTIVE");
         
         assertTrue(playerIds.contains(startedGame.getCurrentPlayerId()), "A random player should be assigned the first turn");

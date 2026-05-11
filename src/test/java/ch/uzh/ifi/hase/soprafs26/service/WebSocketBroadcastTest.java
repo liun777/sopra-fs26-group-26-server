@@ -97,8 +97,6 @@ class WebSocketBroadcastTest {
         Mockito.when(lobbySettings.getAbilitySwapMinSeconds()).thenReturn(5L);
         Mockito.when(lobbySettings.getAbilitySwapMaxSeconds()).thenReturn(30L);
         Mockito.when(lobbySettings.getAbilitySwapDefaultSeconds()).thenReturn(10L);
-        Mockito.when(lobbySettings.getRematchDecisionMinSeconds()).thenReturn(10L);
-        Mockito.when(lobbySettings.getRematchDecisionMaxSeconds()).thenReturn(60L);
         Mockito.when(lobbySettings.getWebsocketGraceMinSeconds()).thenReturn(180L);
         Mockito.when(lobbySettings.getWebsocketGraceMaxSeconds()).thenReturn(600L);
     }

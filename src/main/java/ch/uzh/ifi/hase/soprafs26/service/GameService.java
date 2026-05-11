@@ -85,6 +85,7 @@ public class GameService {
     private static final String MOVE_ZONE_DRAW_PILE = "DRAW_PILE";
     private static final String MOVE_ZONE_DISCARD_PILE = "DISCARD_PILE";
     private static final String MOVE_ZONE_HAND = "HAND";
+    private static final long INTRO_PHASE_SECONDS = 10L;
 
     private Object getRematchResolutionLock(String gameId) {
         return rematchResolutionLocks.computeIfAbsent(gameId, ignored -> new Object());
@@ -196,8 +197,8 @@ public class GameService {
         newGame.setDiscardPile(discardPile);
         newGame.setDrawPile(drawPile);
         newGame.setOrderedPlayerIds(new ArrayList<>(sanitizedPlayerIds));
-        newGame.setCurrentPlayerId(sanitizedPlayerIds.get(0));
-        newGame.setStatus(GameStatus.INITIAL_PEEK);
+        newGame.setCurrentPlayerId(null);
+        newGame.setStatus(GameStatus.INTRO);
 
         long resolvedTurnSeconds = resolvePositiveOrDefault(
                 lobbyConfig != null ? lobbyConfig.getTurnSeconds() : null,
@@ -216,8 +217,8 @@ public class GameService {
                 gameSettings.getCaboRevealSeconds());
         // Rematch decision timer is fixed globally (not lobby-adjustable).
         long resolvedRematchDecisionSeconds = resolvePositiveOrDefault(
-                null,
-                gameSettings.getRematchDecisionSeconds());
+                gameSettings.getRematchDecisionSeconds(),
+                60L);
         long resolvedAfkTimeoutSeconds = resolvePositiveOrDefault(
                 lobbyConfig != null ? lobbyConfig.getAfkTimeoutSeconds() : null,
                 300L);
@@ -229,10 +230,11 @@ public class GameService {
         newGame.setCaboRevealSeconds(resolvedCaboRevealSeconds);
         newGame.setRematchDecisionSeconds(resolvedRematchDecisionSeconds);
         newGame.setAfkTimeoutSeconds(resolvedAfkTimeoutSeconds);
+        ensureSessionExistsForLobbyIfNeeded(lobbyConfig, sanitizedPlayerIds);
         // Save first to get a generated game id, then start the timer.
         Game saved = saveGameAndBroadcast(newGame);
         if (saved.getId() != null && !saved.getId().isBlank()) {
-            startPeekingTimer(saved.getId(), saved.getInitialPeekSeconds());
+            startIntroTimer(saved.getId());
         }
 
         // startTurnTimer(saved.getId(), saved.getCurrentPlayerId());
@@ -1353,6 +1355,137 @@ public class GameService {
         return saved;
     }
 
+    private long resolveAbsentRoundPointsForLobby(Lobby lobbyConfig) {
+        if (lobbyConfig == null) {
+            return 0L;
+        }
+        Long configured = lobbyConfig.getAbsentRoundPoints();
+        if (configured == null) {
+            return 0L;
+        }
+        return Math.max(0L, configured);
+    }
+
+    private void ensureSessionExistsForLobbyIfNeeded(Lobby lobbyConfig, List<Long> playerIds) {
+        if (lobbyConfig == null || sessionRepository == null) {
+            return;
+        }
+        String sessionId = lobbyConfig.getSessionId();
+        if (sessionId != null) {
+            sessionId = sessionId.trim();
+        }
+        if (sessionId == null || sessionId.isBlank()) {
+            return;
+        }
+
+        Session existing = sessionRepository.findBySessionId(sessionId);
+        if (existing != null) {
+            boolean changed = false;
+            if (existing.getAbsentRoundPoints() == null) {
+                existing.setAbsentRoundPoints(resolveAbsentRoundPointsForLobby(lobbyConfig));
+                changed = true;
+            }
+
+            List<Map<Long, Integer>> perRoundScores = existing.getUserScoresPerRound();
+            if (perRoundScores == null) {
+                perRoundScores = new ArrayList<>();
+                existing.setUserScoresPerRound(perRoundScores);
+                changed = true;
+            }
+
+            Map<Long, Integer> totalScores = existing.getTotalScoreByUserId();
+            if (totalScores == null) {
+                totalScores = new HashMap<>();
+                existing.setTotalScoreByUserId(totalScores);
+                changed = true;
+            }
+
+            long absentRoundPoints = resolveAbsentRoundPointsForSession(existing);
+            if (playerIds != null) {
+                for (Long playerId : playerIds) {
+                    if (playerId == null) {
+                        continue;
+                    }
+                    boolean alreadyPresent = totalScores.containsKey(playerId);
+                    backfillPlayerForPreviousRounds(playerId, perRoundScores, totalScores, absentRoundPoints);
+                    if (!alreadyPresent && totalScores.containsKey(playerId)) {
+                        changed = true;
+                    }
+                }
+            }
+
+            if (changed) {
+                sessionRepository.save(existing);
+            }
+            return;
+        }
+
+        Session session = new Session();
+        session.setSessionId(sessionId);
+        session.setStartTime(Instant.now());
+        session.setEnded(false);
+        session.setAbsentRoundPoints(resolveAbsentRoundPointsForLobby(lobbyConfig));
+
+        Map<Long, Integer> totals = new HashMap<>();
+        if (playerIds != null) {
+            for (Long playerId : playerIds) {
+                if (playerId != null) {
+                    totals.put(playerId, 0);
+                }
+            }
+        }
+        session.setTotalScoreByUserId(totals);
+        sessionRepository.save(session);
+    }
+
+    private long resolveAbsentRoundPointsForSession(Session session) {
+        if (session == null) {
+            return 0L;
+        }
+        Long configured = session.getAbsentRoundPoints();
+        if (configured == null) {
+            return 0L;
+        }
+        return Math.max(0L, configured);
+    }
+
+    private long resolveAbsentRoundPointsForPlayingLobby(String sessionId) {
+        if (sessionId == null || sessionId.isBlank() || lobbyService == null) {
+            return 0L;
+        }
+        try {
+            Lobby lobby = lobbyService.getLobbyBySessionId(sessionId);
+            return resolveAbsentRoundPointsForLobby(lobby);
+        } catch (Exception ignored) {
+            return 0L;
+        }
+    }
+
+    private void backfillPlayerForPreviousRounds(
+            Long playerId,
+            List<Map<Long, Integer>> perRoundScores,
+            Map<Long, Integer> totalScores,
+            long absentRoundPoints) {
+        if (playerId == null || totalScores.containsKey(playerId)) {
+            return;
+        }
+        int backfilledTotal = 0;
+        int absentPoints = (int) absentRoundPoints;
+        for (Map<Long, Integer> roundScores : perRoundScores) {
+            if (roundScores == null) {
+                continue;
+            }
+            Integer existing = roundScores.get(playerId);
+            if (existing == null) {
+                roundScores.put(playerId, absentPoints);
+                backfilledTotal += absentPoints;
+            } else {
+                backfilledTotal += existing;
+            }
+        }
+        totalScores.put(playerId, backfilledTotal);
+    }
+
     // this is used to automatically end a players turn by drawing and instantly discarding a card 
     // if they are AFK
     public void executeTimoutMove(String gameId, Long userId) {
@@ -1465,6 +1598,31 @@ public class GameService {
                 .filter(last -> last != null)
                 .map(last -> last.isAfter(Instant.now().minusSeconds(freshnessWindowSeconds)))
                 .orElse(false);
+    }
+
+    private void startIntroTimer(String gameId) {
+        if (gameId == null || gameId.isBlank()) {
+            return;
+        }
+        cancelTurnTimer(gameId);
+        ScheduledFuture<?> future = scheduler.schedule(() -> {
+            try {
+                enterInitialPeekPhase(gameId);
+            } catch (Exception e) {
+                System.err.println("Intro phase timer failed for game " + gameId + ": " + e.getMessage());
+            }
+        }, INTRO_PHASE_SECONDS, TimeUnit.SECONDS);
+        gameTimers.put(gameId, future);
+    }
+
+    private void enterInitialPeekPhase(String gameId) {
+        Game game = getGameById(gameId);
+        if (game.getStatus() != GameStatus.INTRO) {
+            return;
+        }
+        game.setStatus(GameStatus.INITIAL_PEEK);
+        saveGameAndBroadcast(game);
+        startPeekingTimer(gameId, game.getInitialPeekSeconds());
     }
 
     // start new turn alarm for specified player
@@ -1858,24 +2016,58 @@ public class GameService {
                 return false;
             }
 
+            if (session.getAbsentRoundPoints() == null) {
+                session.setAbsentRoundPoints(resolveAbsentRoundPointsForPlayingLobby(sessionId));
+            }
+
             // update session fields
             List<Map<Long, Integer>> perRoundScores = session.getUserScoresPerRound();
             if (perRoundScores == null) {
                 perRoundScores = new ArrayList<>();
             }
 
-            perRoundScores.add(calculatedRoundScores);
-            session.setUserScoresPerRound(perRoundScores);
-
             Map<Long, Integer> totalScores = session.getTotalScoreByUserId();
             if (totalScores == null) {
                 totalScores = new HashMap<>();
             }
 
+            long absentRoundPoints = resolveAbsentRoundPointsForSession(session);
+            int absentPoints = (int) absentRoundPoints;
+
+            Map<Long, Integer> normalizedRoundScores = new HashMap<>();
             if (calculatedRoundScores != null) {
-                for (Map.Entry<Long, Integer> entry: calculatedRoundScores.entrySet()) {
-                    totalScores.merge(entry.getKey(), entry.getValue(), Integer::sum);
+                normalizedRoundScores.putAll(calculatedRoundScores);
+            }
+
+            // Late joiners: backfill all previous rounds with configurable absent points.
+            for (Long playerId : new ArrayList<>(normalizedRoundScores.keySet())) {
+                backfillPlayerForPreviousRounds(playerId, perRoundScores, totalScores, absentRoundPoints);
+            }
+
+            // Players already in session but not in this round receive absent points.
+            for (Long participantId : new ArrayList<>(totalScores.keySet())) {
+                normalizedRoundScores.putIfAbsent(participantId, absentPoints);
+            }
+
+            // Safety net: if a current game participant has no score entry, count as absent.
+            if (orderedPlayers != null) {
+                for (Long participantId : orderedPlayers) {
+                    if (participantId != null) {
+                        normalizedRoundScores.putIfAbsent(participantId, absentPoints);
+                    }
                 }
+            }
+
+            perRoundScores.add(normalizedRoundScores);
+            session.setUserScoresPerRound(perRoundScores);
+
+            for (Map.Entry<Long, Integer> entry: normalizedRoundScores.entrySet()) {
+                Long playerId = entry.getKey();
+                Integer roundScore = entry.getValue();
+                if (playerId == null || roundScore == null) {
+                    continue;
+                }
+                totalScores.merge(playerId, roundScore, Integer::sum);
             }
 
             session.setTotalScoreByUserId(totalScores);

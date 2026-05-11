@@ -10,6 +10,7 @@ public class SessionHistoryDTO {
     private String sessionId;
     private Instant startTime;
     private boolean isEnded;
+    private Long absentRoundPoints;
     private List<Map<Long, Integer>> userScoresPerRound;
     private Map<Long, Integer> totalScoreByUserId;
     private Map<Long, Boolean> hundredReductionAppliedByUserId;
@@ -44,6 +45,14 @@ public class SessionHistoryDTO {
 
     public void setEnded(boolean ended) {
         isEnded = ended;
+    }
+
+    public Long getAbsentRoundPoints() {
+        return absentRoundPoints;
+    }
+
+    public void setAbsentRoundPoints(Long absentRoundPoints) {
+        this.absentRoundPoints = absentRoundPoints;
     }
 
     public List<Map<Long, Integer>> getUserScoresPerRound() {

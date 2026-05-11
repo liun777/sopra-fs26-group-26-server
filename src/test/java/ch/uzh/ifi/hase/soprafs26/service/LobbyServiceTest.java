@@ -70,7 +70,6 @@ public class LobbyServiceTest {
 		Mockito.when(lobbySettingsProperties.getTurnDefaultSeconds()).thenReturn(30L);
 		Mockito.when(lobbySettingsProperties.getAbilityRevealDefaultSeconds()).thenReturn(5L);
 		Mockito.when(lobbySettingsProperties.getAbilitySwapDefaultSeconds()).thenReturn(10L);
-		Mockito.when(lobbySettingsProperties.getRematchDecisionDefaultSeconds()).thenReturn(60L);
 		Mockito.when(lobbySettingsProperties.getWebsocketGraceDefaultSeconds()).thenReturn(300L);
 		Mockito.when(lobbySettingsProperties.getAfkTimeoutMinSeconds()).thenReturn(180L);
 		Mockito.when(lobbySettingsProperties.getAfkTimeoutMaxSeconds()).thenReturn(1200L);
@@ -82,8 +81,6 @@ public class LobbyServiceTest {
 		Mockito.when(lobbySettingsProperties.getAbilityRevealMaxSeconds()).thenReturn(10L);
 		Mockito.when(lobbySettingsProperties.getAbilitySwapMinSeconds()).thenReturn(5L);
 		Mockito.when(lobbySettingsProperties.getAbilitySwapMaxSeconds()).thenReturn(30L);
-		Mockito.when(lobbySettingsProperties.getRematchDecisionMinSeconds()).thenReturn(10L);
-		Mockito.when(lobbySettingsProperties.getRematchDecisionMaxSeconds()).thenReturn(60L);
 		Mockito.when(lobbySettingsProperties.getWebsocketGraceMinSeconds()).thenReturn(180L);
 		Mockito.when(lobbySettingsProperties.getWebsocketGraceMaxSeconds()).thenReturn(600L);
 		// by default return empty list

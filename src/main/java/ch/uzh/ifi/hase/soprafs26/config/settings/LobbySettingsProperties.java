@@ -54,13 +54,13 @@ public class LobbySettingsProperties {
     @Min(1)
     private long abilitySwapMaxSeconds = 30;
 
-    // Rematch decision timer: default and host-adjustable range
-    @Min(1)
-    private long rematchDecisionDefaultSeconds = 60;
-    @Min(1)
-    private long rematchDecisionMinSeconds = 60;
-    @Min(1)
-    private long rematchDecisionMaxSeconds = 60;
+    // Score assigned per missed round in a session.
+    @Min(0)
+    private long absentRoundPointsDefault = 20;
+    @Min(0)
+    private long absentRoundPointsMin = 0;
+    @Min(0)
+    private long absentRoundPointsMax = 100;
 
     // Websocket disconnect grace timer: default and host-adjustable range
     @Min(1)
@@ -105,12 +105,12 @@ public class LobbySettingsProperties {
     public long getAbilitySwapMaxSeconds() { return abilitySwapMaxSeconds; }
     public void setAbilitySwapMaxSeconds(long abilitySwapMaxSeconds) { this.abilitySwapMaxSeconds = abilitySwapMaxSeconds; }
 
-    public long getRematchDecisionDefaultSeconds() { return rematchDecisionDefaultSeconds; }
-    public void setRematchDecisionDefaultSeconds(long rematchDecisionDefaultSeconds) { this.rematchDecisionDefaultSeconds = rematchDecisionDefaultSeconds; }
-    public long getRematchDecisionMinSeconds() { return rematchDecisionMinSeconds; }
-    public void setRematchDecisionMinSeconds(long rematchDecisionMinSeconds) { this.rematchDecisionMinSeconds = rematchDecisionMinSeconds; }
-    public long getRematchDecisionMaxSeconds() { return rematchDecisionMaxSeconds; }
-    public void setRematchDecisionMaxSeconds(long rematchDecisionMaxSeconds) { this.rematchDecisionMaxSeconds = rematchDecisionMaxSeconds; }
+    public long getAbsentRoundPointsDefault() { return absentRoundPointsDefault; }
+    public void setAbsentRoundPointsDefault(long absentRoundPointsDefault) { this.absentRoundPointsDefault = absentRoundPointsDefault; }
+    public long getAbsentRoundPointsMin() { return absentRoundPointsMin; }
+    public void setAbsentRoundPointsMin(long absentRoundPointsMin) { this.absentRoundPointsMin = absentRoundPointsMin; }
+    public long getAbsentRoundPointsMax() { return absentRoundPointsMax; }
+    public void setAbsentRoundPointsMax(long absentRoundPointsMax) { this.absentRoundPointsMax = absentRoundPointsMax; }
 
     public long getWebsocketGraceDefaultSeconds() { return websocketGraceDefaultSeconds; }
     public void setWebsocketGraceDefaultSeconds(long websocketGraceDefaultSeconds) { this.websocketGraceDefaultSeconds = websocketGraceDefaultSeconds; }

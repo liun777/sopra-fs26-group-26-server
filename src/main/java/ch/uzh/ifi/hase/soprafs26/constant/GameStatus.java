@@ -1,6 +1,7 @@
 package ch.uzh.ifi.hase.soprafs26.constant;
 
 public enum GameStatus {
+    INTRO, // round intro/welcome state before initial peek starts
     INITIAL_PEEK, // start of round, players memorize their cards
     ROUND_ACTIVE, // normal gameplay, players take turns
     ABILITY_PEEK_SELF, // player is using peek on own card (7/8)

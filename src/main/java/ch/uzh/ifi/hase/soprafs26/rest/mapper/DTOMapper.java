@@ -56,6 +56,7 @@ public interface DTOMapper {
     @Mapping(source="sessionId", target="sessionId")
     @Mapping(source="startTime", target="startTime")
     @Mapping(source="ended", target="ended") // MapStruct maps isEnded() / setEnded() automatically to "ended"
+    @Mapping(source="absentRoundPoints", target="absentRoundPoints")
     @Mapping(source="userScoresPerRound", target="userScoresPerRound")
     @Mapping(source="totalScoreByUserId", target="totalScoreByUserId")
     @Mapping(source="hundredReductionAppliedByUserId", target="hundredReductionAppliedByUserId")

@@ -200,13 +200,13 @@ public class LobbyService {
             changed = true;
         }
 
-        long normalizedRematchDecision = normalizeTimerValue(
-                lobby.getRematchDecisionSeconds(),
-                lobbySettings.getRematchDecisionMinSeconds(),
-                lobbySettings.getRematchDecisionMaxSeconds(),
-                lobbySettings.getRematchDecisionDefaultSeconds());
-        if (!Long.valueOf(normalizedRematchDecision).equals(lobby.getRematchDecisionSeconds())) {
-            lobby.setRematchDecisionSeconds(normalizedRematchDecision);
+        long normalizedAbsentRoundPoints = normalizeTimerValue(
+                lobby.getAbsentRoundPoints(),
+                lobbySettings.getAbsentRoundPointsMin(),
+                lobbySettings.getAbsentRoundPointsMax(),
+                lobbySettings.getAbsentRoundPointsDefault());
+        if (!Long.valueOf(normalizedAbsentRoundPoints).equals(lobby.getAbsentRoundPoints())) {
+            lobby.setAbsentRoundPoints(normalizedAbsentRoundPoints);
             changed = true;
         }
 
@@ -232,7 +232,7 @@ public class LobbyService {
         lobby.setTurnSeconds(lobbySettings.getTurnDefaultSeconds());
         lobby.setAbilityRevealSeconds(lobbySettings.getAbilityRevealDefaultSeconds());
         lobby.setAbilitySwapSeconds(lobbySettings.getAbilitySwapDefaultSeconds());
-        lobby.setRematchDecisionSeconds(lobbySettings.getRematchDecisionDefaultSeconds());
+        lobby.setAbsentRoundPoints(lobbySettings.getAbsentRoundPointsDefault());
         lobby.setWebsocketGraceSeconds(lobbySettings.getWebsocketGraceDefaultSeconds());
     }
 
@@ -499,7 +499,10 @@ public class LobbyService {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Not part of this lobby");
         }
         if (normalizeLobbySettingsInPlace(lobby)) {
-            lobby = lobbyRepository.save(lobby);
+            Lobby persistedLobby = lobbyRepository.save(lobby);
+            if (persistedLobby != null) {
+                lobby = persistedLobby;
+            }
         }
     
         Long hostId = lobby.getSessionHostUserId();
@@ -534,7 +537,7 @@ public class LobbyService {
         dto.setTurnSeconds(lobby.getTurnSeconds());
         dto.setAbilityRevealSeconds(lobby.getAbilityRevealSeconds());
         dto.setAbilitySwapSeconds(lobby.getAbilitySwapSeconds());
-        dto.setRematchDecisionSeconds(lobby.getRematchDecisionSeconds());
+        dto.setAbsentRoundPoints(lobby.getAbsentRoundPoints());
         dto.setWebsocketGraceSeconds(lobby.getWebsocketGraceSeconds());
         dto.setViewerIsHost(user.getId().equals(hostId));
     
@@ -591,12 +594,10 @@ public class LobbyService {
                 || body.getTurnSeconds() != null
                 || body.getAbilityRevealSeconds() != null
                 || body.getAbilitySwapSeconds() != null
+                || body.getAbsentRoundPoints() != null
                 || body.getWebsocketGraceSeconds() != null;
         if (!hasAnySetting) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "No settings to update");
-        }
-        if (body.getRematchDecisionSeconds() != null) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Rematch decision timer is fixed");
         }
         User user = getUserByToken(token);
         Lobby lobby = lobbyRepository.findBySessionId(sessionId);
@@ -646,6 +647,13 @@ public class LobbyService {
                     lobbySettings.getAbilitySwapMinSeconds(),
                     lobbySettings.getAbilitySwapMaxSeconds());
             lobby.setAbilitySwapSeconds(value);
+        }
+        if (body.getAbsentRoundPoints() != null) {
+            long value = clamp(
+                    body.getAbsentRoundPoints(),
+                    lobbySettings.getAbsentRoundPointsMin(),
+                    lobbySettings.getAbsentRoundPointsMax());
+            lobby.setAbsentRoundPoints(value);
         }
         if (body.getWebsocketGraceSeconds() != null) {
             long value = clamp(
@@ -863,7 +871,7 @@ public class LobbyService {
             freshLobby.setTurnSeconds(currentLobby.getTurnSeconds());
             freshLobby.setAbilityRevealSeconds(currentLobby.getAbilityRevealSeconds());
             freshLobby.setAbilitySwapSeconds(currentLobby.getAbilitySwapSeconds());
-            freshLobby.setRematchDecisionSeconds(currentLobby.getRematchDecisionSeconds());
+            freshLobby.setAbsentRoundPoints(currentLobby.getAbsentRoundPoints());
             freshLobby.setWebsocketGraceSeconds(currentLobby.getWebsocketGraceSeconds());
             freshLobby = lobbyRepository.save(freshLobby);
             setUsersStatus(normalizedFreshPlayers, UserStatus.LOBBY);

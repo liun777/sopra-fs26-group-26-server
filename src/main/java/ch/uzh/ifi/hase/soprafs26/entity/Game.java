@@ -53,9 +53,9 @@ public class Game {
     @Column(nullable = true, unique = false)
     private Card drawnCard;
 
-    // game always starts with peeking
+    // game starts with a short intro before entering initial peek
     @Column(nullable = false)
-    private GameStatus status = GameStatus.INITIAL_PEEK;
+    private GameStatus status = GameStatus.INTRO;
 
     // Per user: true after successful initial peek (no second initial peek)
     @JdbcTypeCode(SqlTypes.JSON)

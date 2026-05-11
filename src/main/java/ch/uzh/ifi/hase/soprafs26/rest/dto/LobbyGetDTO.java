@@ -17,7 +17,6 @@ public class LobbyGetDTO {
     private Long turnSeconds;
     private Long abilityRevealSeconds;
     private Long abilitySwapSeconds;
-    private Long rematchDecisionSeconds;
     private Long websocketGraceSeconds;
 
     public void setId(Long id) {
@@ -114,14 +113,6 @@ public class LobbyGetDTO {
 
     public void setAbilitySwapSeconds(Long abilitySwapSeconds) {
         this.abilitySwapSeconds = abilitySwapSeconds;
-    }
-
-    public Long getRematchDecisionSeconds() {
-        return rematchDecisionSeconds;
-    }
-
-    public void setRematchDecisionSeconds(Long rematchDecisionSeconds) {
-        this.rematchDecisionSeconds = rematchDecisionSeconds;
     }
 
     public Long getWebsocketGraceSeconds() {
