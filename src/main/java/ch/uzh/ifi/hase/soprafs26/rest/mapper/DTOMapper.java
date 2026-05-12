@@ -93,6 +93,7 @@ public interface DTOMapper {
     // Updated List mapping method name
     List<SessionHistoryDTO> convertEntityListToSessionHistoryDTOList(List<Session> sessionHistory);
 
+    @BeanMapping(ignoreByDefault = true)
     @Mapping(source = "resumedFromSessionId", target = "resumedFromSessionId")
     GameStateBroadcastDTO convertEntityToGameStateBroadcastDTO(Game game);
 }

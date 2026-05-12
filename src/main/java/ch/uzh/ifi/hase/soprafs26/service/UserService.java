@@ -217,10 +217,15 @@ public class UserService {
 
         // order users
         // first by games won, descending
+        // then by number of played sessions, descending
         // then by average score over sessions, ascending
         // then by ids, ascending
         ordered.sort(Comparator
                 .comparing(User::getGamesWon, Comparator.nullsFirst(Comparator.reverseOrder()))
+                .thenComparing(
+                        (User user) -> playedSessionsByUserId.getOrDefault(user.getId(), 0),
+                        Comparator.reverseOrder()
+                )
                 .thenComparing(User::getAverageScorePerSession, Comparator.nullsFirst(Integer::compareTo))
                 .thenComparing(User::getId, Comparator.nullsFirst(Long::compareTo)));
 
