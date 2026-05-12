@@ -26,6 +26,7 @@ import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -46,6 +47,31 @@ public class LobbyService {
     // Players that timed out while being in a PLAYING lobby.
     // They stay part of the active game and trigger an automatic Cabo when their turn starts.
     private final Set<Long> timedOutInPlayingPlayerIds = ConcurrentHashMap.newKeySet();
+    private static final List<String> CHARACTER_COLOR_ORDER = List.of(
+            "navy_blue",
+            "light_blue",
+            "dark_green",
+            "light_green",
+            "yellow",
+            "orange",
+            "red",
+            "pink",
+            "purple");
+    private static final String PREFERRED_COLOR_UNASSIGNED = "__unassigned__";
+    private static final Map<String, String> LEGACY_COLOR_ALIAS_MAP = Map.ofEntries(
+            Map.entry("black", "navy_blue"),
+            Map.entry("blue", "navy_blue"),
+            Map.entry("green", "light_green"),
+            Map.entry("default", "orange"),
+            Map.entry("slate", "navy_blue"),
+            Map.entry("graphite", "dark_green"),
+            Map.entry("forest", "dark_green"),
+            Map.entry("ocean", "light_blue"),
+            Map.entry("teal", "light_blue"),
+            Map.entry("coral", "red"),
+            Map.entry("indigo", "navy_blue"),
+            Map.entry("plum", "purple"),
+            Map.entry("amber", "yellow"));
 
     public LobbyService(LobbyRepository lobbyRepository,
                         GameRepository gameRepository,
@@ -112,6 +138,169 @@ public class LobbyService {
         if (hasChanges) {
             userRepository.saveAll(users);
         }
+    }
+
+    private String normalizeCharacterColorId(String rawColorId) {
+        String normalized = rawColorId == null ? "" : rawColorId.trim().toLowerCase();
+        if (normalized.isEmpty()) {
+            return "";
+        }
+        if (LEGACY_COLOR_ALIAS_MAP.containsKey(normalized)) {
+            normalized = LEGACY_COLOR_ALIAS_MAP.get(normalized);
+        }
+        return CHARACTER_COLOR_ORDER.contains(normalized) ? normalized : "";
+    }
+
+    private List<String> sanitizePreferredCharacterColors(List<String> preferredColors) {
+        if (preferredColors == null || preferredColors.isEmpty()) {
+            return List.of();
+        }
+        List<String> sanitized = new ArrayList<>();
+        Set<String> seen = new LinkedHashSet<>();
+        for (String preferredColor : preferredColors) {
+            String normalized = preferredColor == null ? "" : preferredColor.trim().toLowerCase();
+            if (normalized.isEmpty() || PREFERRED_COLOR_UNASSIGNED.equals(normalized)) {
+                continue;
+            }
+            normalized = normalizeCharacterColorId(normalized);
+            if (normalized.isEmpty() || seen.contains(normalized)) {
+                continue;
+            }
+            seen.add(normalized);
+            sanitized.add(normalized);
+        }
+        return sanitized;
+    }
+
+    private List<String> getPlayerColorPreferences(User user) {
+        if (user == null) {
+            return List.of(CHARACTER_COLOR_ORDER.get(0));
+        }
+        List<String> sanitizedPreferred = sanitizePreferredCharacterColors(user.getPreferredColorPriority());
+        if (!sanitizedPreferred.isEmpty()) {
+            return sanitizedPreferred;
+        }
+        String normalizedPrimary = normalizeCharacterColorId(user.getPrimaryColorId());
+        if (!normalizedPrimary.isEmpty()) {
+            return List.of(normalizedPrimary);
+        }
+        return List.of(CHARACTER_COLOR_ORDER.get(0));
+    }
+
+    private List<Long> getOrderedLobbyPlayerIdsHostFirst(Lobby lobby) {
+        if (lobby == null || lobby.getPlayerIds() == null || lobby.getPlayerIds().isEmpty()) {
+            return List.of();
+        }
+        Long hostId = lobby.getSessionHostUserId();
+        List<Long> orderedIds = new ArrayList<>();
+        if (hostId != null && lobby.getPlayerIds().contains(hostId)) {
+            orderedIds.add(hostId);
+        }
+        lobby.getPlayerIds().stream()
+                .filter(Objects::nonNull)
+                .filter(playerId -> !Objects.equals(playerId, hostId))
+                .sorted()
+                .forEach(orderedIds::add);
+        return orderedIds;
+    }
+
+    private boolean normalizeLobbyReadyStateInPlace(Lobby lobby) {
+        if (lobby == null) {
+            return false;
+        }
+        List<Long> playerIds = lobby.getPlayerIds();
+        if (playerIds == null || playerIds.isEmpty()) {
+            if (lobby.getPlayerReadyByUserId() == null || lobby.getPlayerReadyByUserId().isEmpty()) {
+                return false;
+            }
+            lobby.setPlayerReadyByUserId(new HashMap<>());
+            return true;
+        }
+        Map<Long, Boolean> existingReadyState = lobby.getPlayerReadyByUserId() == null
+                ? new HashMap<>()
+                : lobby.getPlayerReadyByUserId();
+        Map<Long, Boolean> nextReadyState = new HashMap<>();
+        Long hostId = lobby.getSessionHostUserId();
+        for (Long playerId : playerIds) {
+            if (playerId == null) {
+                continue;
+            }
+            if (Objects.equals(playerId, hostId)) {
+                nextReadyState.put(playerId, true);
+                continue;
+            }
+            nextReadyState.put(playerId, Boolean.TRUE.equals(existingReadyState.get(playerId)));
+        }
+        if (nextReadyState.equals(existingReadyState)) {
+            return false;
+        }
+        lobby.setPlayerReadyByUserId(nextReadyState);
+        return true;
+    }
+
+    private boolean recomputeLobbyAssignedCharacterColorsInPlace(Lobby lobby) {
+        if (lobby == null) {
+            return false;
+        }
+        List<Long> orderedPlayerIds = getOrderedLobbyPlayerIdsHostFirst(lobby);
+        if (orderedPlayerIds.isEmpty()) {
+            if (lobby.getAssignedCharacterColorByUserId() == null || lobby.getAssignedCharacterColorByUserId().isEmpty()) {
+                return false;
+            }
+            lobby.setAssignedCharacterColorByUserId(new HashMap<>());
+            return true;
+        }
+
+        Map<Long, User> usersById = new HashMap<>();
+        for (User user : userRepository.findAllById(orderedPlayerIds)) {
+            if (user != null && user.getId() != null) {
+                usersById.put(user.getId(), user);
+            }
+        }
+
+        Map<Long, String> nextAssignedColors = new HashMap<>();
+        Set<String> alreadyUsedColors = new LinkedHashSet<>();
+        for (Long playerId : orderedPlayerIds) {
+            User user = usersById.get(playerId);
+            List<String> preferredColors = getPlayerColorPreferences(user);
+
+            String selectedColor = "";
+            for (String preferred : preferredColors) {
+                if (!alreadyUsedColors.contains(preferred)) {
+                    selectedColor = preferred;
+                    break;
+                }
+            }
+            if (selectedColor.isEmpty()) {
+                for (String fallbackColor : CHARACTER_COLOR_ORDER) {
+                    if (!alreadyUsedColors.contains(fallbackColor)) {
+                        selectedColor = fallbackColor;
+                        break;
+                    }
+                }
+            }
+            if (selectedColor.isEmpty()) {
+                selectedColor = CHARACTER_COLOR_ORDER.get(0);
+            }
+            nextAssignedColors.put(playerId, selectedColor);
+            alreadyUsedColors.add(selectedColor);
+        }
+
+        Map<Long, String> existingAssignedColors = lobby.getAssignedCharacterColorByUserId() == null
+                ? new HashMap<>()
+                : lobby.getAssignedCharacterColorByUserId();
+        if (nextAssignedColors.equals(existingAssignedColors)) {
+            return false;
+        }
+        lobby.setAssignedCharacterColorByUserId(nextAssignedColors);
+        return true;
+    }
+
+    private boolean normalizeLobbyPlayerStateInPlace(Lobby lobby) {
+        boolean changed = false;
+        changed |= normalizeLobbyReadyStateInPlace(lobby);
+        changed |= recomputeLobbyAssignedCharacterColorsInPlace(lobby);
+        return changed;
     }
 
     public boolean isPlayerTimedOutInPlaying(Long userId) {
@@ -410,6 +599,7 @@ public class LobbyService {
         lobby.setIsPublic(isPublic != null ? isPublic : true);
         lobby.getPlayerIds().add(host.getId());
         applyDefaultTimerSettings(lobby);
+        normalizeLobbyPlayerStateInPlace(lobby);
 
         lobby = lobbyRepository.save(lobby);
         clearTimedOutPlayingFlag(host.getId());
@@ -464,7 +654,8 @@ public class LobbyService {
             leaveOtherWaitingLobbies(guestUserId, lobby.getSessionId());
             leaveOtherPlayingSpectatorMemberships(guestUserId, lobby.getSessionId());
             lobby.getPlayerIds().add(guestUserId);
-            lobbyRepository.save(lobby);
+            normalizeLobbyPlayerStateInPlace(lobby);
+            lobby = lobbyRepository.save(lobby);
             clearTimedOutPlayingFlag(guestUserId);
             setUserStatus(guestUserId, UserStatus.LOBBY);  // set user status to LOBBY after joining lobby
             lobbyEventPublisher.broadcastLobbyUpdate(lobby.getId(), lobby);
@@ -498,7 +689,9 @@ public class LobbyService {
         if (!isPlayer && !isSpectator) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Not part of this lobby");
         }
-        if (normalizeLobbySettingsInPlace(lobby)) {
+        boolean lobbyChanged = normalizeLobbySettingsInPlace(lobby);
+        lobbyChanged |= normalizeLobbyPlayerStateInPlace(lobby);
+        if (lobbyChanged) {
             Lobby persistedLobby = lobbyRepository.save(lobby);
             if (persistedLobby != null) {
                 lobby = persistedLobby;
@@ -508,12 +701,7 @@ public class LobbyService {
         Long hostId = lobby.getSessionHostUserId();
     
         // Sort players so Host is always at the top
-        List<Long> orderedIds = new ArrayList<>();
-        orderedIds.add(hostId);
-        lobby.getPlayerIds().stream()
-            .filter(id -> !id.equals(hostId))
-            .sorted()
-            .forEach(orderedIds::add);
+        List<Long> orderedIds = getOrderedLobbyPlayerIdsHostFirst(lobby);
 
         // players and spectators
         List<Long> allMemberIds = new ArrayList<>(orderedIds);
@@ -540,6 +728,13 @@ public class LobbyService {
         dto.setAbsentRoundPoints(lobby.getAbsentRoundPoints());
         dto.setWebsocketGraceSeconds(lobby.getWebsocketGraceSeconds());
         dto.setViewerIsHost(user.getId().equals(hostId));
+
+        Map<Long, String> assignedCharacterColorByUserId = lobby.getAssignedCharacterColorByUserId() == null
+                ? new HashMap<>()
+                : lobby.getAssignedCharacterColorByUserId();
+        Map<Long, Boolean> readyStateByUserId = lobby.getPlayerReadyByUserId() == null
+                ? new HashMap<>()
+                : lobby.getPlayerReadyByUserId();
     
         List<WaitingLobbyPlayerRowDTO> rows = new ArrayList<>();
         for (Long pid : orderedIds) {
@@ -547,7 +742,16 @@ public class LobbyService {
             if (u == null) continue;
 
             WaitingLobbyPlayerRowDTO row = new WaitingLobbyPlayerRowDTO();
+            row.setUserId(pid);
             row.setUsername(u.getUsername());
+            row.setProfileCharacterId(u.getProfileCharacterId());
+            List<String> playerColorPreferences = getPlayerColorPreferences(u);
+            String fallbackColor = playerColorPreferences.isEmpty()
+                    ? CHARACTER_COLOR_ORDER.get(0)
+                    : playerColorPreferences.get(0);
+            row.setCharacterColorId(assignedCharacterColorByUserId.getOrDefault(
+                    pid, fallbackColor));
+            row.setReady(Objects.equals(pid, hostId) || Boolean.TRUE.equals(readyStateByUserId.get(pid)));
 
             // --- THIS IS THE CRITICAL LOGIC FOR THE START BUTTON ---
             // 1. If this row belongs to the Host, status MUST be "host"
@@ -573,7 +777,15 @@ public class LobbyService {
                 User u = usersById.get(sid);
                 if (u == null) continue;
                 WaitingLobbyPlayerRowDTO row = new WaitingLobbyPlayerRowDTO();
+                row.setUserId(sid);
                 row.setUsername(u.getUsername());
+                row.setProfileCharacterId(u.getProfileCharacterId());
+                List<String> spectatorColorPreferences = getPlayerColorPreferences(u);
+                String spectatorColor = spectatorColorPreferences.isEmpty()
+                        ? CHARACTER_COLOR_ORDER.get(0)
+                        : spectatorColorPreferences.get(0);
+                row.setCharacterColorId(spectatorColor);
+                row.setReady(false);
                 // "you" status for spectator
                 row.setJoinStatus(sid.equals(user.getId()) ? "you" : "spectator"); 
                 spectatorRows.add(row);
@@ -582,6 +794,38 @@ public class LobbyService {
         dto.setSpectators(spectatorRows);
 
         return dto;
+    }
+
+    public WaitingLobbyViewDTO setPlayerReady(String sessionId, String token, Boolean ready) {
+        if (ready == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Missing ready state");
+        }
+        User user = getUserByToken(token);
+        Lobby lobby = lobbyRepository.findBySessionId(sessionId);
+        if (lobby == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Session could not be found");
+        }
+        if (!"WAITING".equals(lobby.getStatus())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Lobby is not in waiting state");
+        }
+        if (!lobby.getPlayerIds().contains(user.getId())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only lobby players can set ready state");
+        }
+
+        normalizeLobbyPlayerStateInPlace(lobby);
+        if (Objects.equals(user.getId(), lobby.getSessionHostUserId())) {
+            // Host is always considered ready.
+            return getWaitingLobbyView(token, sessionId);
+        }
+
+        Map<Long, Boolean> readyStateByUserId = lobby.getPlayerReadyByUserId() == null
+                ? new HashMap<>()
+                : new HashMap<>(lobby.getPlayerReadyByUserId());
+        readyStateByUserId.put(user.getId(), ready);
+        lobby.setPlayerReadyByUserId(readyStateByUserId);
+        lobby = lobbyRepository.save(lobby);
+        lobbyEventPublisher.broadcastLobbyUpdate(lobby.getId(), lobby);
+        return getWaitingLobbyView(token, sessionId);
     }
 
     public Lobby updateLobbySettings(String token, String sessionId, LobbySettingsPatchDTO body) {
@@ -698,6 +942,7 @@ public class LobbyService {
             lobby.getSpectatorIds().remove(user.getId());
         }
         lobby.getPlayerIds().add(user.getId());
+        normalizeLobbyPlayerStateInPlace(lobby);
         lobby = lobbyRepository.save(lobby);
         clearTimedOutPlayingFlag(user.getId());
         setUserStatus(user.getId(), UserStatus.LOBBY); // set user status to LOBBY after joining lobby
@@ -753,6 +998,24 @@ public class LobbyService {
         }
         if (!"WAITING".equals(lobby.getStatus())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Lobby is not in waiting state");
+        }
+        if (lobby.getPlayerIds() == null || lobby.getPlayerIds().size() < 2) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "At least 2 players are required");
+        }
+        if (normalizeLobbyPlayerStateInPlace(lobby)) {
+            lobby = lobbyRepository.save(lobby);
+        }
+        Map<Long, Boolean> readyStateByUserId = lobby.getPlayerReadyByUserId() == null
+                ? new HashMap<>()
+                : lobby.getPlayerReadyByUserId();
+        Long hostId = lobby.getSessionHostUserId();
+        for (Long playerId : lobby.getPlayerIds()) {
+            if (Objects.equals(playerId, hostId)) {
+                continue;
+            }
+            if (!Boolean.TRUE.equals(readyStateByUserId.get(playerId))) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "All non-host players must be ready");
+            }
         }
 
         // Ensure no player is currently in the "60s grace period"
@@ -846,6 +1109,7 @@ public class LobbyService {
             currentLobby.setSessionHostUserId(normalizedContinuePlayers.get(0));
             currentLobby.setPlayerIds(new ArrayList<>(normalizedContinuePlayers));
             currentLobby.setKickedUserIds(new ArrayList<>());
+            normalizeLobbyPlayerStateInPlace(currentLobby);
             currentLobby = lobbyRepository.save(currentLobby);
             setUsersStatus(normalizedContinuePlayers, UserStatus.LOBBY);
             lobbyEventPublisher.broadcastLobbyUpdate(currentLobby.getId(), currentLobby);
@@ -873,6 +1137,7 @@ public class LobbyService {
             freshLobby.setAbilitySwapSeconds(currentLobby.getAbilitySwapSeconds());
             freshLobby.setAbsentRoundPoints(currentLobby.getAbsentRoundPoints());
             freshLobby.setWebsocketGraceSeconds(currentLobby.getWebsocketGraceSeconds());
+            normalizeLobbyPlayerStateInPlace(freshLobby);
             freshLobby = lobbyRepository.save(freshLobby);
             setUsersStatus(normalizedFreshPlayers, UserStatus.LOBBY);
             lobbyEventPublisher.broadcastLobbyUpdate(freshLobby.getId(), freshLobby);
@@ -902,6 +1167,23 @@ public class LobbyService {
     }
 
     // GET /lobbies — get all public lobbies
+    public void refreshWaitingLobbyPresentationForUser(Long userId) {
+        if (userId == null) {
+            return;
+        }
+        List<Lobby> affectedLobbies = lobbyRepository.findByStatusAndParticipantId("WAITING", userId);
+        if (affectedLobbies.isEmpty()) {
+            return;
+        }
+        for (Lobby lobby : affectedLobbies) {
+            if (!normalizeLobbyPlayerStateInPlace(lobby)) {
+                continue;
+            }
+            lobby = lobbyRepository.save(lobby);
+            lobbyEventPublisher.broadcastLobbyUpdate(lobby.getId(), lobby);
+        }
+    }
+
     public List<Lobby> getPublicLobbies(String token) {
         User requester = getUserByToken(token);
         return lobbyRepository.findByIsPublicTrueAndStatus("WAITING").stream()
@@ -988,6 +1270,7 @@ public class LobbyService {
             lobby.setSessionHostUserId(lobby.getPlayerIds().get(0));
         }
 
+        normalizeLobbyPlayerStateInPlace(lobby);
         lobby = lobbyRepository.save(lobby);
         lobbyEventPublisher.broadcastLobbyUpdate(lobby.getId(), lobby);
         onlineUsersEventPublisher.broadcastOnlineUsers();
@@ -1055,6 +1338,7 @@ public class LobbyService {
             if (lobby.getSessionHostUserId().equals(userId) && !lobby.getPlayerIds().isEmpty()) {
                 lobby.setSessionHostUserId(lobby.getPlayerIds().get(0));
             }
+            normalizeLobbyPlayerStateInPlace(lobby);
             lobbyRepository.save(lobby);
             lobbyEventPublisher.broadcastLobbyUpdate(lobby.getId(), lobby);
         }

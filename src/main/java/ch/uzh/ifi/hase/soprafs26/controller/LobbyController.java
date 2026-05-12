@@ -1,6 +1,7 @@
 package ch.uzh.ifi.hase.soprafs26.controller;
 
 import ch.uzh.ifi.hase.soprafs26.entity.Lobby;
+import ch.uzh.ifi.hase.soprafs26.rest.dto.LobbyReadyPatchDTO;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.LobbySettingsPatchDTO;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.WaitingLobbyViewDTO;
 import ch.uzh.ifi.hase.soprafs26.service.LobbyService;
@@ -54,6 +55,15 @@ public class LobbyController {
                                             @RequestHeader("Authorization") String token) {
         Lobby lobby = lobbyService.joinLobbyAsSpectator(sessionId, token);
         return DTOMapper.INSTANCE.convertEntityToLobbyGetDTO(lobby);
+    }
+
+    @PatchMapping("/lobbies/{sessionId}/ready")
+    @ResponseStatus(HttpStatus.OK)
+    public WaitingLobbyViewDTO updateReadyState(@PathVariable String sessionId,
+                                                @RequestHeader("Authorization") String token,
+                                                @RequestBody LobbyReadyPatchDTO body) {
+        Boolean nextReady = body == null ? null : body.getReady();
+        return lobbyService.setPlayerReady(sessionId, token, nextReady);
     }
 
     @PatchMapping("/lobbies/{sessionId}/settings")

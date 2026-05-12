@@ -20,9 +20,11 @@ import ch.uzh.ifi.hase.soprafs26.repository.UserRepository;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.time.LocalDate;
 
@@ -41,6 +43,32 @@ import java.time.LocalDate;
 @Transactional
 public class UserService {
     private static final long HEARTBEAT_WRITE_THROTTLE_SECONDS = 10;
+    private static final int MAX_BIO_LENGTH = 180;
+    private static final List<String> CHARACTER_COLOR_ORDER = List.of(
+            "navy_blue",
+            "light_blue",
+            "dark_green",
+            "light_green",
+            "yellow",
+            "orange",
+            "red",
+            "pink",
+            "purple");
+    private static final String PREFERRED_COLOR_UNASSIGNED = "__unassigned__";
+    private static final Map<String, String> LEGACY_COLOR_ALIAS_MAP = Map.ofEntries(
+            Map.entry("black", "navy_blue"),
+            Map.entry("blue", "navy_blue"),
+            Map.entry("green", "light_green"),
+            Map.entry("default", "orange"),
+            Map.entry("slate", "navy_blue"),
+            Map.entry("graphite", "dark_green"),
+            Map.entry("forest", "dark_green"),
+            Map.entry("ocean", "light_blue"),
+            Map.entry("teal", "light_blue"),
+            Map.entry("coral", "red"),
+            Map.entry("indigo", "navy_blue"),
+            Map.entry("plum", "purple"),
+            Map.entry("amber", "yellow"));
 
 	private final Logger log = LoggerFactory.getLogger(UserService.class);
 
@@ -49,18 +77,53 @@ public class UserService {
     private final SessionRepository sessionRepository;
 	private final OnlineUsersEventPublisher onlineUsersEventPublisher;
     private final DisconnectService disconnectService;
+    private final LobbyService lobbyService;
 
 	public UserService(@Qualifier("userRepository") UserRepository userRepository,
                        @Qualifier("lobbyRepository") LobbyRepository lobbyRepository,
                        @Lazy SessionRepository sessionRepository,
 	                   OnlineUsersEventPublisher onlineUsersEventPublisher,
-                       @Lazy DisconnectService disconnectService) {
+                       @Lazy DisconnectService disconnectService,
+                       @Lazy LobbyService lobbyService) {
 		this.userRepository = userRepository;
         this.lobbyRepository = lobbyRepository;
         this.sessionRepository = sessionRepository;
 		this.onlineUsersEventPublisher = onlineUsersEventPublisher;
 		this.disconnectService = disconnectService;
+        this.lobbyService = lobbyService;
 	}
+
+    private String normalizeCharacterColorId(String rawColorId) {
+        String normalized = rawColorId == null ? "" : rawColorId.trim().toLowerCase();
+        if (normalized.isEmpty()) {
+            return "";
+        }
+        if (LEGACY_COLOR_ALIAS_MAP.containsKey(normalized)) {
+            normalized = LEGACY_COLOR_ALIAS_MAP.get(normalized);
+        }
+        return CHARACTER_COLOR_ORDER.contains(normalized) ? normalized : "";
+    }
+
+    private List<String> sanitizePreferredColorPriority(List<String> priorityList) {
+        if (priorityList == null || priorityList.isEmpty()) {
+            return List.of();
+        }
+        List<String> sanitized = new ArrayList<>();
+        Set<String> seen = new LinkedHashSet<>();
+        for (String entry : priorityList) {
+            String normalized = entry == null ? "" : entry.trim().toLowerCase();
+            if (normalized.isEmpty() || PREFERRED_COLOR_UNASSIGNED.equals(normalized)) {
+                continue;
+            }
+            normalized = normalizeCharacterColorId(normalized);
+            if (normalized.isEmpty() || seen.contains(normalized)) {
+                continue;
+            }
+            seen.add(normalized);
+            sanitized.add(normalized);
+        }
+        return sanitized;
+    }
 
     private boolean isUserInPlayingLobby(Long userId) {
         if (userId == null || lobbyRepository == null) {
@@ -242,6 +305,15 @@ public class UserService {
         if (newUser.getUsername() != null && newUser.getUsername().length() > 16) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Username must be 16 characters or fewer.");
         }
+        if (newUser.getBio() != null) {
+            String normalizedBio = newUser.getBio().trim();
+            if (normalizedBio.length() > MAX_BIO_LENGTH) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Bio must be 180 characters or fewer.");
+            }
+            newUser.setBio(normalizedBio);
+        } else {
+            newUser.setBio("");
+        }
 		newUser.setToken(UUID.randomUUID().toString()); // generiert einen zufälligen eindeutigen Token
 		newUser.setStatus(UserStatus.ONLINE); // neuer User ist sofort ONLINE
         newUser.setCreationDate(LocalDate.now()); // setzt heutiges datum
@@ -298,19 +370,87 @@ public class UserService {
     public User getUserById(Long userId) { return userRepository.findById(userId).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
     }
 // änderung des PW in datenbank
-    public void updateUser(Long userId, User userInput) { User user = getUserById(userId);
+    public void updateUser(Long userId, User userInput) {
+        User user = getUserById(userId);
+        boolean shouldRefreshLobbyPresentation = false;
         if (userInput.getPassword() != null) {
-            user.setPassword(userInput.getPassword()); // nur updaten wenn neues passwort vorhanden
+            user.setPassword(userInput.getPassword());
+        }
+        if (userInput.getBio() != null) {
+            String normalizedBio = userInput.getBio().trim();
+            if (normalizedBio.length() > MAX_BIO_LENGTH) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Bio must be 180 characters or fewer.");
+            }
+            user.setBio(normalizedBio);
         }
         if (userInput.getStatus() != null) {
             user.setStatus(userInput.getStatus());
         }
-        // #109: set isPublicLog if present
         if (userInput.getIsPublicLog() != null) {
             user.setIsPublicLog(userInput.getIsPublicLog());
         }
+        if (userInput.getProfileCharacterId() != null) {
+            String nextCharacterId = userInput.getProfileCharacterId().trim();
+            if (!nextCharacterId.isEmpty()) {
+                user.setProfileCharacterId(nextCharacterId);
+            }
+        }
+        if (userInput.getPreferredColorPriority() != null) {
+            List<String> sanitizedPriority = sanitizePreferredColorPriority(userInput.getPreferredColorPriority());
+            user.setPreferredColorPriority(sanitizedPriority);
+            shouldRefreshLobbyPresentation = true;
+        }
+        if (userInput.getMenuBackgroundId() != null) {
+            String nextMenuBackgroundId = userInput.getMenuBackgroundId().trim();
+            if (!nextMenuBackgroundId.isEmpty()) {
+                user.setMenuBackgroundId(nextMenuBackgroundId);
+            }
+        }
+        if (userInput.getGameBackgroundId() != null) {
+            String nextGameBackgroundId = userInput.getGameBackgroundId().trim();
+            if (!nextGameBackgroundId.isEmpty()) {
+                user.setGameBackgroundId(nextGameBackgroundId);
+            }
+        }
+        if (userInput.getPrimaryColorId() != null) {
+            String nextPrimaryColorId = normalizeCharacterColorId(userInput.getPrimaryColorId());
+            if (!nextPrimaryColorId.isEmpty()) {
+                user.setPrimaryColorId(nextPrimaryColorId);
+                shouldRefreshLobbyPresentation = true;
+            }
+        }
+        if (userInput.getTextColorId() != null) {
+            String nextTextColorId = userInput.getTextColorId().trim();
+            if (!nextTextColorId.isEmpty()) {
+                user.setTextColorId(nextTextColorId);
+            }
+        }
+        if (userInput.getTutorialsEnabled() != null) {
+            user.setTutorialsEnabled(userInput.getTutorialsEnabled());
+        }
+        if (userInput.getMusicVolume() != null) {
+            int clampedMusicVolume = Math.max(0, Math.min(100, userInput.getMusicVolume()));
+            user.setMusicVolume(clampedMusicVolume);
+        }
+        if (userInput.getSoundEffectsVolume() != null) {
+            int clampedEffectsVolume = Math.max(0, Math.min(100, userInput.getSoundEffectsVolume()));
+            user.setSoundEffectsVolume(clampedEffectsVolume);
+        }
+        if (userInput.getMusicBlacklist() != null) {
+            List<String> sanitizedBlacklist = new ArrayList<>();
+            for (String tag : userInput.getMusicBlacklist()) {
+                String normalized = tag == null ? "" : tag.trim();
+                if (!normalized.isEmpty()) {
+                    sanitizedBlacklist.add(normalized);
+                }
+            }
+            user.setMusicBlacklist(sanitizedBlacklist);
+        }
         userRepository.save(user);
         userRepository.flush();
+        if (shouldRefreshLobbyPresentation && lobbyService != null) {
+            lobbyService.refreshWaitingLobbyPresentationForUser(user.getId());
+        }
         onlineUsersEventPublisher.broadcastOnlineUsers();
     }
 // schauen ob username bereits existier und ob PW korrekt ist, wenn nicht unauthorized fehler, falls

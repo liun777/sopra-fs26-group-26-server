@@ -6,6 +6,8 @@ import ch.uzh.ifi.hase.soprafs26.constant.UserStatus;
 
 import java.io.Serializable;
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Internal User Representation
@@ -47,11 +49,47 @@ public class User implements Serializable { // public: Klasse kann von überall 
     @Column(nullable = false) // added by me for password S1
     private String password;
 
-    @Column(nullable = false) // added by me for bio S1
+    @Column(nullable = false, length = 180) // added by me for bio S1
     private String bio = "";
 
     @Column(nullable = false) // added by me for creation date S1
     private LocalDate creationDate;
+
+    @Column(nullable = false)
+    private String profileCharacterId = "char01";
+
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "user_preferred_color_priority", joinColumns = @JoinColumn(name = "user_id"))
+    @Column(name = "color", nullable = false)
+    @OrderColumn(name = "priority_index")
+    private List<String> preferredColorPriority = new ArrayList<>(List.of("navy_blue", "light_blue", "dark_green", "light_green"));
+
+    @Column(nullable = false)
+    private String menuBackgroundId = "menu-bg-1";
+
+    @Column(nullable = false)
+    private String gameBackgroundId = "game-bg-1";
+
+    @Column(nullable = false)
+    private String primaryColorId = "orange";
+
+    @Column(nullable = false)
+    private String textColorId = "white";
+
+    @Column(nullable = true)
+    private Boolean tutorialsEnabled = true;
+
+    @Column(nullable = false)
+    private Integer musicVolume = 60;
+
+    @Column(nullable = false)
+    private Integer soundEffectsVolume = 70;
+
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "user_music_blacklist", joinColumns = @JoinColumn(name = "user_id"))
+    @Column(name = "track_tag", nullable = false)
+    @OrderColumn(name = "tag_index")
+    private List<String> musicBlacklist = new ArrayList<>();
 
     @Column(nullable = false) // session wins (tied to best totalScore in ended sessions)
     private Integer gamesWon = 0;
@@ -151,6 +189,86 @@ public class User implements Serializable { // public: Klasse kann von überall 
         this.creationDate = creationDate;
     }
 
+    public String getProfileCharacterId() {
+        return profileCharacterId;
+    }
+
+    public void setProfileCharacterId(String profileCharacterId) {
+        this.profileCharacterId = profileCharacterId;
+    }
+
+    public List<String> getPreferredColorPriority() {
+        return preferredColorPriority;
+    }
+
+    public void setPreferredColorPriority(List<String> preferredColorPriority) {
+        this.preferredColorPriority = preferredColorPriority;
+    }
+
+    public String getMenuBackgroundId() {
+        return menuBackgroundId;
+    }
+
+    public void setMenuBackgroundId(String menuBackgroundId) {
+        this.menuBackgroundId = menuBackgroundId;
+    }
+
+    public String getGameBackgroundId() {
+        return gameBackgroundId;
+    }
+
+    public void setGameBackgroundId(String gameBackgroundId) {
+        this.gameBackgroundId = gameBackgroundId;
+    }
+
+    public String getPrimaryColorId() {
+        return primaryColorId;
+    }
+
+    public void setPrimaryColorId(String primaryColorId) {
+        this.primaryColorId = primaryColorId;
+    }
+
+    public String getTextColorId() {
+        return textColorId;
+    }
+
+    public void setTextColorId(String textColorId) {
+        this.textColorId = textColorId;
+    }
+
+    public Boolean getTutorialsEnabled() {
+        return tutorialsEnabled;
+    }
+
+    public void setTutorialsEnabled(Boolean tutorialsEnabled) {
+        this.tutorialsEnabled = tutorialsEnabled;
+    }
+
+    public Integer getMusicVolume() {
+        return musicVolume;
+    }
+
+    public void setMusicVolume(Integer musicVolume) {
+        this.musicVolume = musicVolume;
+    }
+
+    public Integer getSoundEffectsVolume() {
+        return soundEffectsVolume;
+    }
+
+    public void setSoundEffectsVolume(Integer soundEffectsVolume) {
+        this.soundEffectsVolume = soundEffectsVolume;
+    }
+
+    public List<String> getMusicBlacklist() {
+        return musicBlacklist;
+    }
+
+    public void setMusicBlacklist(List<String> musicBlacklist) {
+        this.musicBlacklist = musicBlacklist;
+    }
+
     public java.time.Instant getLastHeartbeat() {
     return lastHeartbeat;
 }
@@ -195,5 +313,3 @@ public class User implements Serializable { // public: Klasse kann von überall 
 
 
 }
-
-

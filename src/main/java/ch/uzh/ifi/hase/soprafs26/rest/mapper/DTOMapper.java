@@ -43,12 +43,33 @@ public interface DTOMapper {
     @Mapping(source = "averageScorePerRound", target = "averageScorePerRound")
     @Mapping(source = "overallRank", target = "overallRank")
     @Mapping(source = "isPublicLog", target = "isPublicLog")
+    @Mapping(source = "profileCharacterId", target = "profileCharacterId")
+    @Mapping(source = "preferredColorPriority", target = "preferredColorPriority")
+    @Mapping(source = "menuBackgroundId", target = "menuBackgroundId")
+    @Mapping(source = "gameBackgroundId", target = "gameBackgroundId")
+    @Mapping(source = "primaryColorId", target = "primaryColorId")
+    @Mapping(source = "textColorId", target = "textColorId")
+    @Mapping(source = "tutorialsEnabled", target = "tutorialsEnabled")
+    @Mapping(source = "musicVolume", target = "musicVolume")
+    @Mapping(source = "soundEffectsVolume", target = "soundEffectsVolume")
+    @Mapping(source = "musicBlacklist", target = "musicBlacklist")
 	UserGetDTO convertEntityToUserGetDTO(User user);
 
     @BeanMapping(ignoreByDefault = true)
     @Mapping(source = "password", target = "password")
     @Mapping(source = "status", target = "status")
     @Mapping(source = "isPublicLog", target = "isPublicLog")
+    @Mapping(source = "bio", target = "bio")
+    @Mapping(source = "profileCharacterId", target = "profileCharacterId")
+    @Mapping(source = "preferredColorPriority", target = "preferredColorPriority")
+    @Mapping(source = "menuBackgroundId", target = "menuBackgroundId")
+    @Mapping(source = "gameBackgroundId", target = "gameBackgroundId")
+    @Mapping(source = "primaryColorId", target = "primaryColorId")
+    @Mapping(source = "textColorId", target = "textColorId")
+    @Mapping(source = "tutorialsEnabled", target = "tutorialsEnabled")
+    @Mapping(source = "musicVolume", target = "musicVolume")
+    @Mapping(source = "soundEffectsVolume", target = "soundEffectsVolume")
+    @Mapping(source = "musicBlacklist", target = "musicBlacklist")
     User convertUserPutDTOtoEntity(UserPutDTO userPutDTO);
 
     // Updated Map for Session -> SessionHistoryDTO

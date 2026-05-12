@@ -3,7 +3,9 @@ package ch.uzh.ifi.hase.soprafs26.entity;
 import jakarta.persistence.*;
 import java.io.Serializable;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 @Entity
 @Table(name = "lobbies")
@@ -70,6 +72,20 @@ public class Lobby implements Serializable {
     @ElementCollection
     private List<Long> spectatorIds = new ArrayList<>();
 
+    // Assigned lobby character color per player (resolved from preferred priorities with fallback).
+    @ElementCollection
+    @CollectionTable(name = "lobby_assigned_character_color", joinColumns = @JoinColumn(name = "lobby_id"))
+    @MapKeyColumn(name = "user_id")
+    @Column(name = "color_id", nullable = false)
+    private Map<Long, String> assignedCharacterColorByUserId = new HashMap<>();
+
+    // Ready state per player while in WAITING lobbies.
+    @ElementCollection
+    @CollectionTable(name = "lobby_player_ready_state", joinColumns = @JoinColumn(name = "lobby_id"))
+    @MapKeyColumn(name = "user_id")
+    @Column(name = "is_ready", nullable = false)
+    private Map<Long, Boolean> playerReadyByUserId = new HashMap<>();
+
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
 
@@ -117,4 +133,14 @@ public class Lobby implements Serializable {
 
     public List<Long> getSpectatorIds() { return spectatorIds; }
     public void setSpectatorIds(List<Long> spectatorIds) { this.spectatorIds = spectatorIds; }
+
+    public Map<Long, String> getAssignedCharacterColorByUserId() { return assignedCharacterColorByUserId; }
+    public void setAssignedCharacterColorByUserId(Map<Long, String> assignedCharacterColorByUserId) {
+        this.assignedCharacterColorByUserId = assignedCharacterColorByUserId;
+    }
+
+    public Map<Long, Boolean> getPlayerReadyByUserId() { return playerReadyByUserId; }
+    public void setPlayerReadyByUserId(Map<Long, Boolean> playerReadyByUserId) {
+        this.playerReadyByUserId = playerReadyByUserId;
+    }
 }

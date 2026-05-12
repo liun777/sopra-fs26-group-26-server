@@ -1,6 +1,8 @@
 package ch.uzh.ifi.hase.soprafs26.rest.dto; // sagt java dass diese Klasse zum DTO paket gehört
 
 import ch.uzh.ifi.hase.soprafs26.constant.UserStatus;
+import java.util.List;
+import jakarta.validation.constraints.Size;
 
 // dto = Data Transfer Object = Daten die durchs Netzwerk geschickt werden
 public class UserPutDTO {
@@ -10,6 +12,18 @@ public class UserPutDTO {
     private UserStatus status; // damit das passwort auf offline gesetzt werden kann bei logout
 
     private Boolean isPublicLog;
+    @Size(max = 180, message = "Bio must be at most 180 characters long")
+    private String bio;
+    private String profileCharacterId;
+    private List<String> preferredColorPriority;
+    private String menuBackgroundId;
+    private String gameBackgroundId;
+    private String primaryColorId;
+    private String textColorId;
+    private Boolean tutorialsEnabled;
+    private Integer musicVolume;
+    private Integer soundEffectsVolume;
+    private List<String> musicBlacklist;
 
 
     public String getPassword() { return password; }
@@ -17,6 +31,17 @@ public class UserPutDTO {
     public UserStatus getStatus() {return status;}
 
     public Boolean getIsPublicLog() { return isPublicLog; }
+    public String getBio() { return bio; }
+    public String getProfileCharacterId() { return profileCharacterId; }
+    public List<String> getPreferredColorPriority() { return preferredColorPriority; }
+    public String getMenuBackgroundId() { return menuBackgroundId; }
+    public String getGameBackgroundId() { return gameBackgroundId; }
+    public String getPrimaryColorId() { return primaryColorId; }
+    public String getTextColorId() { return textColorId; }
+    public Boolean getTutorialsEnabled() { return tutorialsEnabled; }
+    public Integer getMusicVolume() { return musicVolume; }
+    public Integer getSoundEffectsVolume() { return soundEffectsVolume; }
+    public List<String> getMusicBlacklist() { return musicBlacklist; }
 
 
     // aufgerufen vom DTOMapper um ps zu lesen
@@ -26,7 +51,16 @@ public class UserPutDTO {
     public void setStatus(UserStatus status) { this.status = status; }
 
     public void setIsPublicLog(Boolean isPublicLog) { this.isPublicLog = isPublicLog; }
+    public void setBio(String bio) { this.bio = bio; }
+    public void setProfileCharacterId(String profileCharacterId) { this.profileCharacterId = profileCharacterId; }
+    public void setPreferredColorPriority(List<String> preferredColorPriority) { this.preferredColorPriority = preferredColorPriority; }
+    public void setMenuBackgroundId(String menuBackgroundId) { this.menuBackgroundId = menuBackgroundId; }
+    public void setGameBackgroundId(String gameBackgroundId) { this.gameBackgroundId = gameBackgroundId; }
+    public void setPrimaryColorId(String primaryColorId) { this.primaryColorId = primaryColorId; }
+    public void setTextColorId(String textColorId) { this.textColorId = textColorId; }
+    public void setTutorialsEnabled(Boolean tutorialsEnabled) { this.tutorialsEnabled = tutorialsEnabled; }
+    public void setMusicVolume(Integer musicVolume) { this.musicVolume = musicVolume; }
+    public void setSoundEffectsVolume(Integer soundEffectsVolume) { this.soundEffectsVolume = soundEffectsVolume; }
+    public void setMusicBlacklist(List<String> musicBlacklist) { this.musicBlacklist = musicBlacklist; }
 
 }
-
-

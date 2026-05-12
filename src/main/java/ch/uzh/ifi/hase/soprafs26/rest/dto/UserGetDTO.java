@@ -2,6 +2,7 @@ package ch.uzh.ifi.hase.soprafs26.rest.dto;
 
 import ch.uzh.ifi.hase.soprafs26.constant.UserStatus;
 import java.time.LocalDate;
+import java.util.List;
 
 // hier wird definiert was das backend ans frontend senden, wenn ein user abgerufen wird
 // also alle Felder ausser das PW weil wir ja safety wollen
@@ -22,6 +23,16 @@ public class UserGetDTO {
     private Integer averageScorePerRound;
     private Integer overallRank;
     private Boolean isPublicLog;
+    private String profileCharacterId;
+    private List<String> preferredColorPriority;
+    private String menuBackgroundId;
+    private String gameBackgroundId;
+    private String primaryColorId;
+    private String textColorId;
+    private Boolean tutorialsEnabled;
+    private Integer musicVolume;
+    private Integer soundEffectsVolume;
+    private List<String> musicBlacklist;
 
 	public Long getId() {
 		return id;
@@ -100,6 +111,45 @@ public class UserGetDTO {
 
     public void setIsPublicLog(Boolean isPublicLog) { this.isPublicLog = isPublicLog; }
 
+    public String getProfileCharacterId() { return profileCharacterId; }
+
+    public void setProfileCharacterId(String profileCharacterId) { this.profileCharacterId = profileCharacterId; }
+
+    public List<String> getPreferredColorPriority() { return preferredColorPriority; }
+
+    public void setPreferredColorPriority(List<String> preferredColorPriority) { this.preferredColorPriority = preferredColorPriority; }
+
+    public String getMenuBackgroundId() { return menuBackgroundId; }
+
+    public void setMenuBackgroundId(String menuBackgroundId) { this.menuBackgroundId = menuBackgroundId; }
+
+    public String getGameBackgroundId() { return gameBackgroundId; }
+
+    public void setGameBackgroundId(String gameBackgroundId) { this.gameBackgroundId = gameBackgroundId; }
+
+    public String getPrimaryColorId() { return primaryColorId; }
+
+    public void setPrimaryColorId(String primaryColorId) { this.primaryColorId = primaryColorId; }
+
+    public String getTextColorId() { return textColorId; }
+
+    public void setTextColorId(String textColorId) { this.textColorId = textColorId; }
+
+    public Boolean getTutorialsEnabled() { return tutorialsEnabled; }
+
+    public void setTutorialsEnabled(Boolean tutorialsEnabled) { this.tutorialsEnabled = tutorialsEnabled; }
+
+    public Integer getMusicVolume() { return musicVolume; }
+
+    public void setMusicVolume(Integer musicVolume) { this.musicVolume = musicVolume; }
+
+    public Integer getSoundEffectsVolume() { return soundEffectsVolume; }
+
+    public void setSoundEffectsVolume(Integer soundEffectsVolume) { this.soundEffectsVolume = soundEffectsVolume; }
+
+    public List<String> getMusicBlacklist() { return musicBlacklist; }
+
+    public void setMusicBlacklist(List<String> musicBlacklist) { this.musicBlacklist = musicBlacklist; }
+
 
 }
-

@@ -16,6 +16,7 @@ public class UserPostDTO {
 
     private String password;
 
+    @Size(max = 180, message = "Bio must be at most 180 characters long")
     private String bio;
 
     private LocalDate creationDate;

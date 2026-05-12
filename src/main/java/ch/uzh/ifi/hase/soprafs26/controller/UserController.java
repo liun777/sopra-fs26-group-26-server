@@ -94,7 +94,7 @@ public class UserController {
     @PutMapping("/users/{userId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     // user id aus der URL wird als Variable geholt und die Daten im Body des Requests ebenfalls
-    public void updateUser(@PathVariable Long userId, @RequestBody UserPutDTO userPutDTO) {
+    public void updateUser(@PathVariable Long userId, @Valid @RequestBody UserPutDTO userPutDTO) {
         User userInput = DTOMapper.INSTANCE.convertUserPutDTOtoEntity(userPutDTO);
         userService.updateUser(userId, userInput);
     }
