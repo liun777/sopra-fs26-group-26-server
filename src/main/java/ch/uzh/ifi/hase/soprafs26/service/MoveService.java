@@ -6,10 +6,12 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.time.Instant;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.context.event.EventListener;
 
 import ch.uzh.ifi.hase.soprafs26.entity.Move;
 import ch.uzh.ifi.hase.soprafs26.entity.Session;
@@ -18,6 +20,7 @@ import ch.uzh.ifi.hase.soprafs26.repository.MoveRepository;
 import ch.uzh.ifi.hase.soprafs26.repository.SessionRepository;
 import ch.uzh.ifi.hase.soprafs26.repository.UserRepository;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.MoveLogEntryDTO;
+import ch.uzh.ifi.hase.soprafs26.entity.PlayerActionEvent;
 
 @Service
 public class MoveService {
@@ -96,5 +99,23 @@ public class MoveService {
             log.add(row);
         }
         return log;
+    }
+
+    @EventListener
+    public void handlePlayerAction(PlayerActionEvent event) {
+        Move move = new Move();
+        move.setSessionId(event.getSessionId());
+        move.setUserId(event.getUserId());
+        move.setActionType(event.getActionType());
+        move.setDetails(event.getDetails());
+        move.setTimestamp(Instant.now());
+
+        User user = userRepository.findById(event.getUserId()).orElse(null);
+        boolean isPublic = false;
+        if (user != null && user.getIsPublicLog() != null) {
+            isPublic = user.getIsPublicLog();
+        }
+        move.setIsPublic(isPublic);
+        moveRepository.save(move);
     }
 }

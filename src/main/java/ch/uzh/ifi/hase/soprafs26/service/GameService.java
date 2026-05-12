@@ -33,6 +33,7 @@ import ch.uzh.ifi.hase.soprafs26.rest.dto.CardDTO;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.PeekSelectionDTO;
 import ch.uzh.ifi.hase.soprafs26.constant.GameStatus;
 import ch.uzh.ifi.hase.soprafs26.util.PeekType;
+import ch.uzh.ifi.hase.soprafs26.entity.PlayerActionEvent;
 
 import ch.uzh.ifi.hase.soprafs26.repository.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -40,6 +41,7 @@ import org.springframework.context.annotation.Lazy;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 import java.time.Instant;
+import org.springframework.context.ApplicationEventPublisher;
 
 // added TEMPORARY FALLBACK, SINCE DECKAPI IS UNRELIABLE FOR TESTING
 @Service
@@ -86,6 +88,7 @@ public class GameService {
     private static final String MOVE_ZONE_DISCARD_PILE = "DISCARD_PILE";
     private static final String MOVE_ZONE_HAND = "HAND";
     private static final long INTRO_PHASE_SECONDS = 10L;
+    private final ApplicationEventPublisher eventPublisher;
 
     private Object getRematchResolutionLock(String gameId) {
         return rematchResolutionLocks.computeIfAbsent(gameId, ignored -> new Object());
@@ -132,7 +135,7 @@ public class GameService {
     public GameService(GameRepository gameRepository, DeckOfCardsAPIService deckOfCardsAPIService,
                        UserRepository userRepository, GameEventPublisher gameEventPublisher,
                        ScheduledExecutorService scheduler, GameSettingsProperties gameSettings) {
-        this(gameRepository, deckOfCardsAPIService, userRepository, gameEventPublisher, scheduler, null, null, gameSettings);
+        this(gameRepository, deckOfCardsAPIService, userRepository, gameEventPublisher, scheduler, null, null, gameSettings, null);
     }
 
     // Used by Spring: allows game lifecycle -> lobby lifecycle handoff after round end.
@@ -141,7 +144,8 @@ public class GameService {
                        UserRepository userRepository, GameEventPublisher gameEventPublisher,
                        ScheduledExecutorService scheduler, @Lazy LobbyService lobbyService,
                        @Lazy SessionRepository sessionRepository,
-                       GameSettingsProperties gameSettings) {
+                       GameSettingsProperties gameSettings,
+                       ApplicationEventPublisher eventPublisher) {
         this.gameRepository = gameRepository;
         this.deckOfCardsAPIService = deckOfCardsAPIService;
         this.userRepository = userRepository;
@@ -150,6 +154,7 @@ public class GameService {
         this.lobbyService = lobbyService;
         this.sessionRepository = sessionRepository;
         this.gameSettings = gameSettings;
+        this.eventPublisher = eventPublisher;
     }
 
     public Game startGame(List<Long> playerIds) {
@@ -612,6 +617,25 @@ public class GameService {
         }
         hand.get(idx).setVisibility(true);
 
+        if (eventPublisher != null) {
+            String sessionId = null;
+            if (lobbyService != null) {
+                sessionId = lobbyService.findPlayingSessionIdForPlayers(game.getOrderedPlayerIds());
+            }   
+            PlayerActionEvent actionEvent = new PlayerActionEvent();
+            actionEvent.setSessionId(sessionId);
+            actionEvent.setUserId(authenticatedUser.getId());
+            
+            if (status == GameStatus.ABILITY_PEEK_SELF) {
+                actionEvent.setActionType("ABILITY PEEK");
+                actionEvent.setDetails("Player peeked at their own card");
+            } else {
+                actionEvent.setActionType("ABILITY SPY");
+                actionEvent.setDetails("Player spied on an opponent's card");
+            }
+            eventPublisher.publishEvent(actionEvent);
+        }
+
         // mark peek as used
         game.setSpecialPeekUsed(true);
 
@@ -692,6 +716,19 @@ public class GameService {
         game.setDrawnCard(drawnCard);
         game.setDrawnFromDeck(true); // mark that this card came from the deck
 
+        if (eventPublisher != null) {
+            String sessionId = null;
+            if (lobbyService != null) {
+                sessionId = lobbyService.findPlayingSessionIdForPlayers(game.getOrderedPlayerIds());
+            }
+            PlayerActionEvent actionEvent = new PlayerActionEvent();
+            actionEvent.setSessionId(sessionId);
+            actionEvent.setUserId(game.getCurrentPlayerId());
+            actionEvent.setActionType("DRAW");
+            actionEvent.setDetails("player drew card from the draw pile");
+            eventPublisher.publishEvent(actionEvent);
+        }
+
         saveGameAndBroadcast(game);
     }
     
@@ -711,6 +748,19 @@ public class GameService {
         }
         Card drawnCard = discardPile.remove(discardPile.size()-1);
         game.setDrawnCard(drawnCard);
+
+        if (eventPublisher != null) {
+            String sessionId = null;
+            if(lobbyService != null) {
+                sessionId = lobbyService.findPlayingSessionIdForPlayers(game.getOrderedPlayerIds());
+            }
+            PlayerActionEvent actionEvent = new PlayerActionEvent();
+            actionEvent.setSessionId(sessionId);
+            actionEvent.setUserId(game.getCurrentPlayerId());
+            actionEvent.setActionType("DRAW");
+            actionEvent.setDetails("player drew card from discard pile");
+            eventPublisher.publishEvent(actionEvent);
+        }
 
         saveGameAndBroadcast(game);
     }
@@ -746,6 +796,19 @@ public class GameService {
                     ),
                     null
             );
+
+        if (eventPublisher != null) {
+            String sessionId = null;
+            if (lobbyService != null) {
+                sessionId = lobbyService.findPlayingSessionIdForPlayers(game.getOrderedPlayerIds());
+            }
+            PlayerActionEvent actionEvent = new PlayerActionEvent();
+            actionEvent.setSessionId(sessionId);
+            actionEvent.setUserId(game.getCurrentPlayerId());
+            actionEvent.setActionType("DISCARD");
+            actionEvent.setDetails("Player discarded a card");
+            eventPublisher.publishEvent(actionEvent);
+        }
 
             // only trigger ability if card came from draw pile
             if (wasDrawnFromDeck) {
@@ -818,6 +881,20 @@ public class GameService {
                         replacedCard.getValue()
                 )
         );
+
+        if (eventPublisher != null) {
+            String sessionId = null;
+            if (lobbyService != null) {
+                sessionId = lobbyService.findPlayingSessionIdForPlayers(game.getOrderedPlayerIds());
+            }
+            PlayerActionEvent actionEvent = new PlayerActionEvent();
+            actionEvent.setSessionId(sessionId);
+            actionEvent.setUserId(game.getCurrentPlayerId());
+            actionEvent.setActionType("SWAP");
+            actionEvent.setDetails("Player swapped a drawn card into their hand");
+            eventPublisher.publishEvent(actionEvent);
+        }
+
         saveGameAndBroadcast(game);
         advanceTurnToNextPlayer(gameId);
     }
@@ -983,6 +1060,18 @@ public class GameService {
                 )
         );
 
+        if (eventPublisher != null) {
+            String sessionId = null;
+            if(lobbyService != null) {
+                sessionId = lobbyService.findPlayingSessionIdForPlayers(game.getOrderedPlayerIds());
+            }
+            PlayerActionEvent actionEvent = new PlayerActionEvent();
+            actionEvent.setSessionId(sessionId);
+            actionEvent.setUserId(game.getCurrentPlayerId());
+            actionEvent.setActionType("ABILITY SWAP");
+            actionEvent.setDetails("player swapped a card with another player");
+            eventPublisher.publishEvent(actionEvent);
+        }
         // end ability phase, go back to next player's turn
         game.setStatus(GameStatus.ROUND_ACTIVE);
         // cancel pending timer, player finished the ability manually
@@ -1056,6 +1145,19 @@ public class GameService {
             )
     );
 
+    if (eventPublisher != null) {
+        String sessionId = null;
+        if (lobbyService != null) {
+            sessionId = lobbyService.findPlayingSessionIdForPlayers(game.getOrderedPlayerIds());
+        }
+        PlayerActionEvent actionEvent = new PlayerActionEvent();
+        actionEvent.setSessionId(sessionId);
+        actionEvent.setUserId(game.getCurrentPlayerId());
+        actionEvent.setActionType("SWAP");
+        actionEvent.setDetails("player swapped a card with the discard pile");
+        eventPublisher.publishEvent(actionEvent);
+    }
+
     // advance turn
     saveGameAndBroadcast(game);
     advanceTurnToNextPlayer(gameId);
@@ -1076,6 +1178,19 @@ public class GameService {
         // a player can either call cabo OR draw a card
         if (game.getDrawnCard() != null) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Cannot call Cabo after drawing a card");
+        }
+
+        if (eventPublisher != null) {
+            String sessionId = null;
+            if (lobbyService != null) {
+                sessionId = lobbyService.findPlayingSessionIdForPlayers(game.getOrderedPlayerIds());
+            }
+            PlayerActionEvent actionEvent = new PlayerActionEvent();
+            actionEvent.setSessionId(sessionId);
+            actionEvent.setUserId(game.getCurrentPlayerId());
+            actionEvent.setActionType("CABO");
+            actionEvent.setDetails("player called cabo");
+            eventPublisher.publishEvent(actionEvent);
         }
 
         game.setCaboCalled(true);
