@@ -101,6 +101,20 @@ public class GameService {
         return candidate;
     }
 
+    private long resolveCaboRevealSecondsForPlayerCount(List<Long> playerIds) {
+        int playerCount = playerIds == null ? 0 : (int) playerIds.stream().filter(id -> id != null).distinct().count();
+        if (playerCount == 2) {
+            return 30L;
+        }
+        if (playerCount == 3) {
+            return 40L;
+        }
+        if (playerCount == 4) {
+            return 50L;
+        }
+        return resolvePositiveOrDefault(null, gameSettings.getCaboRevealSeconds());
+    }
+
     private GameMoveStep createMoveStep(String sourceZone, Long sourceUserId, Integer sourceCardIndex,
                                         String targetZone, Long targetUserId, Integer targetCardIndex,
                                         boolean hidden, Integer value) {
@@ -217,9 +231,7 @@ public class GameService {
         long resolvedAbilitySwapSeconds = resolvePositiveOrDefault(
                 lobbyConfig != null ? lobbyConfig.getAbilitySwapSeconds() : null,
                 gameSettings.getAbilitySwapSeconds());
-        long resolvedCaboRevealSeconds = resolvePositiveOrDefault(
-                null,
-                gameSettings.getCaboRevealSeconds());
+        long resolvedCaboRevealSeconds = resolveCaboRevealSecondsForPlayerCount(sanitizedPlayerIds);
         // Rematch decision timer is fixed globally (not lobby-adjustable).
         long resolvedRematchDecisionSeconds = resolvePositiveOrDefault(
                 gameSettings.getRematchDecisionSeconds(),
@@ -1669,12 +1681,15 @@ public class GameService {
             Map<Long, Integer> roundScores = calculatedRoundScores(game);
 
             boolean isSessionOver = saveRoundScoreAndCheckGameOver(gameId, roundScores);
+            // Keep session history immediately consistent for cabo_reveal consumers.
+            applyHundredToFiftyReductionIfNeeded(players);
 
             if (isSessionOver) {
                 // didnt know what we want to do if game is over...
                 System.out.println("Session has reached its limit and is now over!");
             }
 
+            game.setCaboRevealSeconds(resolveCaboRevealSecondsForPlayerCount(players));
             game.setStatus(GameStatus.CABO_REVEAL);
             revealAllInPlayCardsForRoundEnd(game);
             game.setRematchDecisionByUserId(new HashMap<>());

@@ -19,7 +19,7 @@ public class UserPutDTO {
     private String menuBackgroundId;
     private String gameBackgroundId;
     private String primaryColorId;
-    private String textColorId;
+    private String appearanceMode;
     private Boolean tutorialsEnabled;
     private Integer musicVolume;
     private Integer soundEffectsVolume;
@@ -37,7 +37,7 @@ public class UserPutDTO {
     public String getMenuBackgroundId() { return menuBackgroundId; }
     public String getGameBackgroundId() { return gameBackgroundId; }
     public String getPrimaryColorId() { return primaryColorId; }
-    public String getTextColorId() { return textColorId; }
+    public String getAppearanceMode() { return appearanceMode; }
     public Boolean getTutorialsEnabled() { return tutorialsEnabled; }
     public Integer getMusicVolume() { return musicVolume; }
     public Integer getSoundEffectsVolume() { return soundEffectsVolume; }
@@ -57,7 +57,7 @@ public class UserPutDTO {
     public void setMenuBackgroundId(String menuBackgroundId) { this.menuBackgroundId = menuBackgroundId; }
     public void setGameBackgroundId(String gameBackgroundId) { this.gameBackgroundId = gameBackgroundId; }
     public void setPrimaryColorId(String primaryColorId) { this.primaryColorId = primaryColorId; }
-    public void setTextColorId(String textColorId) { this.textColorId = textColorId; }
+    public void setAppearanceMode(String appearanceMode) { this.appearanceMode = appearanceMode; }
     public void setTutorialsEnabled(Boolean tutorialsEnabled) { this.tutorialsEnabled = tutorialsEnabled; }
     public void setMusicVolume(Integer musicVolume) { this.musicVolume = musicVolume; }
     public void setSoundEffectsVolume(Integer soundEffectsVolume) { this.soundEffectsVolume = soundEffectsVolume; }

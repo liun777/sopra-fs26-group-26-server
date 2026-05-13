@@ -73,8 +73,8 @@ public class User implements Serializable { // public: Klasse kann von überall 
     @Column(nullable = false)
     private String primaryColorId = "orange";
 
-    @Column(nullable = false)
-    private String textColorId = "white";
+    @Column(name = "appearance_mode", nullable = false)
+    private String appearanceMode = "system";
 
     @Column(nullable = true)
     private Boolean tutorialsEnabled = true;
@@ -108,7 +108,7 @@ public class User implements Serializable { // public: Klasse kann von überall 
 
     // #109 move privacy preference during game start; copied into Move.isPublic during move creation
     @Column(nullable = false)
-    private Boolean isPublicLog = false;
+    private Boolean isPublicLog = true;
 
     @Column(nullable = true) // for websocket timeout
     private java.time.Instant lastHeartbeat;
@@ -229,12 +229,12 @@ public class User implements Serializable { // public: Klasse kann von überall 
         this.primaryColorId = primaryColorId;
     }
 
-    public String getTextColorId() {
-        return textColorId;
+    public String getAppearanceMode() {
+        return appearanceMode;
     }
 
-    public void setTextColorId(String textColorId) {
-        this.textColorId = textColorId;
+    public void setAppearanceMode(String appearanceMode) {
+        this.appearanceMode = appearanceMode;
     }
 
     public Boolean getTutorialsEnabled() {

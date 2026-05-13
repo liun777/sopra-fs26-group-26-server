@@ -28,7 +28,7 @@ public class UserGetDTO {
     private String menuBackgroundId;
     private String gameBackgroundId;
     private String primaryColorId;
-    private String textColorId;
+    private String appearanceMode;
     private Boolean tutorialsEnabled;
     private Integer musicVolume;
     private Integer soundEffectsVolume;
@@ -131,9 +131,9 @@ public class UserGetDTO {
 
     public void setPrimaryColorId(String primaryColorId) { this.primaryColorId = primaryColorId; }
 
-    public String getTextColorId() { return textColorId; }
+    public String getAppearanceMode() { return appearanceMode; }
 
-    public void setTextColorId(String textColorId) { this.textColorId = textColorId; }
+    public void setAppearanceMode(String appearanceMode) { this.appearanceMode = appearanceMode; }
 
     public Boolean getTutorialsEnabled() { return tutorialsEnabled; }
 

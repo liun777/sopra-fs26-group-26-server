@@ -303,6 +303,24 @@ public class LobbyService {
         return changed;
     }
 
+    private void resetLobbyReadyStateForWaiting(Lobby lobby) {
+        if (lobby == null) {
+            return;
+        }
+        List<Long> playerIds = lobby.getPlayerIds();
+        Map<Long, Boolean> readyStateByUserId = new HashMap<>();
+        Long hostId = lobby.getSessionHostUserId();
+        if (playerIds != null) {
+            for (Long playerId : playerIds) {
+                if (playerId == null) {
+                    continue;
+                }
+                readyStateByUserId.put(playerId, Objects.equals(playerId, hostId));
+            }
+        }
+        lobby.setPlayerReadyByUserId(readyStateByUserId);
+    }
+
     public boolean isPlayerTimedOutInPlaying(Long userId) {
         return userId != null && timedOutInPlayingPlayerIds.contains(userId);
     }
@@ -527,7 +545,7 @@ public class LobbyService {
     public String findWaitingSessionIdForPlayer(Long userId) {
         return findWaitingLobbiesForParticipant(userId).stream()
                 .filter(l -> l.getPlayerIds() != null && l.getPlayerIds().contains(userId))
-                .findFirst()
+                .max(Comparator.comparing(Lobby::getId, Comparator.nullsLast(Long::compareTo)))
                 .map(Lobby::getSessionId)
                 .orElse(null);
     }
@@ -1072,22 +1090,27 @@ public class LobbyService {
             return;
         }
 
-        List<Lobby> candidates = lobbyRepository.findByStatus("PLAYING").stream()
-                .filter(lobby -> lobby.getPlayerIds() != null && !Collections.disjoint(lobby.getPlayerIds(), gamePlayerIds))
-                .sorted(Comparator.comparingInt((Lobby lobby) ->
-                        (int) lobby.getPlayerIds().stream().filter(gamePlayerIds::contains).count()
-                ).reversed())
-                .toList();
+        List<Long> orderedGamePlayers = new ArrayList<>(new LinkedHashSet<>(gamePlayerIds));
+        Set<Long> expectedPlayerSet = new LinkedHashSet<>(orderedGamePlayers);
+        List<Lobby> playingLobbies = lobbyRepository.findByStatus("PLAYING");
+        Lobby currentLobby = playingLobbies.stream()
+                .filter(lobby -> lobby.getPlayerIds() != null)
+                .filter(lobby -> new LinkedHashSet<>(lobby.getPlayerIds()).equals(expectedPlayerSet))
+                .findFirst()
+                .orElseGet(() -> playingLobbies.stream()
+                        .filter(lobby -> lobby.getPlayerIds() != null
+                                && !Collections.disjoint(lobby.getPlayerIds(), expectedPlayerSet))
+                        .max(Comparator.comparingInt(lobby ->
+                                (int) lobby.getPlayerIds().stream().filter(expectedPlayerSet::contains).count()))
+                        .orElse(null));
 
-        if (candidates.isEmpty()) {
+        if (currentLobby == null) {
             clearTimedOutPlayingFlags(gamePlayerIds);
             setUsersStatus(gamePlayerIds, UserStatus.ONLINE);
             onlineUsersEventPublisher.broadcastOnlineUsers();
             return;
         }
 
-        Lobby currentLobby = candidates.get(0);
-        List<Long> orderedGamePlayers = new ArrayList<>(gamePlayerIds);
         clearTimedOutPlayingFlags(orderedGamePlayers);
 
         Set<Long> continueRematchSet = continueRematchPlayerIds == null
@@ -1104,14 +1127,33 @@ public class LobbyService {
                 .filter(freshRematchSet::contains)
                 .toList();
 
-        if (normalizedContinuePlayers.size() >= 2) {
+        List<Long> effectiveContinuePlayers = normalizedContinuePlayers.size() >= 2
+                ? normalizedContinuePlayers
+                : List.of();
+        List<Long> effectiveFreshPlayers = normalizedFreshPlayers.size() >= 2
+                ? normalizedFreshPlayers
+                : List.of();
+
+        Boolean templateIsPublic = Boolean.TRUE.equals(currentLobby.getIsPublic());
+        Long templateAfkTimeoutSeconds = currentLobby.getAfkTimeoutSeconds();
+        Long templateInitialPeekSeconds = currentLobby.getInitialPeekSeconds();
+        Long templateTurnSeconds = currentLobby.getTurnSeconds();
+        Long templateAbilityRevealSeconds = currentLobby.getAbilityRevealSeconds();
+        Long templateAbilitySwapSeconds = currentLobby.getAbilitySwapSeconds();
+        Long templateAbsentRoundPoints = currentLobby.getAbsentRoundPoints();
+        Long templateWebsocketGraceSeconds = currentLobby.getWebsocketGraceSeconds();
+
+        String continueLobbySessionId = null;
+        if (!effectiveContinuePlayers.isEmpty()) {
             currentLobby.setStatus("WAITING");
-            currentLobby.setSessionHostUserId(normalizedContinuePlayers.get(0));
-            currentLobby.setPlayerIds(new ArrayList<>(normalizedContinuePlayers));
+            currentLobby.setSessionHostUserId(effectiveContinuePlayers.get(0));
+            currentLobby.setPlayerIds(new ArrayList<>(effectiveContinuePlayers));
             currentLobby.setKickedUserIds(new ArrayList<>());
+            resetLobbyReadyStateForWaiting(currentLobby);
             normalizeLobbyPlayerStateInPlace(currentLobby);
             currentLobby = lobbyRepository.save(currentLobby);
-            setUsersStatus(normalizedContinuePlayers, UserStatus.LOBBY);
+            continueLobbySessionId = currentLobby.getSessionId();
+            setUsersStatus(effectiveContinuePlayers, UserStatus.LOBBY);
             lobbyEventPublisher.broadcastLobbyUpdate(currentLobby.getId(), currentLobby);
         } else {
             // if no rematch - set spectators' status from SPECTATING to ONLINE
@@ -1122,29 +1164,39 @@ public class LobbyService {
             setUsersStatus(spectators, UserStatus.ONLINE);
         }
 
-        if (normalizedFreshPlayers.size() >= 2) {
+        String freshLobbySessionId = null;
+        if (!effectiveFreshPlayers.isEmpty()) {
             Lobby freshLobby = new Lobby();
             freshLobby.setSessionId(generateUniqueSessionId());
-            freshLobby.setSessionHostUserId(normalizedFreshPlayers.get(0));
-            freshLobby.setIsPublic(currentLobby.getIsPublic());
+            freshLobby.setSessionHostUserId(effectiveFreshPlayers.get(0));
+            freshLobby.setIsPublic(templateIsPublic);
             freshLobby.setStatus("WAITING");
-            freshLobby.setPlayerIds(new ArrayList<>(normalizedFreshPlayers));
+            freshLobby.setPlayerIds(new ArrayList<>(effectiveFreshPlayers));
             freshLobby.setKickedUserIds(new ArrayList<>());
-            freshLobby.setAfkTimeoutSeconds(currentLobby.getAfkTimeoutSeconds());
-            freshLobby.setInitialPeekSeconds(currentLobby.getInitialPeekSeconds());
-            freshLobby.setTurnSeconds(currentLobby.getTurnSeconds());
-            freshLobby.setAbilityRevealSeconds(currentLobby.getAbilityRevealSeconds());
-            freshLobby.setAbilitySwapSeconds(currentLobby.getAbilitySwapSeconds());
-            freshLobby.setAbsentRoundPoints(currentLobby.getAbsentRoundPoints());
-            freshLobby.setWebsocketGraceSeconds(currentLobby.getWebsocketGraceSeconds());
+            freshLobby.setAfkTimeoutSeconds(templateAfkTimeoutSeconds);
+            freshLobby.setInitialPeekSeconds(templateInitialPeekSeconds);
+            freshLobby.setTurnSeconds(templateTurnSeconds);
+            freshLobby.setAbilityRevealSeconds(templateAbilityRevealSeconds);
+            freshLobby.setAbilitySwapSeconds(templateAbilitySwapSeconds);
+            freshLobby.setAbsentRoundPoints(templateAbsentRoundPoints);
+            freshLobby.setWebsocketGraceSeconds(templateWebsocketGraceSeconds);
+            resetLobbyReadyStateForWaiting(freshLobby);
             normalizeLobbyPlayerStateInPlace(freshLobby);
             freshLobby = lobbyRepository.save(freshLobby);
-            setUsersStatus(normalizedFreshPlayers, UserStatus.LOBBY);
+            freshLobbySessionId = freshLobby.getSessionId();
+            setUsersStatus(effectiveFreshPlayers, UserStatus.LOBBY);
             lobbyEventPublisher.broadcastLobbyUpdate(freshLobby.getId(), freshLobby);
         }
 
-        Set<Long> allRematchPlayers = new LinkedHashSet<>(normalizedContinuePlayers);
-        allRematchPlayers.addAll(normalizedFreshPlayers);
+        for (Long continuePlayerId : effectiveContinuePlayers) {
+            leaveOtherWaitingLobbies(continuePlayerId, continueLobbySessionId);
+        }
+        for (Long freshPlayerId : effectiveFreshPlayers) {
+            leaveOtherWaitingLobbies(freshPlayerId, freshLobbySessionId);
+        }
+
+        Set<Long> allRematchPlayers = new LinkedHashSet<>(effectiveContinuePlayers);
+        allRematchPlayers.addAll(effectiveFreshPlayers);
         List<Long> nonRematchPlayers = orderedGamePlayers.stream()
                 .filter(playerId -> !allRematchPlayers.contains(playerId))
                 .toList();

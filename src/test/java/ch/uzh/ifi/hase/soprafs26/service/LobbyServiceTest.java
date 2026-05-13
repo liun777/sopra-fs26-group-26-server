@@ -497,6 +497,125 @@ public class LobbyServiceTest {
 	}
 
 	@Test
+	public void handleRoundResolvedForGamePlayers_singleFreshVote_doesNotLeavePlayerInPlaying() {
+		Lobby playingLobby = new Lobby();
+		playingLobby.setId(11L);
+		playingLobby.setSessionId("PLAY-SINGLE-FRESH");
+		playingLobby.setSessionHostUserId(1L);
+		playingLobby.setStatus("PLAYING");
+		playingLobby.setIsPublic(true);
+		playingLobby.setPlayerIds(new ArrayList<>(List.of(1L, 2L, 3L)));
+		Mockito.when(lobbyRepository.findByStatus("PLAYING")).thenReturn(List.of(playingLobby));
+		Mockito.when(lobbyRepository.save(Mockito.any(Lobby.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+		User p1 = new User();
+		p1.setId(1L);
+		p1.setStatus(UserStatus.PLAYING);
+		User p2 = new User();
+		p2.setId(2L);
+		p2.setStatus(UserStatus.PLAYING);
+		User p3 = new User();
+		p3.setId(3L);
+		p3.setStatus(UserStatus.PLAYING);
+		Mockito.when(userRepository.findAllById(Mockito.anyIterable())).thenReturn(List.of(p1, p2, p3));
+		Mockito.when(userRepository.saveAll(Mockito.anyIterable())).thenAnswer(invocation -> invocation.getArgument(0));
+		Mockito.when(userRepository.findAllById(List.of(2L, 3L))).thenReturn(List.of(p2, p3));
+		Mockito.when(userRepository.findAllById(List.of(1L))).thenReturn(List.of(p1));
+
+		lobbyService.handleRoundResolvedForGamePlayers(
+				List.of(1L, 2L, 3L),
+				List.of(2L, 3L),
+				List.of(1L)
+		);
+
+		assertEquals(UserStatus.ONLINE, p1.getStatus());
+		assertEquals(UserStatus.LOBBY, p2.getStatus());
+		assertEquals(UserStatus.LOBBY, p3.getStatus());
+		Mockito.verify(lobbyRepository, Mockito.never()).delete(playingLobby);
+	}
+
+	@Test
+	public void handleRoundResolvedForGamePlayers_twoFreshVotes_createsFreshLobbyAndDeletesCurrent() {
+		Lobby playingLobby = new Lobby();
+		playingLobby.setId(12L);
+		playingLobby.setSessionId("PLAY-FRESH");
+		playingLobby.setSessionHostUserId(1L);
+		playingLobby.setStatus("PLAYING");
+		playingLobby.setIsPublic(true);
+		playingLobby.setPlayerIds(new ArrayList<>(List.of(1L, 2L, 3L)));
+		playingLobby.setAfkTimeoutSeconds(360L);
+		playingLobby.setInitialPeekSeconds(12L);
+		playingLobby.setTurnSeconds(25L);
+		playingLobby.setAbilityRevealSeconds(7L);
+		playingLobby.setAbilitySwapSeconds(13L);
+		playingLobby.setAbsentRoundPoints(22L);
+		playingLobby.setWebsocketGraceSeconds(333L);
+		Mockito.when(lobbyRepository.findByStatus("PLAYING")).thenReturn(List.of(playingLobby));
+		Mockito.when(lobbyRepository.save(Mockito.any(Lobby.class))).thenAnswer(invocation -> {
+			Lobby saved = invocation.getArgument(0);
+			if (saved.getId() == null) {
+				saved.setId(1200L);
+			}
+			return saved;
+		});
+
+		User p1 = new User();
+		p1.setId(1L);
+		p1.setStatus(UserStatus.PLAYING);
+		User p2 = new User();
+		p2.setId(2L);
+		p2.setStatus(UserStatus.PLAYING);
+		User p3 = new User();
+		p3.setId(3L);
+		p3.setStatus(UserStatus.PLAYING);
+		Mockito.when(userRepository.findAllById(Mockito.anyIterable())).thenReturn(List.of(p1, p2, p3));
+		Mockito.when(userRepository.saveAll(Mockito.anyIterable())).thenAnswer(invocation -> invocation.getArgument(0));
+		Mockito.when(userRepository.findAllById(List.of(1L, 2L))).thenReturn(List.of(p1, p2));
+		Mockito.when(userRepository.findAllById(List.of(3L))).thenReturn(List.of(p3));
+
+		lobbyService.handleRoundResolvedForGamePlayers(
+				List.of(1L, 2L, 3L),
+				List.of(),
+				List.of(1L, 2L)
+		);
+
+		ArgumentCaptor<Lobby> savedLobbyCaptor = ArgumentCaptor.forClass(Lobby.class);
+		Mockito.verify(lobbyRepository).save(savedLobbyCaptor.capture());
+		Lobby freshLobby = savedLobbyCaptor.getValue();
+		assertEquals("WAITING", freshLobby.getStatus());
+		assertEquals(1L, freshLobby.getSessionHostUserId());
+		assertEquals(List.of(1L, 2L), freshLobby.getPlayerIds());
+		assertEquals(360L, freshLobby.getAfkTimeoutSeconds());
+		assertEquals(333L, freshLobby.getWebsocketGraceSeconds());
+		Mockito.verify(lobbyRepository).delete(playingLobby);
+		assertEquals(UserStatus.LOBBY, p1.getStatus());
+		assertEquals(UserStatus.LOBBY, p2.getStatus());
+		assertEquals(UserStatus.ONLINE, p3.getStatus());
+	}
+
+	@Test
+	public void findWaitingSessionIdForPlayer_prefersNewestWaitingLobby() {
+		Lobby olderLobby = new Lobby();
+		olderLobby.setId(10L);
+		olderLobby.setSessionId("OLD-WAITING");
+		olderLobby.setStatus("WAITING");
+		olderLobby.setPlayerIds(new ArrayList<>(List.of(7L)));
+
+		Lobby newerLobby = new Lobby();
+		newerLobby.setId(20L);
+		newerLobby.setSessionId("NEW-WAITING");
+		newerLobby.setStatus("WAITING");
+		newerLobby.setPlayerIds(new ArrayList<>(List.of(7L)));
+
+		Mockito.when(lobbyRepository.findByStatusAndParticipantId("WAITING", 7L))
+				.thenReturn(List.of(olderLobby, newerLobby));
+
+		String waitingSessionId = lobbyService.findWaitingSessionIdForPlayer(7L);
+
+		assertEquals("NEW-WAITING", waitingSessionId);
+	}
+
+	@Test
 	public void findPlayingSessionIdForPlayers_exactSetMatch_returnsSessionId() {
 		// matching lobby
 		Lobby exactMatch = new Lobby();

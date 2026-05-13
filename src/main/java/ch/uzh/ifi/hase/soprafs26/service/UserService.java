@@ -54,6 +54,10 @@ public class UserService {
             "red",
             "pink",
             "purple");
+    private static final List<String> APPEARANCE_MODE_ORDER = List.of(
+            "system",
+            "light",
+            "dark");
     private static final String PREFERRED_COLOR_UNASSIGNED = "__unassigned__";
     private static final Map<String, String> LEGACY_COLOR_ALIAS_MAP = Map.ofEntries(
             Map.entry("black", "navy_blue"),
@@ -123,6 +127,11 @@ public class UserService {
             sanitized.add(normalized);
         }
         return sanitized;
+    }
+
+    private String normalizeAppearanceMode(String rawAppearanceMode) {
+        String normalized = rawAppearanceMode == null ? "" : rawAppearanceMode.trim().toLowerCase();
+        return APPEARANCE_MODE_ORDER.contains(normalized) ? normalized : "";
     }
 
     private boolean isUserInPlayingLobby(Long userId) {
@@ -419,10 +428,10 @@ public class UserService {
                 shouldRefreshLobbyPresentation = true;
             }
         }
-        if (userInput.getTextColorId() != null) {
-            String nextTextColorId = userInput.getTextColorId().trim();
-            if (!nextTextColorId.isEmpty()) {
-                user.setTextColorId(nextTextColorId);
+        if (userInput.getAppearanceMode() != null) {
+            String nextAppearanceMode = normalizeAppearanceMode(userInput.getAppearanceMode());
+            if (!nextAppearanceMode.isEmpty()) {
+                user.setAppearanceMode(nextAppearanceMode);
             }
         }
         if (userInput.getTutorialsEnabled() != null) {
