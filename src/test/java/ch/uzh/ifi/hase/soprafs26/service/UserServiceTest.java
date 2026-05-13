@@ -13,6 +13,8 @@ import ch.uzh.ifi.hase.soprafs26.constant.UserStatus;
 import ch.uzh.ifi.hase.soprafs26.entity.Lobby;
 import ch.uzh.ifi.hase.soprafs26.entity.Session;
 import ch.uzh.ifi.hase.soprafs26.entity.User;
+import ch.uzh.ifi.hase.soprafs26.rest.dto.FriendOnlineSummaryDTO;
+import ch.uzh.ifi.hase.soprafs26.rest.dto.FriendRequestIncomingDTO;
 import ch.uzh.ifi.hase.soprafs26.repository.LobbyRepository;
 import ch.uzh.ifi.hase.soprafs26.repository.SessionRepository;
 import ch.uzh.ifi.hase.soprafs26.repository.UserRepository;
@@ -560,6 +562,235 @@ public class UserServiceTest {
         // ranking falls back to a ranking based on user ids
         assertEquals(1, u1.getOverallRank());
         assertEquals(2, u2.getOverallRank());
+    }
+
+    @Test
+    public void getAcceptedFriendIds_returnsOnlyMutualFriends() {
+        User me = new User();
+        me.setId(1L);
+        me.setFriendUserIds(new ArrayList<>(List.of(2L, 3L)));
+
+        User friendAccepted = new User();
+        friendAccepted.setId(2L);
+        friendAccepted.setFriendUserIds(new ArrayList<>(List.of(1L)));
+
+        User friendPending = new User();
+        friendPending.setId(3L);
+        friendPending.setFriendUserIds(new ArrayList<>(List.of()));
+
+        when(userRepository.findByToken("token")).thenReturn(me);
+        when(userRepository.findAllById(Mockito.anyCollection())).thenReturn(List.of(friendAccepted, friendPending));
+
+        List<Long> ids = userService.getAcceptedFriendIds("token");
+
+        assertEquals(List.of(2L), ids);
+    }
+
+    @Test
+    public void getIncomingFriendRequests_returnsOnlyIncomingNonMutualRequests() {
+        User me = new User();
+        me.setId(1L);
+        me.setFriendUserIds(new ArrayList<>(List.of(4L))); // outgoing to 4, not incoming
+
+        User requesterA = new User();
+        requesterA.setId(2L);
+        requesterA.setUsername("alice");
+        requesterA.setFriendUserIds(new ArrayList<>(List.of(1L)));
+
+        User requesterB = new User();
+        requesterB.setId(3L);
+        requesterB.setUsername("bob");
+        requesterB.setFriendUserIds(new ArrayList<>(List.of(1L)));
+
+        User outgoingOnly = new User();
+        outgoingOnly.setId(4L);
+        outgoingOnly.setUsername("charlie");
+        outgoingOnly.setFriendUserIds(new ArrayList<>());
+
+        User unrelated = new User();
+        unrelated.setId(5L);
+        unrelated.setUsername("dora");
+        unrelated.setFriendUserIds(new ArrayList<>(List.of(9L)));
+
+        when(userRepository.findByToken("token")).thenReturn(me);
+        when(userRepository.findAll()).thenReturn(List.of(requesterB, outgoingOnly, unrelated, requesterA, me));
+
+        List<FriendRequestIncomingDTO> incoming = userService.getIncomingFriendRequests("token");
+
+        assertEquals(2, incoming.size());
+        assertEquals(2L, incoming.get(0).getRequesterUserId());
+        assertEquals("alice", incoming.get(0).getRequesterUsername());
+        assertEquals(3L, incoming.get(1).getRequesterUserId());
+        assertEquals("bob", incoming.get(1).getRequesterUsername());
+    }
+
+    @Test
+    public void getOutgoingPendingFriendRequestIds_returnsOnlyNonMutualSelections() {
+        User me = new User();
+        me.setId(1L);
+        me.setFriendUserIds(new ArrayList<>(List.of(2L, 3L, 4L)));
+
+        User acceptedA = new User();
+        acceptedA.setId(2L);
+        acceptedA.setFriendUserIds(new ArrayList<>(List.of(1L)));
+
+        User outgoingOnly = new User();
+        outgoingOnly.setId(3L);
+        outgoingOnly.setFriendUserIds(new ArrayList<>());
+
+        User acceptedB = new User();
+        acceptedB.setId(4L);
+        acceptedB.setFriendUserIds(new ArrayList<>(List.of(1L)));
+
+        when(userRepository.findByToken("token")).thenReturn(me);
+        when(userRepository.findAllById(Mockito.anyCollection())).thenReturn(List.of(acceptedA, outgoingOnly, acceptedB));
+
+        List<Long> pending = userService.getOutgoingPendingFriendRequestIds("token");
+
+        assertEquals(List.of(3L), pending);
+    }
+
+    @Test
+    public void getFriendOnlineSummary_countsOnlyMutualFriendsByStatus() {
+        User me = new User();
+        me.setId(1L);
+        me.setFriendUserIds(new ArrayList<>(List.of(2L, 3L, 4L, 5L, 6L)));
+
+        User online = new User();
+        online.setId(2L);
+        online.setStatus(UserStatus.ONLINE);
+        online.setFriendUserIds(new ArrayList<>(List.of(1L)));
+
+        User playing = new User();
+        playing.setId(3L);
+        playing.setStatus(UserStatus.PLAYING);
+        playing.setFriendUserIds(new ArrayList<>(List.of(1L)));
+
+        User lobby = new User();
+        lobby.setId(4L);
+        lobby.setStatus(UserStatus.LOBBY);
+        lobby.setFriendUserIds(new ArrayList<>(List.of(1L)));
+
+        User pending = new User();
+        pending.setId(5L);
+        pending.setStatus(UserStatus.ONLINE);
+        pending.setFriendUserIds(new ArrayList<>());
+
+        User spectating = new User();
+        spectating.setId(6L);
+        spectating.setStatus(UserStatus.SPECTATING);
+        spectating.setFriendUserIds(new ArrayList<>(List.of(1L)));
+
+        when(userRepository.findByToken("token")).thenReturn(me);
+        when(userRepository.findAllById(Mockito.anyCollection())).thenAnswer(invocation -> {
+            Iterable<Long> ids = invocation.getArgument(0);
+            Map<Long, User> usersById = Map.of(
+                    2L, online,
+                    3L, playing,
+                    4L, lobby,
+                    5L, pending,
+                    6L, spectating);
+            List<User> resolved = new ArrayList<>();
+            for (Long id : ids) {
+                User resolvedUser = usersById.get(id);
+                if (resolvedUser != null) {
+                    resolved.add(resolvedUser);
+                }
+            }
+            return resolved;
+        });
+
+        FriendOnlineSummaryDTO summary = userService.getFriendOnlineSummary("token");
+
+        assertEquals(4, summary.getFriendsOnline());
+        assertEquals(1, summary.getPlaying());
+        assertEquals(1, summary.getLobby());
+        assertEquals(1, summary.getSpectating());
+    }
+
+    @Test
+    public void sendFriendRequest_addsTargetToOwnSelection() {
+        User me = new User();
+        me.setId(1L);
+        me.setFriendUserIds(new ArrayList<>(List.of(3L)));
+
+        User target = new User();
+        target.setId(2L);
+
+        when(userRepository.findByToken("token")).thenReturn(me);
+        when(userRepository.findById(2L)).thenReturn(Optional.of(target));
+        when(userRepository.save(Mockito.any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        userService.sendFriendRequest("token", 2L);
+
+        assertEquals(List.of(2L, 3L), me.getFriendUserIds());
+        verify(userRepository, Mockito.atLeastOnce()).save(me);
+        verify(userRepository, Mockito.atLeastOnce()).flush();
+    }
+
+    @Test
+    public void acceptFriendRequest_withoutIncomingRequest_throwsConflict() {
+        User me = new User();
+        me.setId(1L);
+        me.setFriendUserIds(new ArrayList<>());
+
+        User requester = new User();
+        requester.setId(2L);
+        requester.setFriendUserIds(new ArrayList<>());
+
+        when(userRepository.findByToken("token")).thenReturn(me);
+        when(userRepository.findById(2L)).thenReturn(Optional.of(requester));
+
+        ResponseStatusException ex = assertThrows(
+                ResponseStatusException.class,
+                () -> userService.acceptFriendRequest("token", 2L));
+
+        assertEquals(HttpStatus.CONFLICT, ex.getStatusCode());
+        verify(userRepository, Mockito.never()).save(me);
+    }
+
+    @Test
+    public void acceptFriendRequest_withIncomingRequest_addsRequesterToOwnSelection() {
+        User me = new User();
+        me.setId(1L);
+        me.setFriendUserIds(new ArrayList<>());
+
+        User requester = new User();
+        requester.setId(2L);
+        requester.setFriendUserIds(new ArrayList<>(List.of(1L)));
+
+        when(userRepository.findByToken("token")).thenReturn(me);
+        when(userRepository.findById(2L)).thenReturn(Optional.of(requester));
+        when(userRepository.save(Mockito.any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        userService.acceptFriendRequest("token", 2L);
+
+        assertEquals(List.of(2L), me.getFriendUserIds());
+        verify(userRepository, Mockito.atLeastOnce()).save(me);
+        verify(userRepository, Mockito.atLeastOnce()).flush();
+    }
+
+    @Test
+    public void removeFriendOrRequest_removesEntryFromBothSides() {
+        User me = new User();
+        me.setId(1L);
+        me.setFriendUserIds(new ArrayList<>(List.of(2L, 3L)));
+
+        User other = new User();
+        other.setId(2L);
+        other.setFriendUserIds(new ArrayList<>(List.of(1L, 9L)));
+
+        when(userRepository.findByToken("token")).thenReturn(me);
+        when(userRepository.findById(2L)).thenReturn(Optional.of(other));
+        when(userRepository.save(Mockito.any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        userService.removeFriendOrRequest("token", 2L);
+
+        assertEquals(List.of(3L), me.getFriendUserIds());
+        assertEquals(List.of(9L), other.getFriendUserIds());
+        verify(userRepository, Mockito.atLeastOnce()).save(me);
+        verify(userRepository, Mockito.atLeastOnce()).save(other);
+        verify(userRepository, Mockito.atLeastOnce()).flush();
     }
 
 }

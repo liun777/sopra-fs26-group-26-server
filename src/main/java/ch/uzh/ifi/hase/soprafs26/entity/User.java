@@ -91,6 +91,11 @@ public class User implements Serializable { // public: Klasse kann von überall 
     @OrderColumn(name = "tag_index")
     private List<String> musicBlacklist = new ArrayList<>();
 
+    @ElementCollection(fetch = FetchType.LAZY)
+    @CollectionTable(name = "user_friend_ids", joinColumns = @JoinColumn(name = "user_id"))
+    @Column(name = "friend_user_id")
+    private List<Long> friendUserIds = new ArrayList<>();
+
     @Column(nullable = false) // session wins (tied to best totalScore in ended sessions)
     private Integer gamesWon = 0;
 
@@ -267,6 +272,14 @@ public class User implements Serializable { // public: Klasse kann von überall 
 
     public void setMusicBlacklist(List<String> musicBlacklist) {
         this.musicBlacklist = musicBlacklist;
+    }
+
+    public List<Long> getFriendUserIds() {
+        return friendUserIds;
+    }
+
+    public void setFriendUserIds(List<Long> friendUserIds) {
+        this.friendUserIds = friendUserIds;
     }
 
     public java.time.Instant getLastHeartbeat() {

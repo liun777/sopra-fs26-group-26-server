@@ -8,6 +8,8 @@ import org.springframework.web.server.ResponseStatusException;
 import ch.uzh.ifi.hase.soprafs26.entity.Game;
 import ch.uzh.ifi.hase.soprafs26.entity.Session;
 import ch.uzh.ifi.hase.soprafs26.entity.User;
+import ch.uzh.ifi.hase.soprafs26.rest.dto.FriendOnlineSummaryDTO;
+import ch.uzh.ifi.hase.soprafs26.rest.dto.FriendRequestIncomingDTO;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.SessionHistoryDTO;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.UserGetDTO;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.UserPostDTO;
@@ -144,6 +146,66 @@ public class UserController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void handleHeartbeat(@RequestHeader("Authorization") String token) {
         userService.heartbeat(token);
+    }
+
+    @GetMapping("/users/me/friends/ids")
+    @ResponseStatus(HttpStatus.OK)
+    @ResponseBody
+    public List<Long> getMyFriendIds(@RequestHeader("Authorization") String token) {
+        return userService.getAcceptedFriendIds(token);
+    }
+
+    @GetMapping("/users/me/friends/requests/incoming")
+    @ResponseStatus(HttpStatus.OK)
+    @ResponseBody
+    public List<FriendRequestIncomingDTO> getMyIncomingFriendRequests(@RequestHeader("Authorization") String token) {
+        return userService.getIncomingFriendRequests(token);
+    }
+
+    @GetMapping("/users/me/friends/requests/outgoing/ids")
+    @ResponseStatus(HttpStatus.OK)
+    @ResponseBody
+    public List<Long> getMyOutgoingPendingFriendRequestIds(@RequestHeader("Authorization") String token) {
+        return userService.getOutgoingPendingFriendRequestIds(token);
+    }
+
+    @GetMapping("/users/me/friends/online-summary")
+    @ResponseStatus(HttpStatus.OK)
+    @ResponseBody
+    public FriendOnlineSummaryDTO getMyFriendsOnlineSummary(@RequestHeader("Authorization") String token) {
+        return userService.getFriendOnlineSummary(token);
+    }
+
+    @PostMapping("/users/me/friends/requests/{targetUserId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void sendFriendRequest(
+            @RequestHeader("Authorization") String token,
+            @PathVariable Long targetUserId) {
+        userService.sendFriendRequest(token, targetUserId);
+    }
+
+    @PostMapping("/users/me/friends/requests/{requesterUserId}/accept")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void acceptFriendRequest(
+            @RequestHeader("Authorization") String token,
+            @PathVariable Long requesterUserId) {
+        userService.acceptFriendRequest(token, requesterUserId);
+    }
+
+    @DeleteMapping("/users/me/friends/requests/{otherUserId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void declineOrCancelFriendRequest(
+            @RequestHeader("Authorization") String token,
+            @PathVariable Long otherUserId) {
+        userService.removeFriendOrRequest(token, otherUserId);
+    }
+
+    @DeleteMapping("/users/me/friends/{otherUserId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void removeFriend(
+            @RequestHeader("Authorization") String token,
+            @PathVariable Long otherUserId) {
+        userService.removeFriendOrRequest(token, otherUserId);
     }
 
     @GetMapping("/users/{id}/history")

@@ -13,6 +13,8 @@ import ch.uzh.ifi.hase.soprafs26.constant.UserStatus;
 import ch.uzh.ifi.hase.soprafs26.entity.Lobby;
 import ch.uzh.ifi.hase.soprafs26.entity.Session;
 import ch.uzh.ifi.hase.soprafs26.entity.User;
+import ch.uzh.ifi.hase.soprafs26.rest.dto.FriendOnlineSummaryDTO;
+import ch.uzh.ifi.hase.soprafs26.rest.dto.FriendRequestIncomingDTO;
 import ch.uzh.ifi.hase.soprafs26.repository.LobbyRepository;
 import ch.uzh.ifi.hase.soprafs26.repository.SessionRepository;
 import ch.uzh.ifi.hase.soprafs26.repository.UserRepository;
@@ -141,6 +143,270 @@ public class UserService {
         // check only players, not spectators 
         return lobbyRepository.findByStatusAndParticipantId("PLAYING", userId).stream()
                 .anyMatch(lobby -> lobby.getPlayerIds() != null && lobby.getPlayerIds().contains(userId));
+    }
+
+    private User requireAuthenticatedUser(String token) {
+        String normalizedToken = token == null ? "" : token.trim();
+        if (normalizedToken.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Missing token");
+        }
+        User me = userRepository.findByToken(normalizedToken);
+        if (me == null) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid token");
+        }
+        return me;
+    }
+
+    private Set<Long> toFriendIdSet(User user) {
+        Set<Long> cleaned = new LinkedHashSet<>();
+        if (user == null || user.getFriendUserIds() == null) {
+            return cleaned;
+        }
+        Long selfId = user.getId();
+        for (Long candidate : user.getFriendUserIds()) {
+            if (candidate == null) {
+                continue;
+            }
+            if (selfId != null && selfId.equals(candidate)) {
+                continue;
+            }
+            cleaned.add(candidate);
+        }
+        return cleaned;
+    }
+
+    private boolean storeFriendIdSet(User user, Set<Long> friendIds) {
+        List<Long> sorted = friendIds.stream()
+                .filter(Objects::nonNull)
+                .sorted(Long::compareTo)
+                .toList();
+        List<Long> next = new ArrayList<>(sorted);
+        List<Long> current = user.getFriendUserIds() == null
+                ? List.of()
+                : new ArrayList<>(user.getFriendUserIds());
+        if (current.equals(next)) {
+            return false;
+        }
+        user.setFriendUserIds(next);
+        return true;
+    }
+
+    private List<Long> resolveAcceptedFriendIds(User me) {
+        Long myId = me.getId();
+        if (myId == null) {
+            return List.of();
+        }
+
+        Set<Long> mySelections = toFriendIdSet(me);
+        if (mySelections.isEmpty()) {
+            return List.of();
+        }
+
+        List<Long> accepted = new ArrayList<>();
+        for (User candidate : userRepository.findAllById(mySelections)) {
+            if (candidate == null || candidate.getId() == null) {
+                continue;
+            }
+            if (toFriendIdSet(candidate).contains(myId)) {
+                accepted.add(candidate.getId());
+            }
+        }
+        accepted.sort(Long::compareTo);
+        return accepted;
+    }
+
+    private List<User> resolveAcceptedFriends(User me) {
+        List<Long> friendIds = resolveAcceptedFriendIds(me);
+        if (friendIds.isEmpty()) {
+            return List.of();
+        }
+        return userRepository.findAllById(friendIds);
+    }
+
+    public List<Long> getAcceptedFriendIds(String token) {
+        User me = requireAuthenticatedUser(token);
+        return resolveAcceptedFriendIds(me);
+    }
+
+    public List<FriendRequestIncomingDTO> getIncomingFriendRequests(String token) {
+        User me = requireAuthenticatedUser(token);
+        Long myId = me.getId();
+        if (myId == null) {
+            return List.of();
+        }
+
+        Set<Long> mySelections = toFriendIdSet(me);
+        List<FriendRequestIncomingDTO> incoming = new ArrayList<>();
+
+        for (User candidate : userRepository.findAll()) {
+            if (candidate == null || candidate.getId() == null) {
+                continue;
+            }
+            Long candidateId = candidate.getId();
+            if (candidateId.equals(myId)) {
+                continue;
+            }
+
+            Set<Long> candidateSelections = toFriendIdSet(candidate);
+            boolean candidateRequestedMe = candidateSelections.contains(myId);
+            boolean alreadyMutualOrOutgoingAccepted = mySelections.contains(candidateId);
+            if (!candidateRequestedMe || alreadyMutualOrOutgoingAccepted) {
+                continue;
+            }
+
+            FriendRequestIncomingDTO dto = new FriendRequestIncomingDTO();
+            dto.setRequesterUserId(candidateId);
+            dto.setRequesterUsername(candidate.getUsername());
+            incoming.add(dto);
+        }
+
+        incoming.sort(
+                Comparator.comparing(
+                        (FriendRequestIncomingDTO dto) -> {
+                            String username = dto.getRequesterUsername();
+                            return username == null ? "" : username.toLowerCase();
+                        })
+                        .thenComparing(dto -> dto.getRequesterUserId() == null ? Long.MAX_VALUE : dto.getRequesterUserId()));
+        return incoming;
+    }
+
+    public List<Long> getOutgoingPendingFriendRequestIds(String token) {
+        User me = requireAuthenticatedUser(token);
+        Long myId = me.getId();
+        if (myId == null) {
+            return List.of();
+        }
+
+        Set<Long> mySelections = toFriendIdSet(me);
+        if (mySelections.isEmpty()) {
+            return List.of();
+        }
+
+        List<Long> pending = new ArrayList<>();
+        for (User candidate : userRepository.findAllById(mySelections)) {
+            if (candidate == null || candidate.getId() == null) {
+                continue;
+            }
+            Set<Long> candidateSelections = toFriendIdSet(candidate);
+            if (!candidateSelections.contains(myId)) {
+                pending.add(candidate.getId());
+            }
+        }
+        pending.sort(Long::compareTo);
+        return pending;
+    }
+
+    public FriendOnlineSummaryDTO getFriendOnlineSummary(String token) {
+        User me = requireAuthenticatedUser(token);
+        List<User> acceptedFriends = resolveAcceptedFriends(me);
+
+        int playing = 0;
+        int lobby = 0;
+        int spectating = 0;
+        int online = 0;
+
+        for (User friend : acceptedFriends) {
+            UserStatus status = friend.getStatus();
+            if (status == null) {
+                continue;
+            }
+            switch (status) {
+                case ONLINE -> online += 1;
+                case PLAYING -> {
+                    playing += 1;
+                    online += 1;
+                }
+                case LOBBY -> {
+                    lobby += 1;
+                    online += 1;
+                }
+                case SPECTATING -> {
+                    spectating += 1;
+                    online += 1;
+                }
+                default -> {
+                    // offline and any unknown future state are not counted as online
+                }
+            }
+        }
+
+        FriendOnlineSummaryDTO summary = new FriendOnlineSummaryDTO();
+        summary.setFriendsOnline(online);
+        summary.setPlaying(playing);
+        summary.setLobby(lobby);
+        summary.setSpectating(spectating);
+        return summary;
+    }
+
+    public void sendFriendRequest(String token, Long targetUserId) {
+        User me = requireAuthenticatedUser(token);
+        Long myId = me.getId();
+        if (targetUserId == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Target user id is required");
+        }
+        if (myId != null && myId.equals(targetUserId)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Cannot friend yourself");
+        }
+
+        User target = getUserById(targetUserId);
+        if (target == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found");
+        }
+
+        Set<Long> mySelections = toFriendIdSet(me);
+        mySelections.add(targetUserId);
+        if (storeFriendIdSet(me, mySelections)) {
+            userRepository.save(me);
+            userRepository.flush();
+        }
+    }
+
+    public void acceptFriendRequest(String token, Long requesterUserId) {
+        User me = requireAuthenticatedUser(token);
+        if (requesterUserId == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Requester user id is required");
+        }
+
+        User requester = getUserById(requesterUserId);
+        Set<Long> requesterSelections = toFriendIdSet(requester);
+        if (!requesterSelections.contains(me.getId())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "No incoming friend request from this user");
+        }
+
+        Set<Long> mySelections = toFriendIdSet(me);
+        mySelections.add(requesterUserId);
+        if (storeFriendIdSet(me, mySelections)) {
+            userRepository.save(me);
+            userRepository.flush();
+        }
+    }
+
+    public void removeFriendOrRequest(String token, Long otherUserId) {
+        User me = requireAuthenticatedUser(token);
+        Long myId = me.getId();
+        if (otherUserId == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Other user id is required");
+        }
+        if (myId != null && myId.equals(otherUserId)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Cannot remove yourself");
+        }
+
+        User other = getUserById(otherUserId);
+
+        Set<Long> mySelections = toFriendIdSet(me);
+        Set<Long> otherSelections = toFriendIdSet(other);
+        boolean changedMine = mySelections.remove(otherUserId);
+        boolean changedOther = myId != null && otherSelections.remove(myId);
+
+        if (changedMine && storeFriendIdSet(me, mySelections)) {
+            userRepository.save(me);
+        }
+        if (changedOther && storeFriendIdSet(other, otherSelections)) {
+            userRepository.save(other);
+        }
+        if (changedMine || changedOther) {
+            userRepository.flush();
+        }
     }
 
     // holt alle user aus Datenbank und gibt sie dem controller

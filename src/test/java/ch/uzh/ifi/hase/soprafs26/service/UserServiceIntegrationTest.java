@@ -10,9 +10,14 @@ import org.springframework.web.server.ResponseStatusException;
 
 import ch.uzh.ifi.hase.soprafs26.constant.UserStatus;
 import ch.uzh.ifi.hase.soprafs26.entity.User;
+import ch.uzh.ifi.hase.soprafs26.rest.dto.FriendOnlineSummaryDTO;
+import ch.uzh.ifi.hase.soprafs26.rest.dto.FriendRequestIncomingDTO;
 import ch.uzh.ifi.hase.soprafs26.repository.UserRepository;
 
 import static org.junit.jupiter.api.Assertions.*;
+
+import java.time.LocalDate;
+import java.util.List;
 
 /**
  * Test class for the UserResource REST resource.
@@ -34,6 +39,15 @@ public class UserServiceIntegrationTest {
 	public void setup() {
 		userRepository.deleteAll();
 	}
+
+    private User createUser(String username) {
+        User user = new User();
+        user.setName(username);
+        user.setUsername(username);
+        user.setPassword("pw");
+        user.setCreationDate(LocalDate.now());
+        return userService.createUser(user);
+    }
 
 	@Test
 	public void createUser_validInputs_success() {
@@ -80,4 +94,61 @@ public class UserServiceIntegrationTest {
 		// check that an error is thrown
 		assertThrows(ResponseStatusException.class, () -> userService.createUser(testUser2));
 	}
+
+    @Test
+    public void friends_requestAcceptSummaryFlow_persistsAndResolvesMutualState() {
+        User alice = createUser("alice");
+        User bob = createUser("bob");
+        User charlie = createUser("charlie");
+
+        userService.sendFriendRequest(alice.getToken(), bob.getId());
+
+        List<FriendRequestIncomingDTO> bobIncomingBeforeAccept = userService.getIncomingFriendRequests(bob.getToken());
+        assertEquals(1, bobIncomingBeforeAccept.size());
+        assertEquals(alice.getId(), bobIncomingBeforeAccept.get(0).getRequesterUserId());
+        assertEquals("alice", bobIncomingBeforeAccept.get(0).getRequesterUsername());
+
+        // not mutual yet, so no accepted friends on either side
+        assertEquals(List.of(), userService.getAcceptedFriendIds(alice.getToken()));
+        assertEquals(List.of(), userService.getAcceptedFriendIds(bob.getToken()));
+
+        userService.acceptFriendRequest(bob.getToken(), alice.getId());
+
+        assertEquals(List.of(), userService.getIncomingFriendRequests(bob.getToken()));
+
+        List<Long> aliceFriends = userService.getAcceptedFriendIds(alice.getToken());
+        List<Long> bobFriends = userService.getAcceptedFriendIds(bob.getToken());
+        assertEquals(List.of(bob.getId()), aliceFriends);
+        assertEquals(List.of(alice.getId()), bobFriends);
+
+        // only accepted friends are counted in summary
+        User persistedBob = userService.getUserById(bob.getId());
+        persistedBob.setStatus(UserStatus.PLAYING);
+        userRepository.saveAndFlush(persistedBob);
+
+        User persistedCharlie = userService.getUserById(charlie.getId());
+        persistedCharlie.setStatus(UserStatus.LOBBY);
+        userRepository.saveAndFlush(persistedCharlie);
+
+        FriendOnlineSummaryDTO summary = userService.getFriendOnlineSummary(alice.getToken());
+        assertEquals(1, summary.getFriendsOnline());
+        assertEquals(1, summary.getPlaying());
+        assertEquals(0, summary.getLobby());
+        assertEquals(0, summary.getSpectating());
+    }
+
+    @Test
+    public void friends_removeFriend_removesRelationFromBothUsers() {
+        User alice = createUser("alice-2");
+        User bob = createUser("bob-2");
+
+        userService.sendFriendRequest(alice.getToken(), bob.getId());
+        userService.acceptFriendRequest(bob.getToken(), alice.getId());
+        assertEquals(List.of(bob.getId()), userService.getAcceptedFriendIds(alice.getToken()));
+
+        userService.removeFriendOrRequest(alice.getToken(), bob.getId());
+
+        assertEquals(List.of(), userService.getAcceptedFriendIds(alice.getToken()));
+        assertEquals(List.of(), userService.getAcceptedFriendIds(bob.getToken()));
+    }
 }

@@ -9,6 +9,8 @@ import ch.uzh.ifi.hase.soprafs26.entity.Game;
 import ch.uzh.ifi.hase.soprafs26.entity.Session;
 import ch.uzh.ifi.hase.soprafs26.entity.User;
 import ch.uzh.ifi.hase.soprafs26.repository.UserRepository;
+import ch.uzh.ifi.hase.soprafs26.rest.dto.FriendOnlineSummaryDTO;
+import ch.uzh.ifi.hase.soprafs26.rest.dto.FriendRequestIncomingDTO;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.UserPostDTO;
 import ch.uzh.ifi.hase.soprafs26.service.GameService;
 import ch.uzh.ifi.hase.soprafs26.service.HistoryService;
@@ -32,8 +34,10 @@ import java.util.List;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -115,6 +119,112 @@ public class UserControllerTest {
 				.andExpect(jsonPath("$.username", is(user.getUsername())))
 				.andExpect(jsonPath("$.status", is(user.getStatus().toString())));
 	}
+
+    @Test
+    public void getMyFriendIds_authenticated_returnsIds() throws Exception {
+        given(userService.getAcceptedFriendIds("valid-token")).willReturn(List.of(2L, 5L));
+
+        mockMvc.perform(get("/users/me/friends/ids")
+                        .header("Authorization", "valid-token")
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasSize(2)))
+                .andExpect(jsonPath("$[0]", is(2)))
+                .andExpect(jsonPath("$[1]", is(5)));
+    }
+
+    @Test
+    public void getMyIncomingFriendRequests_authenticated_returnsRequests() throws Exception {
+        FriendRequestIncomingDTO req1 = new FriendRequestIncomingDTO();
+        req1.setRequesterUserId(2L);
+        req1.setRequesterUsername("alice");
+        FriendRequestIncomingDTO req2 = new FriendRequestIncomingDTO();
+        req2.setRequesterUserId(7L);
+        req2.setRequesterUsername("bob");
+        given(userService.getIncomingFriendRequests("valid-token")).willReturn(List.of(req1, req2));
+
+        mockMvc.perform(get("/users/me/friends/requests/incoming")
+                        .header("Authorization", "valid-token")
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasSize(2)))
+                .andExpect(jsonPath("$[0].requesterUserId", is(2)))
+                .andExpect(jsonPath("$[0].requesterUsername", is("alice")))
+                .andExpect(jsonPath("$[1].requesterUserId", is(7)))
+                .andExpect(jsonPath("$[1].requesterUsername", is("bob")));
+    }
+
+    @Test
+    public void getMyOutgoingPendingFriendRequestIds_authenticated_returnsIds() throws Exception {
+        given(userService.getOutgoingPendingFriendRequestIds("valid-token")).willReturn(List.of(3L, 9L));
+
+        mockMvc.perform(get("/users/me/friends/requests/outgoing/ids")
+                        .header("Authorization", "valid-token")
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasSize(2)))
+                .andExpect(jsonPath("$[0]", is(3)))
+                .andExpect(jsonPath("$[1]", is(9)));
+    }
+
+    @Test
+    public void getMyFriendsOnlineSummary_authenticated_returnsSummary() throws Exception {
+        FriendOnlineSummaryDTO summary = new FriendOnlineSummaryDTO();
+        summary.setFriendsOnline(4);
+        summary.setPlaying(1);
+        summary.setLobby(2);
+        summary.setSpectating(1);
+        given(userService.getFriendOnlineSummary("valid-token")).willReturn(summary);
+
+        mockMvc.perform(get("/users/me/friends/online-summary")
+                        .header("Authorization", "valid-token")
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.friendsOnline", is(4)))
+                .andExpect(jsonPath("$.playing", is(1)))
+                .andExpect(jsonPath("$.lobby", is(2)))
+                .andExpect(jsonPath("$.spectating", is(1)));
+    }
+
+    @Test
+    public void sendFriendRequest_authenticated_callsService() throws Exception {
+        mockMvc.perform(post("/users/me/friends/requests/23")
+                        .header("Authorization", "valid-token")
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isNoContent());
+
+        verify(userService).sendFriendRequest("valid-token", 23L);
+    }
+
+    @Test
+    public void acceptFriendRequest_authenticated_callsService() throws Exception {
+        mockMvc.perform(post("/users/me/friends/requests/23/accept")
+                        .header("Authorization", "valid-token")
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isNoContent());
+
+        verify(userService).acceptFriendRequest("valid-token", 23L);
+    }
+
+    @Test
+    public void removeFriendRequest_authenticated_callsService() throws Exception {
+        mockMvc.perform(delete("/users/me/friends/requests/23")
+                        .header("Authorization", "valid-token")
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isNoContent());
+
+        verify(userService).removeFriendOrRequest("valid-token", 23L);
+    }
+
+    @Test
+    public void removeFriend_authenticated_callsService() throws Exception {
+        mockMvc.perform(delete("/users/me/friends/23")
+                        .header("Authorization", "valid-token")
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isNoContent());
+
+        verify(userService).removeFriendOrRequest("valid-token", 23L);
+    }
 
 	/**
 	 * Helper Method to convert userPostDTO into a JSON string such that the input
