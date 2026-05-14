@@ -15,6 +15,7 @@ import ch.uzh.ifi.hase.soprafs26.rest.dto.UserPostDTO;
 import ch.uzh.ifi.hase.soprafs26.service.GameService;
 import ch.uzh.ifi.hase.soprafs26.service.HistoryService;
 import ch.uzh.ifi.hase.soprafs26.service.UserService;
+import ch.uzh.ifi.hase.soprafs26.util.AuthValidationRules;
 
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -103,6 +104,7 @@ public class UserControllerTest {
 		UserPostDTO userPostDTO = new UserPostDTO();
 		userPostDTO.setName("Test User");
 		userPostDTO.setUsername("testUsername");
+        userPostDTO.setPassword("ValidPass#1");
 
 		given(userService.createUser(Mockito.any())).willReturn(user);
 
@@ -119,6 +121,53 @@ public class UserControllerTest {
 				.andExpect(jsonPath("$.username", is(user.getUsername())))
 				.andExpect(jsonPath("$.status", is(user.getStatus().toString())));
 	}
+
+    @Test
+    public void createUser_invalidPassword_returnsBadRequest() throws Exception {
+        UserPostDTO userPostDTO = new UserPostDTO();
+        userPostDTO.setName("Test User");
+        userPostDTO.setUsername("testUsername");
+        userPostDTO.setPassword("alllower#1");
+
+        MockHttpServletRequestBuilder postRequest = post("/users")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(asJsonString(userPostDTO));
+
+        mockMvc.perform(postRequest).andExpect(status().isBadRequest());
+
+        verify(userService, Mockito.never()).createUser(Mockito.any());
+    }
+
+    @Test
+    public void loginUser_invalidUsernameFormat_returnsBadRequest() throws Exception {
+        String loginPayload = "{\"username\":\"bad name\",\"password\":\"whatever\"}";
+
+        mockMvc.perform(post("/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(loginPayload))
+                .andExpect(status().isBadRequest());
+
+        verify(userService, Mockito.never()).loginUser(Mockito.anyString(), Mockito.anyString());
+    }
+
+    @Test
+    public void getAuthRules_returnsConfiguredValidationRules() throws Exception {
+        mockMvc.perform(get("/auth/rules").contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.username.minLength", is(AuthValidationRules.USERNAME_MIN_LENGTH)))
+                .andExpect(jsonPath("$.username.maxLength", is(AuthValidationRules.USERNAME_MAX_LENGTH)))
+                .andExpect(jsonPath("$.username.pattern", is(AuthValidationRules.USERNAME_REGEX)))
+                .andExpect(jsonPath("$.username.allowedCharactersPattern", is(AuthValidationRules.USERNAME_ALLOWED_CHAR_REGEX)))
+                .andExpect(jsonPath("$.username.hint", is(AuthValidationRules.USERNAME_HINT)))
+                .andExpect(jsonPath("$.password.minLength", is(AuthValidationRules.PASSWORD_MIN_LENGTH)))
+                .andExpect(jsonPath("$.password.maxLength", is(AuthValidationRules.PASSWORD_MAX_LENGTH)))
+                .andExpect(jsonPath("$.password.pattern", is(AuthValidationRules.PASSWORD_REGEX)))
+                .andExpect(jsonPath("$.password.allowedCharactersPattern", is(AuthValidationRules.PASSWORD_ALLOWED_CHAR_REGEX)))
+                .andExpect(jsonPath("$.password.hint", is(AuthValidationRules.PASSWORD_HINT)))
+                .andExpect(jsonPath("$.password.asciiOnly", is(true)))
+                .andExpect(jsonPath("$.password.requiresUppercase", is(true)))
+                .andExpect(jsonPath("$.password.requiresSpecialSymbol", is(true)));
+    }
 
     @Test
     public void getMyFriendIds_authenticated_returnsIds() throws Exception {

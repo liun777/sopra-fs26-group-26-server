@@ -44,7 +44,7 @@ public class UserServiceIntegrationTest {
         User user = new User();
         user.setName(username);
         user.setUsername(username);
-        user.setPassword("pw");
+        user.setPassword("ValidPass#1");
         user.setCreationDate(LocalDate.now());
         return userService.createUser(user);
     }
@@ -57,7 +57,7 @@ public class UserServiceIntegrationTest {
 		User testUser = new User();
 		testUser.setName("testName");
 		testUser.setUsername("testUsername");
-		testUser.setPassword("testPassword");
+		testUser.setPassword("TestPass#1");
 		testUser.setCreationDate(java.time.LocalDate.now());
 
 		// when
@@ -78,7 +78,7 @@ public class UserServiceIntegrationTest {
 		User testUser = new User();
 		testUser.setName("testName");
 		testUser.setUsername("testUsername");
-		testUser.setPassword("testPassword");
+		testUser.setPassword("TestPass#1");
 		testUser.setCreationDate(java.time.LocalDate.now());
 		userService.createUser(testUser);
 
@@ -88,7 +88,7 @@ public class UserServiceIntegrationTest {
 		// change the name but forget about the username
 		testUser2.setName("testName2");
 		testUser2.setUsername("testUsername");
-		testUser2.setPassword("testPassword2");
+		testUser2.setPassword("TestPass#2");
 		testUser2.setCreationDate(java.time.LocalDate.now());
 
 		// check that an error is thrown
@@ -139,8 +139,8 @@ public class UserServiceIntegrationTest {
 
     @Test
     public void friends_removeFriend_removesRelationFromBothUsers() {
-        User alice = createUser("alice-2");
-        User bob = createUser("bob-2");
+        User alice = createUser("alice2");
+        User bob = createUser("bob2");
 
         userService.sendFriendRequest(alice.getToken(), bob.getId());
         userService.acceptFriendRequest(bob.getToken(), alice.getId());

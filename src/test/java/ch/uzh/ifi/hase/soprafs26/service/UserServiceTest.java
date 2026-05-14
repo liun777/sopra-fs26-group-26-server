@@ -95,7 +95,7 @@ public class UserServiceTest {
 		testUser.setId(1L);
 		testUser.setName("testName");
 		testUser.setUsername("testUsername");
-		testUser.setPassword("testPassword");
+		testUser.setPassword("TestPassword#1");
 		testUser.setCreationDate(LocalDate.now());
 
 		// when -> any object is being save in the userRepository -> return the dummy
@@ -190,7 +190,7 @@ public class UserServiceTest {
         // 1. GIVEN: A user object with a 17-character username
         User newRestrictedUser = new User();
         newRestrictedUser.setUsername("12345678901234567"); // 17 chars!
-        newRestrictedUser.setPassword("securePassword");
+        newRestrictedUser.setPassword("SecurePass#1");
 
         // 2. WHEN / THEN: Attempting to save it throws an error
         ResponseStatusException exception = assertThrows(ResponseStatusException.class, 
@@ -201,6 +201,93 @@ public class UserServiceTest {
         
         // Verify the database was never touched
         Mockito.verify(userRepository, Mockito.never()).save(Mockito.any());
+    }
+
+    @Test
+    public void createUser_usernameContainsNonAlnum_throwsBadRequest() {
+        User user = new User();
+        user.setUsername("bad_name");
+        user.setPassword("ValidPass#1");
+
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class,
+                () -> userService.createUser(user));
+
+        assertEquals(HttpStatus.BAD_REQUEST, exception.getStatusCode());
+        Mockito.verify(userRepository, Mockito.never()).save(Mockito.any());
+    }
+
+    @Test
+    public void createUser_passwordWithoutUppercase_throwsBadRequest() {
+        User user = new User();
+        user.setUsername("validuser");
+        user.setPassword("validpass#1");
+
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class,
+                () -> userService.createUser(user));
+
+        assertEquals(HttpStatus.BAD_REQUEST, exception.getStatusCode());
+        Mockito.verify(userRepository, Mockito.never()).save(Mockito.any());
+    }
+
+    @Test
+    public void createUser_passwordWithSpace_throwsBadRequest() {
+        User user = new User();
+        user.setUsername("validuser");
+        user.setPassword("Valid #123");
+
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class,
+                () -> userService.createUser(user));
+
+        assertEquals(HttpStatus.BAD_REQUEST, exception.getStatusCode());
+        Mockito.verify(userRepository, Mockito.never()).save(Mockito.any());
+    }
+
+    @Test
+    public void updateUser_invalidPassword_throwsBadRequestAndDoesNotPersist() {
+        User existing = new User();
+        existing.setId(42L);
+        existing.setUsername("user42");
+        existing.setPassword("ValidPass#1");
+
+        when(userRepository.findById(42L)).thenReturn(Optional.of(existing));
+
+        User updatePayload = new User();
+        updatePayload.setPassword("short#1");
+
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class,
+                () -> userService.updateUser(42L, updatePayload));
+
+        assertEquals(HttpStatus.BAD_REQUEST, exception.getStatusCode());
+        Mockito.verify(userRepository, Mockito.never()).save(existing);
+    }
+
+    @Test
+    public void loginUser_blankUsername_throwsUnauthorized() {
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class,
+                () -> userService.loginUser("   ", "ValidPass#1"));
+
+        assertEquals(HttpStatus.UNAUTHORIZED, exception.getStatusCode());
+        Mockito.verify(userRepository, Mockito.never()).findByUsername(Mockito.anyString());
+    }
+
+    @Test
+    public void loginUser_trimmedUsername_usedForLookup() {
+        User existing = new User();
+        existing.setId(77L);
+        existing.setUsername("trimUser");
+        existing.setPassword("ValidPass#1");
+        existing.setStatus(UserStatus.OFFLINE);
+
+        when(userRepository.findByUsername("trimUser")).thenReturn(existing);
+        when(lobbyRepository.findByStatusAndParticipantId("PLAYING", 77L)).thenReturn(List.of());
+        when(lobbyRepository.findByStatusAndParticipantId("WAITING", 77L)).thenReturn(List.of());
+
+        User loggedIn = userService.loginUser("  trimUser  ", "ValidPass#1");
+
+        assertEquals("trimUser", loggedIn.getUsername());
+        assertEquals(UserStatus.ONLINE, loggedIn.getStatus());
+        Mockito.verify(userRepository, Mockito.times(1)).findByUsername("trimUser");
+        Mockito.verify(userRepository, Mockito.times(1)).save(existing);
     }
 
     @Test
@@ -512,12 +599,12 @@ public class UserServiceTest {
         assertEquals(true, user.getIsPublicLog());
 
         User passwordOnly = new User();
-        passwordOnly.setPassword("newPw");
+        passwordOnly.setPassword("NewPass#1");
         passwordOnly.setIsPublicLog(null); // simulate what UserPutDTO->User mapping produces
         // old user object updated with attribute values from new one
         userService.updateUser(42L, passwordOnly);
         assertEquals(true, user.getIsPublicLog());
-        assertEquals("newPw", user.getPassword());
+        assertEquals("NewPass#1", user.getPassword());
     }
 
     @Test

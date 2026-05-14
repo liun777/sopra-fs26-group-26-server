@@ -1,6 +1,9 @@
 package ch.uzh.ifi.hase.soprafs26.rest.dto;
 import java.time.LocalDate;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
+import ch.uzh.ifi.hase.soprafs26.util.AuthValidationRules;
 
 // definiert was das frontend ans backend senset, also daten die der user eingegeben hat,
 // enthält alle felder die für registrierung und Login benötigt werden
@@ -10,10 +13,28 @@ public class UserPostDTO {
 
 	private String name;
 
-	// restrict username length to 16 characters
-	@Size(max = 16, message = "Username must be at most 16 characters long")
+	@NotBlank(message = "Username is required")
+	@Size(
+            min = AuthValidationRules.USERNAME_MIN_LENGTH,
+            max = AuthValidationRules.USERNAME_MAX_LENGTH,
+            message = "Username must be between 1 and 16 characters long"
+    )
+    @Pattern(
+            regexp = AuthValidationRules.USERNAME_REGEX,
+            message = "Username can only contain ASCII letters and numbers"
+    )
 	private String username;
 
+    @NotBlank(message = "Password is required")
+    @Size(
+            min = AuthValidationRules.PASSWORD_MIN_LENGTH,
+            max = AuthValidationRules.PASSWORD_MAX_LENGTH,
+            message = "Password must be between 8 and 32 characters long"
+    )
+    @Pattern(
+            regexp = AuthValidationRules.PASSWORD_REGEX,
+            message = "Password must include 1 uppercase, 1 special symbol, and only ASCII characters (no spaces)"
+    )
     private String password;
 
     @Size(max = 180, message = "Bio must be at most 180 characters long")

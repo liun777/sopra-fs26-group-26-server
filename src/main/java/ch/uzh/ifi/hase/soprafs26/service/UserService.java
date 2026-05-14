@@ -18,6 +18,7 @@ import ch.uzh.ifi.hase.soprafs26.rest.dto.FriendRequestIncomingDTO;
 import ch.uzh.ifi.hase.soprafs26.repository.LobbyRepository;
 import ch.uzh.ifi.hase.soprafs26.repository.SessionRepository;
 import ch.uzh.ifi.hase.soprafs26.repository.UserRepository;
+import ch.uzh.ifi.hase.soprafs26.util.AuthValidationRules;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -134,6 +135,34 @@ public class UserService {
     private String normalizeAppearanceMode(String rawAppearanceMode) {
         String normalized = rawAppearanceMode == null ? "" : rawAppearanceMode.trim().toLowerCase();
         return APPEARANCE_MODE_ORDER.contains(normalized) ? normalized : "";
+    }
+
+    private String normalizeAndValidateUsername(String username) {
+        String normalizedUsername = username == null ? "" : username.trim();
+        if (normalizedUsername.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Username is required");
+        }
+        if (normalizedUsername.length() < AuthValidationRules.USERNAME_MIN_LENGTH
+                || normalizedUsername.length() > AuthValidationRules.USERNAME_MAX_LENGTH) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, AuthValidationRules.USERNAME_HINT);
+        }
+        if (!AuthValidationRules.USERNAME_PATTERN.matcher(normalizedUsername).matches()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, AuthValidationRules.USERNAME_HINT);
+        }
+        return normalizedUsername;
+    }
+
+    private void validatePassword(String password) {
+        if (password == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Password is required");
+        }
+        if (password.length() < AuthValidationRules.PASSWORD_MIN_LENGTH
+                || password.length() > AuthValidationRules.PASSWORD_MAX_LENGTH) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, AuthValidationRules.PASSWORD_HINT);
+        }
+        if (!AuthValidationRules.PASSWORD_PATTERN.matcher(password).matches()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, AuthValidationRules.PASSWORD_HINT);
+        }
     }
 
     private boolean isUserInPlayingLobby(Long userId) {
@@ -577,9 +606,9 @@ public class UserService {
     }
 
 	public User createUser(User newUser) {
-        if (newUser.getUsername() != null && newUser.getUsername().length() > 16) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Username must be 16 characters or fewer.");
-        }
+        String normalizedUsername = normalizeAndValidateUsername(newUser.getUsername());
+        newUser.setUsername(normalizedUsername);
+        validatePassword(newUser.getPassword());
         if (newUser.getBio() != null) {
             String normalizedBio = newUser.getBio().trim();
             if (normalizedBio.length() > MAX_BIO_LENGTH) {
@@ -649,6 +678,7 @@ public class UserService {
         User user = getUserById(userId);
         boolean shouldRefreshLobbyPresentation = false;
         if (userInput.getPassword() != null) {
+            validatePassword(userInput.getPassword());
             user.setPassword(userInput.getPassword());
         }
         if (userInput.getBio() != null) {
@@ -730,14 +760,15 @@ public class UserService {
     }
 // schauen ob username bereits existier und ob PW korrekt ist, wenn nicht unauthorized fehler, falls
     // alles gut dann wird stauts auf online gesetzet
-    public User loginUser(String username, String password) {User user = userRepository.findByUsername(username);
+    public User loginUser(String username, String password) {
+        String normalizedUsername = username == null ? "" : username.trim();
+        if (normalizedUsername.isEmpty() || password == null) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials");
+        }
+        User user = userRepository.findByUsername(normalizedUsername);
         if (user == null || !user.getPassword().equals(password)) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials");
         }
-// stimmt pw?
-        if (!user.getPassword().equals(password)) {
-        throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
-    }
 
 // falls ja status ändern zu online
         user.setStatus(resolveStatusForLogin(user.getId()));

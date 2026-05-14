@@ -1,12 +1,23 @@
 package ch.uzh.ifi.hase.soprafs26.rest.dto; // sagt java dass diese Klasse zum DTO paket gehört
 
 import ch.uzh.ifi.hase.soprafs26.constant.UserStatus;
+import ch.uzh.ifi.hase.soprafs26.util.AuthValidationRules;
 import java.util.List;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
 // dto = Data Transfer Object = Daten die durchs Netzwerk geschickt werden
 public class UserPutDTO {
 
+    @Size(
+            min = AuthValidationRules.PASSWORD_MIN_LENGTH,
+            max = AuthValidationRules.PASSWORD_MAX_LENGTH,
+            message = "Password must be between 8 and 32 characters long"
+    )
+    @Pattern(
+            regexp = AuthValidationRules.PASSWORD_REGEX,
+            message = "Password must include 1 uppercase, 1 special symbol, and only ASCII characters (no spaces)"
+    )
     private String password; // für wenn der User ein neues Passwort machen möchte
     // private weil es nur innerhalb dieser Klasse direkt zugänglich ist
     private UserStatus status; // damit das passwort auf offline gesetzt werden kann bei logout

@@ -1,28 +1,28 @@
 package ch.uzh.ifi.hase.soprafs26.controller;
 
 import org.springframework.http.HttpStatus;
-import org.springframework.http.HttpStatusCode;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
-import ch.uzh.ifi.hase.soprafs26.entity.Game;
 import ch.uzh.ifi.hase.soprafs26.entity.Session;
 import ch.uzh.ifi.hase.soprafs26.entity.User;
+import ch.uzh.ifi.hase.soprafs26.rest.dto.AuthRulesDTO;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.FriendOnlineSummaryDTO;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.FriendRequestIncomingDTO;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.SessionHistoryDTO;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.UserGetDTO;
+import ch.uzh.ifi.hase.soprafs26.rest.dto.UserLoginDTO;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.UserPostDTO;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.UserPutDTO;
 import ch.uzh.ifi.hase.soprafs26.rest.mapper.DTOMapper;
 import ch.uzh.ifi.hase.soprafs26.service.UserService;
 import ch.uzh.ifi.hase.soprafs26.service.HistoryService;
 import ch.uzh.ifi.hase.soprafs26.repository.UserRepository;
+import ch.uzh.ifi.hase.soprafs26.util.AuthValidationRules;
 import jakarta.validation.Valid;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 import java.nio.charset.StandardCharsets;
 import java.net.URLDecoder;
 
@@ -107,10 +107,38 @@ public class UserController {
     @PostMapping("/login")
     @ResponseStatus(HttpStatus.OK)
     @ResponseBody
-    public UserGetDTO loginUser(@RequestBody UserPostDTO userPostDTO) {
+    public UserGetDTO loginUser(@Valid @RequestBody UserLoginDTO userPostDTO) {
         // @RequestBody holt username und passwort aus dem request body
         User user = userService.loginUser(userPostDTO.getUsername(), userPostDTO.getPassword()); // credentials werden geprüft
         return DTOMapper.INSTANCE.convertEntityToUserGetDTO(user); // eingeloggten user ans frontend senden
+    }
+
+    @GetMapping("/auth/rules")
+    @ResponseStatus(HttpStatus.OK)
+    @ResponseBody
+    public AuthRulesDTO getAuthRules() {
+        AuthRulesDTO rules = new AuthRulesDTO();
+
+        AuthRulesDTO.UsernameRulesDTO usernameRules = new AuthRulesDTO.UsernameRulesDTO();
+        usernameRules.setMinLength(AuthValidationRules.USERNAME_MIN_LENGTH);
+        usernameRules.setMaxLength(AuthValidationRules.USERNAME_MAX_LENGTH);
+        usernameRules.setPattern(AuthValidationRules.USERNAME_REGEX);
+        usernameRules.setAllowedCharactersPattern(AuthValidationRules.USERNAME_ALLOWED_CHAR_REGEX);
+        usernameRules.setHint(AuthValidationRules.USERNAME_HINT);
+
+        AuthRulesDTO.PasswordRulesDTO passwordRules = new AuthRulesDTO.PasswordRulesDTO();
+        passwordRules.setMinLength(AuthValidationRules.PASSWORD_MIN_LENGTH);
+        passwordRules.setMaxLength(AuthValidationRules.PASSWORD_MAX_LENGTH);
+        passwordRules.setPattern(AuthValidationRules.PASSWORD_REGEX);
+        passwordRules.setAllowedCharactersPattern(AuthValidationRules.PASSWORD_ALLOWED_CHAR_REGEX);
+        passwordRules.setHint(AuthValidationRules.PASSWORD_HINT);
+        passwordRules.setAsciiOnly(true);
+        passwordRules.setRequiresUppercase(true);
+        passwordRules.setRequiresSpecialSymbol(true);
+
+        rules.setUsername(usernameRules);
+        rules.setPassword(passwordRules);
+        return rules;
     }
 
 	// endpoint according to REST interface table
