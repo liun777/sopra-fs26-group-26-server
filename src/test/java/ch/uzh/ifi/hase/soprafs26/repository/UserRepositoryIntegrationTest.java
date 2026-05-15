@@ -72,9 +72,36 @@ public class UserRepositoryIntegrationTest {
     	user2.setStatus(UserStatus.OFFLINE);
 
     	// then
-    	assertThrows(PersistenceException.class, () -> {
+		assertThrows(PersistenceException.class, () -> {
         	entityManager.persist(user2);
         	entityManager.flush();
     	});
+	}
+
+	// #124: database persistence of game stats field values works
+	@Test
+	public void saveUser_gameStatsFields_databasePersistenceWorks() {
+		User user = new User();
+		user.setName("Stats User");
+		user.setUsername("statsuser");
+		user.setToken("stats-token");
+		user.setPassword("pw");
+		user.setCreationDate(java.time.LocalDate.now());
+		user.setStatus(UserStatus.OFFLINE);
+		user.setGamesPlayed(12);
+		user.setGamesWon(7);
+		user.setGamesLost(5);
+		user.setTotalPointsAccumulated(340);
+
+		entityManager.persist(user);
+		entityManager.flush();
+		entityManager.clear();
+
+		User loaded = userRepository.findById(user.getId()).orElseThrow();
+
+		assertEquals(12, loaded.getGamesPlayed());
+		assertEquals(7, loaded.getGamesWon());
+		assertEquals(5, loaded.getGamesLost());
+		assertEquals(340, loaded.getTotalPointsAccumulated());
 	}
 }
