@@ -1109,6 +1109,14 @@ public class LobbyService {
             List<Long> gamePlayerIds,
             List<Long> continueRematchPlayerIds,
             List<Long> freshRematchPlayerIds) {
+        handleRoundResolvedForGamePlayers(gamePlayerIds, continueRematchPlayerIds, freshRematchPlayerIds, null);
+    }
+
+    public void handleRoundResolvedForGamePlayers(
+            List<Long> gamePlayerIds,
+            List<Long> continueRematchPlayerIds,
+            List<Long> freshRematchPlayerIds,
+            Long freshRematchRequesterUserId) {
         if (gamePlayerIds == null || gamePlayerIds.isEmpty()) {
             return;
         }
@@ -1196,7 +1204,11 @@ public class LobbyService {
         if (!effectiveFreshPlayers.isEmpty()) {
             Lobby freshLobby = new Lobby();
             freshLobby.setSessionId(generateUniqueSessionId());
-            freshLobby.setSessionHostUserId(effectiveFreshPlayers.get(0));
+            Long freshHostUserId = effectiveFreshPlayers.get(0);
+            if (freshRematchRequesterUserId != null && effectiveFreshPlayers.contains(freshRematchRequesterUserId)) {
+                freshHostUserId = freshRematchRequesterUserId;
+            }
+            freshLobby.setSessionHostUserId(freshHostUserId);
             freshLobby.setIsPublic(templateIsPublic);
             freshLobby.setStatus("WAITING");
             freshLobby.setPlayerIds(new ArrayList<>(effectiveFreshPlayers));

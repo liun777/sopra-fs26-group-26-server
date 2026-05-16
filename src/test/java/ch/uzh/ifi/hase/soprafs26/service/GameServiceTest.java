@@ -1573,6 +1573,48 @@ public class GameServiceTest {
     }
 
     @Test
+    void submitRematchDecision_twoFreshVotes_firstFreshVoterIsHost() {
+        User user1 = new User();
+        user1.setId(1L);
+        User user2 = new User();
+        user2.setId(2L);
+        Mockito.when(userRepository.findByToken("t1")).thenReturn(user1);
+        Mockito.when(userRepository.findByToken("t2")).thenReturn(user2);
+
+        Game game = new Game();
+        game.setId("g-rematch-fresh-host");
+        game.setStatus(GameStatus.ROUND_AWAITING_REMATCH);
+        game.setOrderedPlayerIds(new ArrayList<>(List.of(1L, 2L)));
+        game.setRematchDecisionByUserId(new HashMap<>());
+
+        // when game repository is queried for our game, return it
+        Mockito.when(gameRepository.findById("g-rematch-fresh-host")).thenReturn(Optional.of(game));
+        // when we save a game via repository, return it
+        Mockito.when(gameRepository.save(Mockito.any(Game.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        // first fresh rematch request
+        gameService.submitRematchDecision("g-rematch-fresh-host", "t2", GameService.REMATCH_DECISION_FRESH);
+        // fresh rematch requester id is correct
+        assertEquals(2L, game.getFreshRematchRequesterUserId());
+
+        // second fresh rematch request
+        gameService.submitRematchDecision("g-rematch-fresh-host", "t1", GameService.REMATCH_DECISION_FRESH);
+
+        // verify that the lobby service method handleRoundResolvedForGamePlayers was called with following arguments:
+        // orderedPlayers: 1, 2
+        // continuePlayers: empty 
+        // freshPlayers: 1, 2
+        // freshRematchRequesterUserId: 2
+        Mockito.verify(lobbyService).handleRoundResolvedForGamePlayers(
+                eq(List.of(1L, 2L)),
+                eq(List.of()),
+                eq(List.of(1L, 2L)),
+                eq(2L));
+        // verify that fresh rematch requester id is reset to null for further gameplay
+        assertNull(game.getFreshRematchRequesterUserId());
+    }
+
+    @Test
     void resolveRematchDecision_totalScoreHits100Again_noSecondReductionForSamePlayer() throws Exception {
         Game game = new Game();
         game.setId("g-91-once");

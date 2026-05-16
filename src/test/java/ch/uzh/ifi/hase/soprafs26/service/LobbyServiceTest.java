@@ -600,6 +600,142 @@ public class LobbyServiceTest {
 	}
 
 	@Test
+	public void handleRoundResolvedForGamePlayers_twoFreshVotes_usesFreshRematchRequesterAsHost() {
+		Lobby playingLobby = new Lobby();
+		playingLobby.setId(12L);
+		playingLobby.setSessionId("PLAY-FRESH-HOST");
+		playingLobby.setSessionHostUserId(1L);
+		playingLobby.setStatus("PLAYING");
+		playingLobby.setIsPublic(true);
+		playingLobby.setPlayerIds(new ArrayList<>(List.of(1L, 2L, 3L)));
+		playingLobby.setAfkTimeoutSeconds(360L);
+		playingLobby.setInitialPeekSeconds(12L);
+		playingLobby.setTurnSeconds(25L);
+		playingLobby.setAbilityRevealSeconds(7L);
+		playingLobby.setAbilitySwapSeconds(13L);
+		playingLobby.setAbsentRoundPoints(22L);
+		playingLobby.setWebsocketGraceSeconds(333L);
+		// when we query the repository for the lobby with status PLAYING, return playingLobby
+		Mockito.when(lobbyRepository.findByStatus("PLAYING")).thenReturn(List.of(playingLobby));
+		// lobby service will create a "fresh" lobby with null id -> mock an id for it when its saved
+		Mockito.when(lobbyRepository.save(Mockito.any(Lobby.class))).thenAnswer(invocation -> {
+			Lobby saved = invocation.getArgument(0);
+			if (saved.getId() == null) {
+				saved.setId(1201L);
+			}
+			return saved;
+		});
+
+		User p1 = new User();
+		p1.setId(1L);
+		p1.setStatus(UserStatus.PLAYING);
+		User p2 = new User();
+		p2.setId(2L);
+		p2.setStatus(UserStatus.PLAYING);
+		User p3 = new User();
+		p3.setId(3L);
+		p3.setStatus(UserStatus.PLAYING);
+		// default: when we call findAllById -> return a list of 3 users
+		Mockito.when(userRepository.findAllById(Mockito.anyIterable())).thenReturn(List.of(p1, p2, p3));
+		// when we call saveAll -> return what we pass to the method
+		Mockito.when(userRepository.saveAll(Mockito.anyIterable())).thenAnswer(invocation -> invocation.getArgument(0));
+		// when we call findAllById and pass ids 1 and 2 -> return players 1 and 2
+		Mockito.when(userRepository.findAllById(List.of(1L, 2L))).thenReturn(List.of(p1, p2));
+		// when we call findAllById and pass id 3 -> return player 3
+		Mockito.when(userRepository.findAllById(List.of(3L))).thenReturn(List.of(p3));
+
+		// orderedPlayers: 1, 2, 3
+        // continuePlayers: empty 
+        // freshPlayers: 1, 2
+        // freshRematchRequesterUserId: 2
+		lobbyService.handleRoundResolvedForGamePlayers(
+				List.of(1L, 2L, 3L),
+				List.of(),
+				List.of(1L, 2L),
+				2L
+		);
+
+		// ArgumentCaptor is needed to get the fresh lobby object
+		ArgumentCaptor<Lobby> savedLobbyCaptor = ArgumentCaptor.forClass(Lobby.class);
+		// when lobbyRepository.save is called, capture the saved lobby 
+		Mockito.verify(lobbyRepository).save(savedLobbyCaptor.capture());
+		// get fresh lobby from the captor
+		Lobby freshLobby = savedLobbyCaptor.getValue();
+		assertEquals("WAITING", freshLobby.getStatus());
+		assertEquals(2L, freshLobby.getSessionHostUserId());
+		assertEquals(List.of(1L, 2L), freshLobby.getPlayerIds());
+		// verify that lobbyRepository.delete was called for playingLobby
+		Mockito.verify(lobbyRepository).delete(playingLobby);
+	}
+
+	@Test
+	public void handleRoundResolvedForGamePlayers_twoFreshVotes_invalidFreshRematchRequesterId_fallsBackToHostBasedOnTurnOrder() {
+		Lobby playingLobby = new Lobby();
+		playingLobby.setId(13L);
+		playingLobby.setSessionId("PLAY-FRESH-FALLBACK");
+		playingLobby.setSessionHostUserId(1L);
+		playingLobby.setStatus("PLAYING");
+		playingLobby.setIsPublic(true);
+		playingLobby.setPlayerIds(new ArrayList<>(List.of(1L, 2L, 3L)));
+		playingLobby.setAfkTimeoutSeconds(360L);
+		playingLobby.setInitialPeekSeconds(12L);
+		playingLobby.setTurnSeconds(25L);
+		playingLobby.setAbilityRevealSeconds(7L);
+		playingLobby.setAbilitySwapSeconds(13L);
+		playingLobby.setAbsentRoundPoints(22L);
+		playingLobby.setWebsocketGraceSeconds(333L);
+		// when we query the repository for the lobby with status PLAYING, return playingLobby
+		Mockito.when(lobbyRepository.findByStatus("PLAYING")).thenReturn(List.of(playingLobby));
+		// lobby service will create a "fresh" lobby with null id -> mock an id for it when its saved
+		Mockito.when(lobbyRepository.save(Mockito.any(Lobby.class))).thenAnswer(invocation -> {
+			Lobby saved = invocation.getArgument(0);
+			if (saved.getId() == null) {
+				saved.setId(1301L);
+			}
+			return saved;
+		});
+
+		User p1 = new User();
+		p1.setId(1L);
+		p1.setStatus(UserStatus.PLAYING);
+		User p2 = new User();
+		p2.setId(2L);
+		p2.setStatus(UserStatus.PLAYING);
+		User p3 = new User();
+		p3.setId(3L);
+		p3.setStatus(UserStatus.PLAYING);
+		// default: when we call findAllById -> return a list of 3 users
+		Mockito.when(userRepository.findAllById(Mockito.anyIterable())).thenReturn(List.of(p1, p2, p3));
+		// when we call saveAll -> return what we pass to the method
+		Mockito.when(userRepository.saveAll(Mockito.anyIterable())).thenAnswer(invocation -> invocation.getArgument(0));
+		// when we call findAllById and pass ids 1 and 2 -> return players 1 and 2
+		Mockito.when(userRepository.findAllById(List.of(1L, 2L))).thenReturn(List.of(p1, p2));
+		// when we call findAllById and pass id 3 -> return player 3
+		Mockito.when(userRepository.findAllById(List.of(3L))).thenReturn(List.of(p3));
+
+		// orderedPlayers: 1, 2, 3
+        // continuePlayers: empty 
+        // freshPlayers: 1, 2
+        // freshRematchRequesterUserId: 999 (not in the game)
+		lobbyService.handleRoundResolvedForGamePlayers(
+				List.of(1L, 2L, 3L),
+				List.of(),
+				List.of(1L, 2L),
+				999L
+		);
+
+		// ArgumentCaptor is needed to get the fresh lobby object
+		ArgumentCaptor<Lobby> savedLobbyCaptor = ArgumentCaptor.forClass(Lobby.class);
+		// when lobbyRepository.save is called, capture the saved lobby 
+		Mockito.verify(lobbyRepository).save(savedLobbyCaptor.capture());
+		// get fresh lobby from the captor
+		Lobby freshLobby = savedLobbyCaptor.getValue();
+		// verify that the host is 1st user (based on turn order fallback)
+		assertEquals(1L, freshLobby.getSessionHostUserId());
+		assertEquals(List.of(1L, 2L), freshLobby.getPlayerIds());
+	}
+
+	@Test
 	public void findWaitingSessionIdForPlayer_prefersNewestWaitingLobby() {
 		Lobby olderLobby = new Lobby();
 		olderLobby.setId(10L);

@@ -1273,6 +1273,10 @@ public class GameService {
                 game.setRematchDecisionByUserId(decisions);
             }
             decisions.put(user.getId(), normalizedDecision);
+            // first user with FRESH decision is saved as rematch requester
+            if (REMATCH_DECISION_FRESH.equals(normalizedDecision) && game.getFreshRematchRequesterUserId() == null) {
+                game.setFreshRematchRequesterUserId(user.getId());
+            }
             saveGameAndBroadcast(game);
 
             if (decisions.keySet().containsAll(players)) {
@@ -1367,6 +1371,8 @@ public class GameService {
                 .filter(playerId -> decisions != null && REMATCH_DECISION_FRESH.equalsIgnoreCase(decisions.get(playerId)))
                 .toList();
 
+        Long freshRematchRequesterUserId = game.getFreshRematchRequesterUserId();
+
         applyHundredToFiftyReductionIfNeeded(orderedPlayers);
 
         cancelTurnTimer(gameId);
@@ -1375,10 +1381,13 @@ public class GameService {
         game.setCaboCalledByUserId(null);
         game.setCaboForcedByTimeout(false);
         game.setRematchDecisionByUserId(new HashMap<>());
+        // reset to null for further gameplay
+        game.setFreshRematchRequesterUserId(null);
         saveGameAndBroadcast(game);
 
         if (lobbyService != null) {
-            lobbyService.handleRoundResolvedForGamePlayers(orderedPlayers, continuePlayers, freshPlayers);
+            lobbyService.handleRoundResolvedForGamePlayers(
+                    orderedPlayers, continuePlayers, freshPlayers, freshRematchRequesterUserId);
         }
         rematchDecisionTimerCounts.remove(gameId);
         rematchResolutionLocks.remove(gameId);
@@ -1696,6 +1705,8 @@ public class GameService {
             game.setStatus(GameStatus.CABO_REVEAL);
             revealAllInPlayCardsForRoundEnd(game);
             game.setRematchDecisionByUserId(new HashMap<>());
+            // reset to null for further gameplay
+            game.setFreshRematchRequesterUserId(null);
             cancelTurnTimer(gameId);
             saveGameAndBroadcast(game);
             startRoundRevealTimer(gameId);
@@ -1836,6 +1847,8 @@ public class GameService {
 
         game.setStatus(GameStatus.ROUND_AWAITING_REMATCH);
         game.setRematchDecisionByUserId(new HashMap<>());
+        // reset to null for further gameplay
+        game.setFreshRematchRequesterUserId(null);
         saveGameAndBroadcast(game);
         startRematchDecisionTimer(gameId);
     }

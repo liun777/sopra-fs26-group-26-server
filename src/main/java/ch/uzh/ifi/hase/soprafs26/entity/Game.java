@@ -111,6 +111,10 @@ public class Game {
     @Column(nullable = false, unique = false)
     private Map<Long, String> rematchDecisionByUserId = new HashMap<>();
 
+    // first user who requested a FRESH rematch
+    @Column(nullable = true)
+    private Long freshRematchRequesterUserId;
+
     // Last deterministic move event for client-side animation.
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(nullable = true, unique = false)
@@ -254,6 +258,14 @@ public class Game {
     public void setRematchDecisionByUserId(Map<Long, String> rematchDecisionByUserId) {
         this.rematchDecisionByUserId =
                 rematchDecisionByUserId != null ? rematchDecisionByUserId : new HashMap<>();
+    }
+
+    public Long getFreshRematchRequesterUserId() {
+        return freshRematchRequesterUserId;
+    }
+
+    public void setFreshRematchRequesterUserId(Long freshRematchRequesterUserId) {
+        this.freshRematchRequesterUserId = freshRematchRequesterUserId;
     }
 
     public long getTurnSeconds() {
