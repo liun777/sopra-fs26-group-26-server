@@ -4,6 +4,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import ch.uzh.ifi.hase.soprafs26.util.AuthValidationRules;
+import ch.uzh.ifi.hase.soprafs26.validation.ValidPasswordWhenPresent;
 
 // definiert was das frontend ans backend senset, also daten die der user eingegeben hat,
 // enthält alle felder die für registrierung und Login benötigt werden
@@ -26,15 +27,7 @@ public class UserPostDTO {
 	private String username;
 
     @NotBlank(message = "Password is required")
-    @Size(
-            min = AuthValidationRules.PASSWORD_MIN_LENGTH,
-            max = AuthValidationRules.PASSWORD_MAX_LENGTH,
-            message = "Password must be between 8 and 32 characters long"
-    )
-    @Pattern(
-            regexp = AuthValidationRules.CREDENTIAL_FORMAT_REGEX,
-            message = "Password must include 1 uppercase, 1 special symbol, and only ASCII characters (no spaces)"
-    )
+    @ValidPasswordWhenPresent
     private String password;
 
     @Size(max = 180, message = "Bio must be at most 180 characters long")
