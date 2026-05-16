@@ -12,6 +12,7 @@ import ch.uzh.ifi.hase.soprafs26.rest.dto.GameMoveEventDTO;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.GameMoveStepDTO;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.PlayerHandViewDTO;
 import ch.uzh.ifi.hase.soprafs26.service.LobbyService;
+import org.springframework.beans.BeanUtils;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
 
@@ -117,8 +118,7 @@ public class GameStateBroadcastMapper {
             return null;
         }
         GameMoveEventDTO dto = new GameMoveEventDTO();
-        dto.setSequence(event.getSequence());
-        dto.setActorUserId(event.getActorUserId());
+        BeanUtils.copyProperties(event, dto, "primary", "secondary");
         dto.setPrimary(toMoveStepDTO(event.getPrimary()));
         dto.setSecondary(toMoveStepDTO(event.getSecondary()));
         return dto;
@@ -129,14 +129,7 @@ public class GameStateBroadcastMapper {
             return null;
         }
         GameMoveStepDTO dto = new GameMoveStepDTO();
-        dto.setSourceZone(step.getSourceZone());
-        dto.setSourceUserId(step.getSourceUserId());
-        dto.setSourceCardIndex(step.getSourceCardIndex());
-        dto.setTargetZone(step.getTargetZone());
-        dto.setTargetUserId(step.getTargetUserId());
-        dto.setTargetCardIndex(step.getTargetCardIndex());
-        dto.setHidden(step.isHidden());
-        dto.setValue(step.getValue());
+        BeanUtils.copyProperties(step, dto);
         return dto;
     }
 

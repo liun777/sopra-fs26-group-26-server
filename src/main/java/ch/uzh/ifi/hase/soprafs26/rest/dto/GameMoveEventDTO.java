@@ -1,41 +1,20 @@
 package ch.uzh.ifi.hase.soprafs26.rest.dto;
 
-public class GameMoveEventDTO {
-    private long sequence;
-    private Long actorUserId;
-    private GameMoveStepDTO primary;
-    private GameMoveStepDTO secondary;
+import ch.uzh.ifi.hase.soprafs26.entity.GameMoveEvent;
+import ch.uzh.ifi.hase.soprafs26.entity.GameMoveStep;
 
-    public long getSequence() {
-        return sequence;
-    }
 
-    public void setSequence(long sequence) {
-        this.sequence = sequence;
-    }
+public class GameMoveEventDTO extends GameMoveEvent {
 
-    public Long getActorUserId() {
-        return actorUserId;
-    }
-
-    public void setActorUserId(Long actorUserId) {
-        this.actorUserId = actorUserId;
-    }
-
+    @Override
     public GameMoveStepDTO getPrimary() {
-        return primary;
+        GameMoveStep step = super.getPrimary();
+        return step == null ? null : (GameMoveStepDTO) step;
     }
 
-    public void setPrimary(GameMoveStepDTO primary) {
-        this.primary = primary;
-    }
-
+    @Override
     public GameMoveStepDTO getSecondary() {
-        return secondary;
-    }
-
-    public void setSecondary(GameMoveStepDTO secondary) {
-        this.secondary = secondary;
+        GameMoveStep step = super.getSecondary();
+        return step == null ? null : (GameMoveStepDTO) step;
     }
 }
-
