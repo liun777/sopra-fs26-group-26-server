@@ -2363,6 +2363,9 @@ public class GameService {
                 }
             }
 
+            // save winners into session
+            session.setWinnerIds(winners);
+
             // update statistics
             for (User user : participants) {
                 Long userId = user.getId();
