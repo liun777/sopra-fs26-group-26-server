@@ -2280,4 +2280,84 @@ public class GameServiceTest {
         Mockito.verify(sessionRepository, Mockito.never()).save(Mockito.any(Session.class));
     }
 
+    @Test
+    void resumeGame_sessionNotFound_throwsNotFound() {
+        // 1. Setup: Repository returns empty
+        Mockito.when(sessionRepository.findById(99L)).thenReturn(Optional.empty());
+
+        // 2. Action & Assertion
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class, () -> {
+            gameService.resumeGame(99L);
+        });
+
+        assertEquals(HttpStatus.NOT_FOUND, exception.getStatusCode());
+        assertEquals("Session not found", exception.getReason());
+    }
+
+    @Test
+    void resumeGame_sessionEnded_throwsBadRequest() {
+        // 1. Setup: Session exists, but is marked as ended
+        Session endedSession = new Session();
+        endedSession.setEnded(true);
+        Mockito.when(sessionRepository.findById(1L)).thenReturn(Optional.of(endedSession));
+
+        // 2. Action & Assertion
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class, () -> {
+            gameService.resumeGame(1L);
+        });
+
+        assertEquals(HttpStatus.BAD_REQUEST, exception.getStatusCode());
+        assertEquals("Session already finished", exception.getReason());
+    }
+
+    @Test
+    void resumeGame_noPlayers_throwsBadRequest() {
+        // 1. Setup: Session exists, is not ended, but the score map is completely empty
+        Session emptySession = new Session();
+        emptySession.setEnded(false);
+        emptySession.setTotalScoreByUserId(new HashMap<>()); // No players!
+        Mockito.when(sessionRepository.findById(1L)).thenReturn(Optional.of(emptySession));
+
+        // 2. Action & Assertion
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class, () -> {
+            gameService.resumeGame(1L);
+        });
+
+        assertEquals(HttpStatus.BAD_REQUEST, exception.getStatusCode());
+        assertEquals("No players found in this session", exception.getReason());
+    }
+
+    @Test
+    void resumeGame_validSession_startsAndReturnsNewGame() {
+        // 1. Setup: A valid session with 2 players who have scores
+        Session validSession = new Session();
+        validSession.setEnded(false);
+        validSession.setTotalScoreByUserId(Map.of(1L, 50, 2L, 30));
+        Mockito.when(sessionRepository.findById(1L)).thenReturn(Optional.of(validSession));
+
+        // We must mock the game settings because the internal startGame() method will ask for them!
+        Mockito.when(gameSettings.getMinPlayers()).thenReturn(2);
+        Mockito.when(gameSettings.getMaxPlayers()).thenReturn(4);
+        Mockito.when(gameSettings.getStarterCardsPerPlayer()).thenReturn(4);
+
+        // Tell the repository to just return whatever game we try to save
+        Mockito.when(gameRepository.save(Mockito.any(Game.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        // 2. Action
+        Game resumedGame = gameService.resumeGame(1L);
+
+        // 3. Assertion
+        assertNotNull(resumedGame, "The resumed game should not be null");
+        assertEquals(1L, resumedGame.getResumedFromSessionId(), "The session ID should be attached to the new game");
+        
+        // Verify that the new game correctly pulled the players from the session
+        assertEquals(2, resumedGame.getOrderedPlayerIds().size(), "Game should have exactly 2 players");
+        assertTrue(resumedGame.getOrderedPlayerIds().contains(1L), "Player 1 should be in the game");
+        assertTrue(resumedGame.getOrderedPlayerIds().contains(2L), "Player 2 should be in the game");
+        
+        // Verify that the game actually got saved to the database
+        Mockito.verify(gameRepository, Mockito.times(2)).save(Mockito.any(Game.class)); 
+        // Note: times(2) because startGame saves it once, and resumeGame saves it again at the end!
+    }
+
 }
