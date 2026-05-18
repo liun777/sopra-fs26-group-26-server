@@ -3,6 +3,8 @@ package ch.uzh.ifi.hase.soprafs26.controller;
 import ch.uzh.ifi.hase.soprafs26.config.GameMoveAuthorizationInterceptor;
 import ch.uzh.ifi.hase.soprafs26.config.GameMoveWebConfig;
 import ch.uzh.ifi.hase.soprafs26.entity.Game;
+import ch.uzh.ifi.hase.soprafs26.entity.Card;
+import ch.uzh.ifi.hase.soprafs26.constant.GameStatus;
 import ch.uzh.ifi.hase.soprafs26.entity.Lobby;
 import ch.uzh.ifi.hase.soprafs26.service.GameService;
 import ch.uzh.ifi.hase.soprafs26.service.LobbyService;
@@ -20,6 +22,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import org.mockito.Mockito;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
@@ -28,12 +31,14 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.hamcrest.Matchers.is;
 
 import java.util.List;
+import java.util.Optional;
 
 @WebMvcTest(GameController.class)
 @Import({ GameMoveWebConfig.class, GameMoveAuthorizationInterceptor.class })
@@ -170,4 +175,372 @@ public class GameControllerTest {
                 
                 verify(gameService, times(1)).moveCallCabo(eq(gameId), eq(token));
         }
+
+        @Test
+    void getActiveGameForCurrentUser_gameFoundWithStatus_returnsGameIdAndStatus() throws Exception {
+        // 1. Setup
+        Game game = new Game();
+        game.setId("game-123");
+        game.setStatus(GameStatus.ROUND_ACTIVE); 
+        
+        Mockito.when(gameService.getActiveGameForToken("valid-token")).thenReturn(Optional.of(game));
+
+        // 2. Action & 3. Assertion
+        mockMvc.perform(get("/games/active")
+                .header("Authorization", "valid-token"))
+               .andExpect(status().isOk())
+               .andExpect(jsonPath("$.gameId", is("game-123")))
+               .andExpect(jsonPath("$.status", is("ROUND_ACTIVE")));
+    }
+
+    @Test
+    void getActiveGameForCurrentUser_gameFoundNullStatus_returnsOnlyGameId() throws Exception {
+        // 1. Setup
+        Game game = new Game();
+        game.setId("game-123");
+        game.setStatus(null); // Explicitly null to hit the if-statement bypass
+        
+        Mockito.when(gameService.getActiveGameForToken("valid-token")).thenReturn(Optional.of(game));
+
+        // 2. Action & 3. Assertion
+        mockMvc.perform(get("/games/active")
+                .header("Authorization", "valid-token"))
+               .andExpect(status().isOk())
+               .andExpect(jsonPath("$.gameId", is("game-123")))
+               .andExpect(jsonPath("$.status").doesNotExist()); // Proves the status key wasn't added
+    }
+
+    @Test
+    void getActiveGameForCurrentUser_noActiveGame_returnsEmptyMap() throws Exception {
+        // 1. Setup
+        Mockito.when(gameService.getActiveGameForToken("valid-token")).thenReturn(Optional.empty());
+
+        // 2. Action & 3. Assertion
+        mockMvc.perform(get("/games/active")
+                .header("Authorization", "valid-token"))
+               .andExpect(status().isOk())
+               .andExpect(jsonPath("$.length()", is(0))); // Proves the returned JSON object {} is empty
+    }
+
+    @Test
+    void getActiveGameForCurrentUser_invalidToken_returnsUnauthorized() throws Exception {
+        // 1. Setup
+        Mockito.when(gameService.getActiveGameForToken("bad-token"))
+               .thenThrow(new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid token"));
+
+        // 2. Action & 3. Assertion
+        mockMvc.perform(get("/games/active")
+                .header("Authorization", "bad-token"))
+               .andExpect(status().isUnauthorized()); // Expect a 401 response
+    }
+
+    @Test
+    void getDiscardPileTopCard_cardExists_returnsCard() throws Exception {
+        // 1. Setup: Create a fake card to return
+        Card mockCard = new Card();
+        mockCard.setCode("AS"); // Ace of Spades
+        mockCard.setVisibility(true);
+        mockCard.setValue(1);
+        
+        Mockito.when(gameService.getDiscardPileTopCard("game-123")).thenReturn(mockCard);
+
+        // 2. Action & 3. Assertion
+        mockMvc.perform(get("/games/game-123/discard-pile/top"))
+               .andExpect(status().isOk())
+               .andExpect(jsonPath("$.code", is("AS")))
+               .andExpect(jsonPath("$.visibility", is(true)))
+               .andExpect(jsonPath("$.value", is(1)));
+    }
+
+    @Test
+    void getDiscardPileTopCard_pileEmpty_returnsEmptyBody() throws Exception {
+        // 1. Setup: The service returns null when the pile is empty
+        Mockito.when(gameService.getDiscardPileTopCard("game-123")).thenReturn(null);
+
+        // 2. Action & 3. Assertion
+        mockMvc.perform(get("/games/game-123/discard-pile/top"))
+               .andExpect(status().isOk())
+               .andExpect(jsonPath("$").doesNotExist()); // Proves the JSON body is completely empty
+    }
+
+    @Test
+    void getDiscardPileTopCard_gameNotFound_returnsNotFound() throws Exception {
+        // 1. Setup: The service throws a 404 exception (just like we tested in the service layer!)
+        Mockito.when(gameService.getDiscardPileTopCard("invalid-game"))
+               .thenThrow(new ResponseStatusException(HttpStatus.NOT_FOUND, "Game not found"));
+
+        // 2. Action & 3. Assertion
+        mockMvc.perform(get("/games/invalid-game/discard-pile/top"))
+               .andExpect(status().isNotFound()); // Proves the controller correctly passes the 404 to the frontend
+    }
+
+    @Test
+    void moveAbilitySwap_validRequest_returnsOk() throws Exception {
+        // 1. Setup: A perfect JSON body
+        String validJsonBody = """
+                {
+                    "ownCardIndex": 0,
+                    "targetUserId": 2,
+                    "targetCardIndex": 1
+                }
+                """;
+
+        // gameService.moveAbilitySwap returns void, so Mockito will naturally do nothing (which is success)
+
+        // 2. Action & 3. Assertion
+        mockMvc.perform(post("/games/game-123/abilities/swap")
+                .header("Authorization", "valid-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(validJsonBody))
+               .andExpect(status().isOk());
+               
+        // Verify the service was called with the exact parsed integers and longs!
+        Mockito.verify(gameService, Mockito.times(1))
+               .moveAbilitySwap("game-123", "valid-token", 0, 2L, 1);
+    }
+
+    @Test
+    void moveAbilitySwap_missingField_returnsBadRequest() throws Exception {
+        // 1. Setup: Missing the 'ownCardIndex' field completely
+        String missingFieldJson = """
+                {
+                    "targetUserId": 2,
+                    "targetCardIndex": 1
+                }
+                """;
+
+        // 2. Action & 3. Assertion
+        mockMvc.perform(post("/games/game-123/abilities/swap")
+                .header("Authorization", "valid-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(missingFieldJson))
+               .andExpect(status().isBadRequest()); 
+               // Expect 400 Bad Request because requireIntBodyField will throw an exception
+    }
+
+    @Test
+    void moveAbilitySwap_invalidDataType_returnsBadRequest() throws Exception {
+        // 1. Setup: targetUserId is a word instead of a number
+        String invalidTypeJson = """
+                {
+                    "ownCardIndex": 0,
+                    "targetUserId": "not-a-number", 
+                    "targetCardIndex": 1
+                }
+                """;
+
+        // 2. Action & 3. Assertion
+        mockMvc.perform(post("/games/game-123/abilities/swap")
+                .header("Authorization", "valid-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(invalidTypeJson))
+               .andExpect(status().isBadRequest());
+               // Expect 400 Bad Request because requireLongBodyField will fail to parse "not-a-number"
+    }
+
+    @Test
+    void completeRoundWithoutRematch_returnsValidSessionId_returnsMapWithId() throws Exception {
+        // 1. Setup: Service returns a valid session ID
+        Mockito.when(gameService.completeRoundWithoutRematch("game-123", "valid-token"))
+               .thenReturn("session-999");
+
+        // 2. Action & 3. Assertion
+        mockMvc.perform(post("/games/game-123/rematch/no")
+                .header("Authorization", "valid-token"))
+               .andExpect(status().isOk())
+               .andExpect(jsonPath("$.sessionId", is("session-999"))); // Map.of("sessionId", "session-999")
+    }
+
+    @Test
+    void completeRoundWithoutRematch_returnsNull_returnsEmptyMap() throws Exception {
+        // 1. Setup: Service returns null
+        Mockito.when(gameService.completeRoundWithoutRematch("game-123", "valid-token"))
+               .thenReturn(null);
+
+        // 2. Action & 3. Assertion
+        mockMvc.perform(post("/games/game-123/rematch/no")
+                .header("Authorization", "valid-token"))
+               .andExpect(status().isOk())
+               .andExpect(jsonPath("$.length()", is(0))); // Map.of() produces an empty JSON object {}
+    }
+
+    @Test
+    void completeRoundWithoutRematch_returnsBlankString_returnsEmptyMap() throws Exception {
+        // 1. Setup: Service returns a string that is just spaces
+        Mockito.when(gameService.completeRoundWithoutRematch("game-123", "valid-token"))
+               .thenReturn("   ");
+
+        // 2. Action & 3. Assertion
+        mockMvc.perform(post("/games/game-123/rematch/no")
+                .header("Authorization", "valid-token"))
+               .andExpect(status().isOk())
+               .andExpect(jsonPath("$.length()", is(0))); // isBlank() catches this and returns Map.of()
+    }
+
+    @Test
+    void completeRoundWithoutRematch_invalidToken_returnsUnauthorized() throws Exception {
+        // 1. Setup: Service rejects the token
+        Mockito.when(gameService.completeRoundWithoutRematch("game-123", "bad-token"))
+               .thenThrow(new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid token"));
+
+        // 2. Action & 3. Assertion
+        mockMvc.perform(post("/games/game-123/rematch/no")
+                .header("Authorization", "bad-token"))
+               .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void submitRematchDecision_validDecisionProvided_returnsNoContent() throws Exception {
+        // 1. Setup
+        String jsonBody = """
+                {
+                    "decision": "FRESH"
+                }
+                """;
+
+        // 2. Action & 3. Assertion
+        mockMvc.perform(post("/games/game-123/rematch/decision")
+                .header("Authorization", "valid-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(jsonBody))
+               .andExpect(status().isNoContent()); // 204 No Content
+
+        // Verify the modern decision was passed exactly as-is to the service
+        Mockito.verify(gameService, Mockito.times(1))
+               .submitRematchDecision("game-123", "valid-token", "FRESH");
+    }
+
+    @Test
+    void submitRematchDecision_legacyRematchTrue_translatesToContinue() throws Exception {
+        // 1. Setup
+        String jsonBody = """
+                {
+                    "rematch": true
+                }
+                """;
+
+        // 2. Action & 3. Assertion
+        mockMvc.perform(post("/games/game-123/rematch/decision")
+                .header("Authorization", "valid-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(jsonBody))
+               .andExpect(status().isNoContent());
+
+        // Verify the boolean `true` was translated to GameService.REMATCH_DECISION_CONTINUE
+        Mockito.verify(gameService, Mockito.times(1))
+               .submitRematchDecision("game-123", "valid-token", GameService.REMATCH_DECISION_CONTINUE);
+    }
+
+    @Test
+    void submitRematchDecision_legacyRematchFalse_translatesToNone() throws Exception {
+        // 1. Setup
+        String jsonBody = """
+                {
+                    "rematch": false
+                }
+                """;
+
+        // 2. Action & 3. Assertion
+        mockMvc.perform(post("/games/game-123/rematch/decision")
+                .header("Authorization", "valid-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(jsonBody))
+               .andExpect(status().isNoContent());
+
+        // Verify the boolean `false` was translated to GameService.REMATCH_DECISION_NONE
+        Mockito.verify(gameService, Mockito.times(1))
+               .submitRematchDecision("game-123", "valid-token", GameService.REMATCH_DECISION_NONE);
+    }
+
+    @Test
+    void submitRematchDecision_missingFields_returnsBadRequest() throws Exception {
+        // 1. Setup: An empty JSON object {}
+        String emptyJsonBody = "{}";
+
+        // 2. Action & 3. Assertion
+        mockMvc.perform(post("/games/game-123/rematch/decision")
+                .header("Authorization", "valid-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(emptyJsonBody))
+               .andExpect(status().isBadRequest()); // 400 Bad Request
+               
+        // Verify the service was NEVER called because the controller rejected it
+        Mockito.verify(gameService, Mockito.never())
+               .submitRematchDecision(Mockito.anyString(), Mockito.anyString(), Mockito.anyString());
+    }
+
+    @Test
+    void getPostRoundLobby_returnsValidSessionId_returnsMapWithId() throws Exception {
+        // 1. Setup
+        Mockito.when(gameService.getPostRoundLobbySessionForToken("game-123", "valid-token"))
+               .thenReturn("session-999");
+
+        // 2. Action & 3. Assertion
+        mockMvc.perform(get("/games/game-123/post-round-lobby")
+                .header("Authorization", "valid-token"))
+               .andExpect(status().isOk())
+               .andExpect(jsonPath("$.sessionId", is("session-999")));
+    }
+
+    @Test
+    void getPostRoundLobby_returnsNull_returnsEmptyMap() throws Exception {
+        // 1. Setup
+        Mockito.when(gameService.getPostRoundLobbySessionForToken("game-123", "valid-token"))
+               .thenReturn(null);
+
+        // 2. Action & 3. Assertion
+        mockMvc.perform(get("/games/game-123/post-round-lobby")
+                .header("Authorization", "valid-token"))
+               .andExpect(status().isOk())
+               .andExpect(jsonPath("$.length()", is(0)));
+    }
+
+    @Test
+    void getPostRoundLobby_returnsBlankString_returnsEmptyMap() throws Exception {
+        // 1. Setup
+        Mockito.when(gameService.getPostRoundLobbySessionForToken("game-123", "valid-token"))
+               .thenReturn("   ");
+
+        // 2. Action & 3. Assertion
+        mockMvc.perform(get("/games/game-123/post-round-lobby")
+                .header("Authorization", "valid-token"))
+               .andExpect(status().isOk())
+               .andExpect(jsonPath("$.length()", is(0)));
+    }
+
+    @Test
+    void getPostRoundLobby_invalidToken_returnsUnauthorized() throws Exception {
+        // 1. Setup
+        Mockito.when(gameService.getPostRoundLobbySessionForToken("game-123", "bad-token"))
+               .thenThrow(new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid token"));
+
+        // 2. Action & 3. Assertion
+        mockMvc.perform(get("/games/game-123/post-round-lobby")
+                .header("Authorization", "bad-token"))
+               .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void getRematchConfig_invalidToken_returnsUnauthorized() throws Exception {
+        Mockito.when(gameService.getRematchDecisionSeconds("game-123", "bad-token"))
+               .thenThrow(new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid token"));
+
+        mockMvc.perform(get("/games/game-123/rematch/config")
+                .header("Authorization", "bad-token"))
+               .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void getRematchConfig_validRequest_returnsDecisionSeconds() throws Exception {
+        // 1. Setup: Service returns 15 seconds
+        Mockito.when(gameService.getRematchDecisionSeconds("game-123", "valid-token"))
+               .thenReturn(15L);
+
+        // 2. Action & 3. Assertion
+        mockMvc.perform(get("/games/game-123/rematch/config")
+                .header("Authorization", "valid-token"))
+               .andExpect(status().isOk())
+               .andExpect(jsonPath("$.decisionSeconds", is(15))); // The exact key and the exact value!
+    }
+
 }
