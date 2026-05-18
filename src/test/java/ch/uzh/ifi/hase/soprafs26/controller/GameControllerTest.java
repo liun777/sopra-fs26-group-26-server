@@ -4,6 +4,7 @@ import ch.uzh.ifi.hase.soprafs26.config.GameMoveAuthorizationInterceptor;
 import ch.uzh.ifi.hase.soprafs26.config.GameMoveWebConfig;
 import ch.uzh.ifi.hase.soprafs26.entity.Game;
 import ch.uzh.ifi.hase.soprafs26.entity.Card;
+import ch.uzh.ifi.hase.soprafs26.rest.dto.PeekSelectionDTO;
 import ch.uzh.ifi.hase.soprafs26.constant.GameStatus;
 import ch.uzh.ifi.hase.soprafs26.entity.Lobby;
 import ch.uzh.ifi.hase.soprafs26.service.GameService;
@@ -541,6 +542,189 @@ public class GameControllerTest {
                 .header("Authorization", "valid-token"))
                .andExpect(status().isOk())
                .andExpect(jsonPath("$.decisionSeconds", is(15))); // The exact key and the exact value!
+    }
+
+    @Test
+    void moveCardToDiscardPile_validRequest_returnsUpdatedGame() throws Exception {
+        // 1. Setup
+        Game mockGame = new Game();
+        mockGame.setId("game-123");
+        // We only need to mock getGameById, because the other two void methods will succeed by doing nothing!
+        Mockito.when(gameService.getGameById("game-123")).thenReturn(mockGame);
+
+        // 2. Action & 3. Assertion
+        mockMvc.perform(post("/games/game-123/drawn-card/discard")
+                .header("Authorization", "valid-token"))
+               .andExpect(status().isOk())
+               .andExpect(jsonPath("$.id", is("game-123")));
+
+        // Verify that the two void methods were actually called in the correct order
+        Mockito.verify(gameService, Mockito.times(1)).verifyMoveCallerIsCurrentPlayer("game-123", "valid-token");
+        Mockito.verify(gameService, Mockito.times(1)).moveCardToDiscardPile("game-123", "valid-token");
+    }
+
+    @Test
+    void moveCardToDiscardPile_notCurrentPlayer_throwsForbidden() throws Exception {
+        // 1. Setup: Use doThrow() for the void method to simulate a security block
+        Mockito.doThrow(new ResponseStatusException(HttpStatus.FORBIDDEN, "Not your turn"))
+               .when(gameService).verifyMoveCallerIsCurrentPlayer("game-123", "bad-token");
+
+        // 2. Action & 3. Assertion
+        mockMvc.perform(post("/games/game-123/drawn-card/discard")
+                .header("Authorization", "bad-token"))
+               .andExpect(status().isForbidden());
+
+        // Verify that because the first check failed, the actual move logic was NEVER executed
+        Mockito.verify(gameService, Mockito.never()).moveCardToDiscardPile(Mockito.anyString(), Mockito.anyString());
+        Mockito.verify(gameService, Mockito.never()).getGameById(Mockito.anyString());
+    }
+
+    @Test
+    void moveCardToDiscardPile_gameNotFound_throwsNotFound() throws Exception {
+        // 1. Setup: Simulate the game missing when it tries to return it at the very end
+        Mockito.when(gameService.getGameById("invalid-game"))
+               .thenThrow(new ResponseStatusException(HttpStatus.NOT_FOUND, "Game not found"));
+
+        // 2. Action & 3. Assertion
+        mockMvc.perform(post("/games/invalid-game/drawn-card/discard")
+                .header("Authorization", "valid-token"))
+               .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void selectPeekCards_validRequest_returnsNoContent() throws Exception {
+        // 1. Setup: A basic JSON payload (even an empty object works to prove mapping succeeds)
+        String jsonBody = """
+                {
+                    "targetUserId": 2,
+                    "targetCardIndex": 1
+                }
+                """;
+
+        // 2. Action & 3. Assertion
+        mockMvc.perform(post("/games/game-123/peek")
+                .header("Authorization", "valid-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(jsonBody))
+               .andExpect(status().isNoContent()); // 204 No Content
+
+        // Verify that the service was called exactly once with the correct gameId and token.
+        // We use Mockito.any() for the DTO because Spring creates a brand new instance of it during the request.
+        Mockito.verify(gameService, Mockito.times(1))
+               .applyPeek(Mockito.eq("game-123"), Mockito.eq("valid-token"), Mockito.any(PeekSelectionDTO.class));
+    }
+
+    @Test
+    void selectPeekCards_serviceRejectsPeek_returnsForbidden() throws Exception {
+        // 1. Setup: Simulate the service blocking the peek (e.g., user already peeked, or wrong phase)
+        Mockito.doThrow(new ResponseStatusException(HttpStatus.FORBIDDEN, "Cannot peek right now"))
+               .when(gameService).applyPeek(Mockito.eq("game-123"), Mockito.eq("invalid-token"), Mockito.any(PeekSelectionDTO.class));
+
+        String jsonBody = "{}";
+
+        // 2. Action & 3. Assertion
+        mockMvc.perform(post("/games/game-123/peek")
+                .header("Authorization", "invalid-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(jsonBody))
+               .andExpect(status().isForbidden()); // 403 Forbidden
+    }
+    
+    @Test
+    void selectPeekCards_missingBody_returnsBadRequest() throws Exception {
+        // 1. Setup: Sending the request without any body at all
+        // 2. Action & 3. Assertion
+        mockMvc.perform(post("/games/game-123/peek")
+                .header("Authorization", "valid-token")
+                .contentType(MediaType.APPLICATION_JSON)) // Notice: No .content(...) !
+               .andExpect(status().isBadRequest()); // Spring automatically returns 400 when a @RequestBody is missing
+
+        // Verify the service was never touched because Spring blocked it at the controller level
+        Mockito.verify(gameService, Mockito.never())
+               .applyPeek(Mockito.anyString(), Mockito.anyString(), Mockito.any());
+    }
+
+    @Test
+    void getDrawnCard_validRequest_returnsDrawnCard() throws Exception {
+        // 1. Setup: Create the mock card the service will return
+        Card mockCard = new Card();
+        mockCard.setCode("KH"); // King of Hearts
+        mockCard.setValue(13);
+        mockCard.setVisibility(true);
+
+        Mockito.when(gameService.getDrawnCard("game-123", "valid-token"))
+               .thenReturn(mockCard);
+
+        // 2. Action & 3. Assertion
+        mockMvc.perform(get("/games/game-123/drawn-card")
+                .header("Authorization", "valid-token"))
+               .andExpect(status().isOk()) // 200 OK
+               .andExpect(jsonPath("$.code", is("KH")))
+               .andExpect(jsonPath("$.value", is(13)))
+               .andExpect(jsonPath("$.visibility", is(true)));
+    }
+
+    @Test
+    void getDrawnCard_invalidToken_returnsUnauthorized() throws Exception {
+        // 1. Setup: Simulate the service rejecting the token
+        Mockito.when(gameService.getDrawnCard("game-123", "bad-token"))
+               .thenThrow(new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid token"));
+
+        // 2. Action & 3. Assertion
+        mockMvc.perform(get("/games/game-123/drawn-card")
+                .header("Authorization", "bad-token"))
+               .andExpect(status().isUnauthorized()); // 401 Unauthorized
+    }
+
+    @Test
+    void skipAbility_validRequest_returnsNoContent() throws Exception {
+        // 1. Setup
+        // We don't need to mock anything for gameService.skipAbility because void mock methods 
+        // automatically do nothing (which means success) by default!
+
+        // 2. Action & 3. Assertion
+        mockMvc.perform(post("/games/game-123/abilities/skip")
+                .header("Authorization", "valid-token"))
+               .andExpect(status().isNoContent()); // 204 No Content
+
+        // Verify the service was called with the exact parameters from the path and header
+        Mockito.verify(gameService, Mockito.times(1)).skipAbility("game-123", "valid-token");
+    }
+
+    @Test
+    void skipAbility_notAllowed_throwsForbidden() throws Exception {
+        // 1. Setup: Simulate the service rejecting the action
+        Mockito.doThrow(new ResponseStatusException(HttpStatus.FORBIDDEN, "Not allowed to skip right now"))
+               .when(gameService).skipAbility("game-123", "bad-token");
+
+        // 2. Action & 3. Assertion
+        mockMvc.perform(post("/games/game-123/abilities/skip")
+                .header("Authorization", "bad-token"))
+               .andExpect(status().isForbidden()); // 403 Forbidden
+    }
+
+    @Test
+    void resumeGame_sessionNotFound_throwsNotFound() throws Exception {
+        // 1. Setup: The service cannot find the session ID in the database
+        Mockito.when(gameService.resumeGame(99L))
+               .thenThrow(new ResponseStatusException(HttpStatus.NOT_FOUND, "Session not found"));
+
+        // 2. Action & 3. Assertion
+        mockMvc.perform(post("/games/resume/99")
+                .contentType(MediaType.APPLICATION_JSON))
+               .andExpect(status().isNotFound()); // Expecting 404 NOT FOUND
+    }
+
+    @Test
+    void resumeGame_sessionInvalidOrEnded_throwsBadRequest() throws Exception {
+        // 1. Setup: The session exists, but no players are in it or it already ended
+        Mockito.when(gameService.resumeGame(99L))
+               .thenThrow(new ResponseStatusException(HttpStatus.BAD_REQUEST, "Session already finished"));
+
+        // 2. Action & 3. Assertion
+        mockMvc.perform(post("/games/resume/99")
+                .contentType(MediaType.APPLICATION_JSON))
+               .andExpect(status().isBadRequest()); // Expecting 400 BAD REQUEST
     }
 
 }
