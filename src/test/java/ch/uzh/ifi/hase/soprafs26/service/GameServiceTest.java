@@ -14,6 +14,7 @@ import ch.uzh.ifi.hase.soprafs26.rest.dto.CardViewDTO;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.GameStateBroadcastDTO;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.PeekSelectionDTO;
 import ch.uzh.ifi.hase.soprafs26.rest.mapper.GameStateBroadcastMapper;
+import ch.uzh.ifi.hase.soprafs26.entity.PlayerActionEvent;
 import ch.uzh.ifi.hase.soprafs26.util.PeekType;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -24,6 +25,7 @@ import org.mockito.Mockito;
 import org.mockito.MockitoAnnotations;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.context.ApplicationEventPublisher;
 
 import java.lang.reflect.Method;
 import java.util.ArrayList;
@@ -2437,6 +2439,432 @@ public class GameServiceTest {
         
         // Verifizieren, dass die Session aus der DB abgefragt wurde
         org.mockito.Mockito.verify(sessionRepository, org.mockito.Mockito.times(1)).findById(sessionId);
+    }
+
+    @Test
+    void reshuffleDiscardPile_discardPileEmpty_abortsReshuffle() {
+        // 1. Setup
+        User user = new User(); user.setId(1L);
+        Mockito.when(userRepository.findByToken("token")).thenReturn(user);
+
+        Game game = new Game();
+        game.setId("game-1");
+        game.setStatus(GameStatus.ROUND_ACTIVE);
+        game.setCurrentPlayerId(1L);
+        game.setOrderedPlayerIds(List.of(1L, 2L));
+        game.setDrawPile(new ArrayList<>()); // Empty draw pile triggers reshuffle
+        game.setDiscardPile(new ArrayList<>()); // Empty discard pile triggers the first IF block
+        
+        Mockito.when(gameRepository.findById("game-1")).thenReturn(Optional.of(game));
+
+        // 2. Action & Assertion
+        // Because reshuffle aborts early, the draw pile stays empty and remove(0) throws an error
+        assertThrows(IndexOutOfBoundsException.class, () -> {
+            gameService.moveDrawFromDrawPile("game-1", "token");
+        });
+        
+        // 3. Verify reshuffle aborted before saving anything
+        Mockito.verify(gameRepository, Mockito.never()).save(Mockito.any(Game.class));
+    }
+
+    @Test
+    void reshuffleDiscardPile_onlyTopCardInDiscard_savesEmptyDrawPileAndAborts() {
+        // 1. Setup
+        User user = new User(); user.setId(1L);
+        Mockito.when(userRepository.findByToken("token")).thenReturn(user);
+
+        Card topDiscard = new Card(); topDiscard.setCode("5H");
+        List<Card> discardPile = new ArrayList<>();
+        discardPile.add(topDiscard); // Only 1 card!
+
+        Game game = new Game();
+        game.setId("game-1");
+        game.setStatus(GameStatus.ROUND_ACTIVE);
+        game.setCurrentPlayerId(1L);
+        game.setOrderedPlayerIds(List.of(1L, 2L));
+        game.setDrawPile(new ArrayList<>()); // Empty triggers reshuffle
+        game.setDiscardPile(discardPile); 
+        
+        Mockito.when(gameRepository.findById("game-1")).thenReturn(Optional.of(game));
+        Mockito.when(gameRepository.save(Mockito.any(Game.class))).thenAnswer(i -> i.getArgument(0));
+
+        // 2. Action & Assertion
+        assertThrows(IndexOutOfBoundsException.class, () -> {
+            gameService.moveDrawFromDrawPile("game-1", "token");
+        });
+        
+        // 3. Verify it entered the "if (toPutIntoDrawPile.isEmpty())" block and saved the game
+        Mockito.verify(gameRepository, Mockito.times(1)).save(game);
+        assertEquals(1, game.getDiscardPile().size(), "Discard pile should retain the 1 top card");
+        assertTrue(game.getDrawPile().isEmpty(), "Draw pile should be completely empty");
+    }
+
+    @Test
+    void reshuffleDiscardPile_deckIdIsNull_usesFallbackLocalShuffle() {
+        // 1. Setup
+        User user = new User(); user.setId(1L);
+        Mockito.when(userRepository.findByToken("token")).thenReturn(user);
+
+        Card topCard = new Card(); topCard.setCode("5H");
+        Card oldCard1 = new Card(); oldCard1.setCode("2C");
+        Card oldCard2 = new Card(); oldCard2.setCode("9S");
+        
+        // 3 cards in discard pile
+        List<Card> discardPile = new ArrayList<>(List.of(oldCard1, oldCard2, topCard)); 
+
+        Game game = new Game();
+        game.setId("game-1");
+        game.setStatus(GameStatus.ROUND_ACTIVE);
+        game.setCurrentPlayerId(1L);
+        game.setOrderedPlayerIds(List.of(1L, 2L));
+        game.setDeckApiId(null); // NULL ID -> Triggers the else statement fallback
+        game.setDrawPile(new ArrayList<>()); 
+        game.setDiscardPile(discardPile); 
+        
+        Mockito.when(gameRepository.findById("game-1")).thenReturn(Optional.of(game));
+        Mockito.when(gameRepository.save(Mockito.any(Game.class))).thenAnswer(i -> i.getArgument(0));
+
+        // 2. Action (This will succeed because 2 cards get put into the draw pile!)
+        gameService.moveDrawFromDrawPile("game-1", "token");
+        
+        // 3. Verification
+        assertEquals(1, game.getDiscardPile().size(), "Only the top card should remain");
+        assertEquals("5H", game.getDiscardPile().get(0).getCode(), "Top card should be 5H");
+        
+        // 2 cards were shuffled into the draw pile, 1 was immediately drawn by the player
+        assertEquals(1, game.getDrawPile().size(), "Draw pile should have 1 card left");
+        
+        // Prove that the API was completely ignored
+        Mockito.verify(deckOfCardsAPIService, Mockito.never()).shuffleDeck(Mockito.anyString());
+    }
+
+    @Test
+    void reshuffleDiscardPile_apiThrowsException_catchesAndUsesFallbackShuffle() {
+        // 1. Setup
+        User user = new User(); user.setId(1L);
+        Mockito.when(userRepository.findByToken("token")).thenReturn(user);
+
+        Card topCard = new Card(); topCard.setCode("5H");
+        Card oldCard1 = new Card(); oldCard1.setCode("2C");
+        Card oldCard2 = new Card(); oldCard2.setCode("9S");
+        
+        List<Card> discardPile = new ArrayList<>(List.of(oldCard1, oldCard2, topCard));
+
+        Game game = new Game();
+        game.setId("game-1");
+        game.setStatus(GameStatus.ROUND_ACTIVE);
+        game.setCurrentPlayerId(1L);
+        game.setOrderedPlayerIds(List.of(1L, 2L));
+        game.setDeckApiId("real-api-deck-123"); // Valid API ID
+        game.setDrawPile(new ArrayList<>()); 
+        game.setDiscardPile(discardPile); 
+        
+        Mockito.when(gameRepository.findById("game-1")).thenReturn(Optional.of(game));
+        Mockito.when(gameRepository.save(Mockito.any(Game.class))).thenAnswer(i -> i.getArgument(0));
+
+        // Force the API to throw a catastrophic error when we try to talk to it
+        Mockito.doThrow(new RuntimeException("Deck API is offline!"))
+               .when(deckOfCardsAPIService).returnDrawnCardsToDeck(Mockito.eq("real-api-deck-123"), Mockito.anyList());
+
+        // 2. Action (This will catch the error, fallback to local shuffle, and succeed!)
+        gameService.moveDrawFromDrawPile("game-1", "token");
+        
+        // 3. Verification
+        assertEquals(1, game.getDiscardPile().size());
+        assertEquals("5H", game.getDiscardPile().get(0).getCode());
+        assertEquals(1, game.getDrawPile().size(), "Draw pile should have 1 card left after fallback shuffle");
+        
+        // Prove that we DID try to talk to the API before the crash
+        Mockito.verify(deckOfCardsAPIService, Mockito.times(1))
+               .returnDrawnCardsToDeck(Mockito.eq("real-api-deck-123"), Mockito.anyList());
+    }
+
+    @Test
+    void getDiscardPileTopCard_discardPileEmpty_returnsNull() {
+        // 1. Setup: A valid game, but the discard pile is completely empty
+        Game game = new Game();
+        game.setId("game-empty-discard");
+        game.setDiscardPile(new ArrayList<>()); // Empty list
+
+        Mockito.when(gameRepository.findById("game-empty-discard")).thenReturn(Optional.of(game));
+
+        // 2. Action
+        Card result = gameService.getDiscardPileTopCard("game-empty-discard");
+
+        // 3. Assertion: It should safely return null without crashing
+        assertNull(result, "Should return null when discard pile is empty");
+    }
+
+    @Test
+    void getDiscardPileTopCard_hasCards_returnsTopCardAndSetsVisible() {
+        // 1. Setup: A game with two cards in the discard pile
+        Card bottomCard = new Card();
+        bottomCard.setCode("2H");
+        bottomCard.setVisibility(false);
+
+        Card topCard = new Card();
+        topCard.setCode("AS"); // Ace of Spades is on top
+        topCard.setVisibility(false); // Starts face down
+
+        Game game = new Game();
+        game.setId("game-with-discard");
+        // The last item in the list is the "top" of the pile
+        game.setDiscardPile(new ArrayList<>(List.of(bottomCard, topCard))); 
+
+        Mockito.when(gameRepository.findById("game-with-discard")).thenReturn(Optional.of(game));
+
+        // 2. Action
+        Card result = gameService.getDiscardPileTopCard("game-with-discard");
+
+        // 3. Assertion
+        assertNotNull(result, "Should return a card");
+        assertEquals("AS", result.getCode(), "Should return the top card (the last one in the list)");
+        assertTrue(result.getVisibility(), "The visibility of the top card should be flipped to true");
+    }
+
+    @Test
+    void getDiscardPileTopCard_gameNotFound_throwsNotFoundException() {
+        // 1. Setup: The database cannot find the game
+        Mockito.when(gameRepository.findById("invalid-game")).thenReturn(Optional.empty());
+
+        // 2. Action & Assertion: It should bubble up the 404 NOT FOUND from getGameById()
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class, () -> {
+            gameService.getDiscardPileTopCard("invalid-game");
+        });
+
+        assertEquals(HttpStatus.NOT_FOUND, exception.getStatusCode());
+        assertEquals("Game not found", exception.getReason());
+    }
+
+    @Test
+    void isMyTurn_userIsCurrentPlayer_returnsTrue() {
+        // 1. Setup
+        Game game = new Game();
+        game.setId("game-123");
+        game.setCurrentPlayerId(1L); // It is Player 1's turn
+        
+        Mockito.when(gameRepository.findById("game-123")).thenReturn(Optional.of(game));
+
+        // 2. Action
+        boolean result = gameService.isMyTurn("game-123", 1L);
+
+        // 3. Assertion
+        assertTrue(result, "Should return true when the user is the current player");
+    }
+
+    @Test
+    void isMyTurn_userIsNotCurrentPlayer_returnsFalse() {
+        // 1. Setup
+        Game game = new Game();
+        game.setId("game-123");
+        game.setCurrentPlayerId(2L); // It is Player 2's turn
+        
+        Mockito.when(gameRepository.findById("game-123")).thenReturn(Optional.of(game));
+
+        // 2. Action
+        boolean result = gameService.isMyTurn("game-123", 1L); // Player 1 asks if it's their turn
+
+        // 3. Assertion
+        assertFalse(result, "Should return false when the user is NOT the current player");
+    }
+
+    @Test
+    void getMyHand_nullToken_throwsUnauthorized() {
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class, () -> {
+            gameService.getMyHand("game-123", null);
+        });
+        assertEquals(HttpStatus.UNAUTHORIZED, exception.getStatusCode());
+        assertEquals("Invalid token", exception.getReason());
+    }
+
+    @Test
+    void getMyHand_blankToken_throwsUnauthorized() {
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class, () -> {
+            gameService.getMyHand("game-123", "   "); // Just spaces
+        });
+        assertEquals(HttpStatus.UNAUTHORIZED, exception.getStatusCode());
+        assertEquals("Invalid token", exception.getReason());
+    }
+
+    @Test
+    void getMyHand_invalidToken_throwsUnauthorized() {
+        // Setup: userRepository returns null for this token
+        Mockito.when(userRepository.findByToken("bad-token")).thenReturn(null);
+
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class, () -> {
+            gameService.getMyHand("game-123", "bad-token");
+        });
+        assertEquals(HttpStatus.UNAUTHORIZED, exception.getStatusCode());
+        assertEquals("Invalid token", exception.getReason());
+    }
+
+    @Test
+    void getMyHand_userNotInGame_throwsForbidden() {
+        // 1. Setup: Valid user, but they aren't in this game's playerHands map
+        User nosyUser = new User();
+        nosyUser.setId(99L);
+        Mockito.when(userRepository.findByToken("valid-token")).thenReturn(nosyUser);
+
+        Game game = new Game();
+        game.setId("game-123");
+        // The game only has hands for players 1 and 2
+        game.setPlayerHands(new HashMap<>(Map.of(1L, new ArrayList<>(), 2L, new ArrayList<>())));
+        
+        Mockito.when(gameRepository.findById("game-123")).thenReturn(Optional.of(game));
+
+        // 2. Action & Assertion
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class, () -> {
+            gameService.getMyHand("game-123", "valid-token");
+        });
+
+        assertEquals(HttpStatus.FORBIDDEN, exception.getStatusCode());
+        assertEquals("Not a player in this game", exception.getReason());
+    }
+
+    @Test
+    void getMyHand_validRequest_returnsHand() {
+        // 1. Setup: Valid user who actually has a hand in the game
+        User validUser = new User();
+        validUser.setId(1L);
+        Mockito.when(userRepository.findByToken("valid-token")).thenReturn(validUser);
+
+        Card myCard = new Card();
+        myCard.setCode("AS");
+        List<Card> expectedHand = new ArrayList<>(List.of(myCard));
+
+        Game game = new Game();
+        game.setId("game-123");
+        game.setPlayerHands(new HashMap<>(Map.of(1L, expectedHand)));
+        
+        Mockito.when(gameRepository.findById("game-123")).thenReturn(Optional.of(game));
+
+        // 2. Action
+        List<Card> returnedHand = gameService.getMyHand("game-123", "valid-token");
+
+        // 3. Assertion
+        assertNotNull(returnedHand, "Hand should not be null");
+        assertEquals(1, returnedHand.size(), "Hand should contain exactly 1 card");
+        assertEquals("AS", returnedHand.get(0).getCode(), "The card should match the user's actual hand");
+    }
+
+    @Test
+    void moveDrawFromDrawPile_lobbyServiceIsNull_publishesEventWithNullSessionId() {
+        // 1. Setup
+        User user = new User(); user.setId(1L);
+        Mockito.when(userRepository.findByToken("token")).thenReturn(user);
+
+        Card topCard = new Card(); topCard.setCode("8S");
+        Game game = new Game();
+        game.setId("game-1");
+        game.setStatus(GameStatus.ROUND_ACTIVE);
+        game.setCurrentPlayerId(1L);
+        game.setOrderedPlayerIds(List.of(1L, 2L));
+        game.setDrawPile(new ArrayList<>(List.of(topCard)));
+        
+        Mockito.when(gameRepository.findById("game-1")).thenReturn(Optional.of(game));
+
+        // Create a manual mock publisher just for this test
+        ApplicationEventPublisher mockPublisher = Mockito.mock(ApplicationEventPublisher.class);
+
+        // 6th param: LobbyService (null)
+        // 9th param: LobbyChatService (null)
+        // 10th param: ApplicationEventPublisher (mockPublisher)
+        GameService serviceNoLobby = new GameService(
+            gameRepository, deckOfCardsAPIService, userRepository, gameEventPublisher, 
+            scheduler, 
+            null, 
+            sessionRepository, gameSettings, 
+            null, mockPublisher
+        );
+
+        // 2. Action
+        serviceNoLobby.moveDrawFromDrawPile("game-1", "token");
+
+        // 3. Assertion
+        ArgumentCaptor<PlayerActionEvent> eventCaptor = ArgumentCaptor.forClass(PlayerActionEvent.class);
+        Mockito.verify(mockPublisher).publishEvent(eventCaptor.capture());
+        
+        PlayerActionEvent capturedEvent = eventCaptor.getValue();
+        assertNull(capturedEvent.getSessionId(), "Session ID should be null because LobbyService was null");
+        assertEquals("DRAW", capturedEvent.getActionType());
+        assertEquals(1L, capturedEvent.getUserId());
+    }
+
+    @Test
+    void moveDrawFromDrawPile_publisherAndLobbyExist_publishesFullEvent() {
+        // 1. Setup
+        User user = new User(); user.setId(1L);
+        Mockito.when(userRepository.findByToken("token")).thenReturn(user);
+
+        Card topCard = new Card(); topCard.setCode("8S");
+        Game game = new Game();
+        game.setId("game-1");
+        game.setStatus(GameStatus.ROUND_ACTIVE);
+        game.setCurrentPlayerId(1L);
+        game.setOrderedPlayerIds(List.of(1L, 2L));
+        game.setDrawPile(new ArrayList<>(List.of(topCard)));
+        
+        Mockito.when(gameRepository.findById("game-1")).thenReturn(Optional.of(game));
+        
+        Mockito.when(lobbyService.findPlayingSessionIdForPlayers(game.getOrderedPlayerIds()))
+               .thenReturn("session-99");
+
+        // Create a manual mock publisher
+        ApplicationEventPublisher mockPublisher = Mockito.mock(ApplicationEventPublisher.class);
+
+        // 9th param: LobbyChatService (null)
+        // 10th param: ApplicationEventPublisher (mockPublisher)
+        GameService serviceFull = new GameService(
+            gameRepository, deckOfCardsAPIService, userRepository, gameEventPublisher, 
+            scheduler, lobbyService, sessionRepository, gameSettings, 
+            null, mockPublisher
+        );
+
+        // 2. Action
+        serviceFull.moveDrawFromDrawPile("game-1", "token");
+
+        // 3. Assertion
+        ArgumentCaptor<PlayerActionEvent> eventCaptor = ArgumentCaptor.forClass(PlayerActionEvent.class);
+        Mockito.verify(mockPublisher).publishEvent(eventCaptor.capture());
+        
+        PlayerActionEvent capturedEvent = eventCaptor.getValue();
+        assertEquals("session-99", capturedEvent.getSessionId(), "Session ID should be fetched from LobbyService");
+        assertEquals("DRAW", capturedEvent.getActionType());
+        assertEquals(1L, capturedEvent.getUserId());
+    }
+
+    @Test
+    void moveDrawFromDrawPile_eventPublisherIsNull_skipsHookAndSavesGame() {
+        // 1. Setup
+        User user = new User(); user.setId(1L);
+        Mockito.when(userRepository.findByToken("token")).thenReturn(user);
+
+        Card topCard = new Card(); topCard.setCode("8S");
+        Game game = new Game();
+        game.setId("game-1");
+        game.setStatus(GameStatus.ROUND_ACTIVE);
+        game.setCurrentPlayerId(1L);
+        game.setOrderedPlayerIds(List.of(1L, 2L));
+        game.setDrawPile(new ArrayList<>(List.of(topCard)));
+        
+        Mockito.when(gameRepository.findById("game-1")).thenReturn(Optional.of(game));
+
+        // Create a custom GameService. 
+        // 9th param: LobbyChatService (null)
+        // 10th param: ApplicationEventPublisher (null)
+        GameService serviceNoPublisher = new GameService(
+            gameRepository, deckOfCardsAPIService, userRepository, gameEventPublisher, 
+            scheduler, lobbyService, sessionRepository, gameSettings, 
+            null, null 
+        );
+
+        // 2. Action
+        serviceNoPublisher.moveDrawFromDrawPile("game-1", "token");
+
+        // 3. Assertion
+        assertTrue(game.getDrawPile().isEmpty(), "Card should be removed from draw pile");
+        assertEquals("8S", game.getDrawnCard().getCode(), "Drawn card should be set");
+        Mockito.verify(gameRepository, Mockito.times(1)).save(game);
     }
 }
 
