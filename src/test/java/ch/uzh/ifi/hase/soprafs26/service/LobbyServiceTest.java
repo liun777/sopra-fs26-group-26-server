@@ -20,6 +20,7 @@ import org.mockito.Mockito;
 import org.mockito.MockitoAnnotations;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
+import ch.uzh.ifi.hase.soprafs26.rest.dto.WaitingLobbyPlayerRowDTO;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -637,6 +638,34 @@ public class LobbyServiceTest {
 	}
 
 	@Test
+	public void handleRoundResolvedForGamePlayers_twoFreshVotes_carriesSpectatorsToFreshLobby() {
+		FreshRematchThreePlayerFixture fx = givenPlayingLobbyForFreshRematchScenario(14L, "PLAY-FRESH-SPEC", 1401L);
+		User spectator = new User();
+		spectator.setId(9L);
+		spectator.setStatus(UserStatus.SPECTATING);
+		fx.playingLobby().setSpectatorIds(new ArrayList<>(List.of(9L)));
+		Mockito.when(userRepository.findAllById(List.of(9L))).thenReturn(List.of(spectator));
+
+		lobbyService.handleRoundResolvedForGamePlayers(
+				List.of(1L, 2L, 3L),
+				List.of(),
+				List.of(1L, 2L)
+		);
+
+		ArgumentCaptor<Lobby> savedLobbyCaptor = ArgumentCaptor.forClass(Lobby.class);
+		Mockito.verify(lobbyRepository).save(savedLobbyCaptor.capture());
+		Lobby freshLobby = savedLobbyCaptor.getValue();
+		assertEquals("WAITING", freshLobby.getStatus());
+		assertEquals(List.of(1L, 2L), freshLobby.getPlayerIds());
+		assertEquals(List.of(9L), freshLobby.getSpectatorIds());
+		assertEquals(UserStatus.SPECTATING, spectator.getStatus());
+		assertEquals(UserStatus.LOBBY, fx.p1().getStatus());
+		assertEquals(UserStatus.LOBBY, fx.p2().getStatus());
+		assertEquals(UserStatus.ONLINE, fx.p3().getStatus());
+		Mockito.verify(lobbyRepository).delete(fx.playingLobby());
+	}
+
+	@Test
 	public void handleRoundResolvedForGamePlayers_twoFreshVotes_invalidFreshRematchRequesterId_fallsBackToHostBasedOnTurnOrder() {
 		givenPlayingLobbyForFreshRematchScenario(13L, "PLAY-FRESH-FALLBACK", 1301L);
 
@@ -700,19 +729,19 @@ public class LobbyServiceTest {
 	}
 
 	@Test
-	public void findPlayingSessionIdForPlayers_noExactMatchOrEmptyInput_returnsNull() {
+	public void findPlayingSessionIdForPlayers_noExactMatch_usesBestOverlapFallback_orEmptyInputReturnsNull() {
 		Lobby onlyLobby = new Lobby();
 		onlyLobby.setSessionId("PLAY123");
 		onlyLobby.setStatus("PLAYING");
 		onlyLobby.setPlayerIds(new ArrayList<>(List.of(1L, 2L, 3L)));
 		Mockito.when(lobbyRepository.findByStatus("PLAYING")).thenReturn(List.of(onlyLobby));
 
-		assertNull(lobbyService.findPlayingSessionIdForPlayers(List.of(1L, 2L, 4L)));
+		assertEquals("PLAY123", lobbyService.findPlayingSessionIdForPlayers(List.of(1L, 2L, 4L)));
 		assertNull(lobbyService.findPlayingSessionIdForPlayers(List.of()));
 		assertNull(lobbyService.findPlayingSessionIdForPlayers(null));
 	}
 
-	// #116 join as spectator: sets spectatorIds, SPECTATING status and broadcasts result
+	//#116 join as spectator: sets spectatorIds, SPECTATING status and broadcasts result
 	@Test
 	public void joinWaitingLobbyAsSpectator_addsSpectatorSetsStatusAndBroadcasts() {
 		User spectator = new User();
@@ -770,4 +799,81 @@ public class LobbyServiceTest {
 		// joiner's status is LOBBY, which is a status for players (not spectators) waiting in the lobby
 		assertEquals(UserStatus.LOBBY, joiner.getStatus());
 	}
+
+	@Test
+    public void testGetWaitingLobbyView_IncludesSpectatorsCorrectly() {
+        // 1. Setup: Testdaten erstellen (Ein Host-Spieler und ein Zuschauer)
+        String token = "spectator-token-abc";
+        String sessionId = "lobby-session-xyz";
+        Long hostId = 1L;
+        Long spectatorId = 2L;
+
+        // Mock-Zuschauer (der die Anfrage stellt)
+        User spectatorUser = new User();
+        spectatorUser.setId(spectatorId);
+        spectatorUser.setUsername("SpectatorJana");
+
+        // Mock-Host (Spieler in der Lobby)
+        User hostUser = new User();
+        hostUser.setId(hostId);
+        hostUser.setUsername("HostPlayer");
+
+        // Lobby aufbauen mit einem Spieler und einem Zuschauer
+        Lobby mockLobby = new Lobby();
+        mockLobby.setSessionId(sessionId);
+        // Nutzen wir playerIds, da das Service-File hier filtert
+        mockLobby.setPlayerIds(new ArrayList<>(List.of(hostId)));
+        mockLobby.setSpectatorIds(new ArrayList<>(List.of(spectatorId)));
+
+        // Mocks für die Repositories konfigurieren
+        org.mockito.Mockito.when(userRepository.findByToken(token)).thenReturn(spectatorUser);
+        org.mockito.Mockito.when(lobbyRepository.findBySessionId(sessionId)).thenReturn(mockLobby);
+        org.mockito.Mockito.when(userRepository.findAllById(org.mockito.Mockito.anyCollection()))
+                .thenReturn(List.of(hostUser, spectatorUser));
+
+        // 2. Ausführung der Service-Methode
+        WaitingLobbyViewDTO resultDto = lobbyService.getWaitingLobbyView(token, sessionId);
+
+        // 3. Assertions: Prüfen, ob die Spectator-Liste befüllt und korrekt ist
+        assertNotNull(resultDto, "Das DTO darf nicht null sein.");
+        assertNotNull(resultDto.getSpectators(), "Die Zuschauerliste darf nicht null sein.");
+        assertEquals(1, resultDto.getSpectators().size(), "Es sollte genau 1 Zuschauer in der Liste sein.");
+        
+        WaitingLobbyPlayerRowDTO spectatorRow = resultDto.getSpectators().get(0);
+        assertEquals("SpectatorJana", spectatorRow.getUsername(), "Der Username des Zuschauers stimmt nicht.");
+        assertEquals("you", spectatorRow.getJoinStatus(), "Da der Zuschauer selbst anfragt, muss sein Status 'you' sein.");
+    }
+
+	@Test
+    public void testRemoveSpectator_Success() {
+        // 1. Setup
+        String sessionId = "lobby-session-123";
+        String token = "spectator-token-123";
+        Long activePlayerId = 10L;
+        Long spectatorId = 20L;
+
+        User spectatorUser = new User();
+        spectatorUser.setId(spectatorId);
+
+        Lobby mockLobby = new Lobby();
+        mockLobby.setId(999L);
+        mockLobby.setSessionId(sessionId);
+        mockLobby.setStatus("WAITING");
+        mockLobby.setSessionHostUserId(activePlayerId);
+        mockLobby.setPlayerIds(new ArrayList<>(List.of(activePlayerId)));
+        mockLobby.setSpectatorIds(new ArrayList<>(List.of(spectatorId)));
+
+        // Mocks konfigurieren
+        org.mockito.Mockito.when(userRepository.findByToken(token)).thenReturn(spectatorUser);
+        org.mockito.Mockito.when(lobbyRepository.findBySessionId(sessionId)).thenReturn(mockLobby);
+        // Das hat gefehlt: Das veränderte Lobby-Objekt beim Speichern wieder zurückgeben
+        org.mockito.Mockito.when(lobbyRepository.save(org.mockito.Mockito.any(Lobby.class))).thenReturn(mockLobby);
+
+        // 2. Ausführung über die spezifische Zuschauer-Methode
+        lobbyService.removeSpectatorFromLobby(sessionId, token, spectatorId);
+
+        // 3. Assertions
+        assertEquals(0, mockLobby.getSpectatorIds().size(), "Der Zuschauer haette entfernt werden muessen.");
+        assertEquals(1, mockLobby.getPlayerIds().size(), "Die Liste der aktiven Spieler darf sich nicht aendern.");
+    }
 }

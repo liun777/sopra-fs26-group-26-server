@@ -2360,4 +2360,83 @@ public class GameServiceTest {
         // Note: times(2) because startGame saves it once, and resumeGame saves it again at the end!
     }
 
+    @Test
+    public void testCalculatedRoundScores_WithKamikazeSpecialRule() throws Exception {
+        // 1. Setup: Spieler-IDs vorbereiten
+        Long kamikazePlayerId = 1L;
+        Long otherPlayerId = 2L;
+        List<Long> orderedPlayers = Arrays.asList(kamikazePlayerId, otherPlayerId);
+
+        // Hands vorbereiten: Spieler 1 hat Kamikaze (zwei 12er, zwei 13er)
+        List<Card> kamikazeHand = new ArrayList<>();
+        Card k1 = new Card(); k1.setValue(12); kamikazeHand.add(k1);
+        Card k2 = new Card(); k2.setValue(12); kamikazeHand.add(k2);
+        Card k3 = new Card(); k3.setValue(13); kamikazeHand.add(k3);
+        Card k4 = new Card(); k4.setValue(13); kamikazeHand.add(k4);
+
+        // Spieler 2 hat eine normale Hand (z.B. zwei 1er, zwei 2er)
+        List<Card> normalHand = new ArrayList<>();
+        Card n1 = new Card(); n1.setValue(1); normalHand.add(n1);
+        Card n2 = new Card(); n2.setValue(1); normalHand.add(n2);
+        Card n3 = new Card(); n3.setValue(2); normalHand.add(n3);
+        Card n4 = new Card(); n4.setValue(2); normalHand.add(n4);
+
+        Map<Long, List<Card>> playerHands = new HashMap<>();
+        playerHands.put(kamikazePlayerId, kamikazeHand);
+        playerHands.put(otherPlayerId, normalHand);
+
+        // 2. Mocks aufsetzen für das Game-Objekt
+        Game mockGame = org.mockito.Mockito.mock(Game.class);
+        org.mockito.Mockito.when(mockGame.getOrderedPlayerIds()).thenReturn(orderedPlayers);
+        org.mockito.Mockito.when(mockGame.getPlayerHands()).thenReturn(playerHands);
+        org.mockito.Mockito.when(mockGame.getCaboCalledByUserId()).thenReturn(null);
+
+        // 3. Da die Methode 'private' ist, rufen wir sie per Reflection auf
+        java.lang.reflect.Method method = GameService.class.getDeclaredMethod("calculatedRoundScores", Game.class);
+        method.setAccessible(true);
+        
+        @SuppressWarnings("unchecked")
+        Map<Long, Integer> scores = (Map<Long, Integer>) method.invoke(gameService, mockGame);
+
+        // 4. Assertions: Der Kamikaze-Spieler MUSS 0 bekommen, der andere 50 Punkte Strafe!
+        assertEquals(0, scores.get(kamikazePlayerId), "Kamikaze-Spieler sollte 0 Punkte erhalten.");
+        assertEquals(50, scores.get(otherPlayerId), "Der andere Spieler sollte 50 Strafpunkte erhalten.");
+    }
+
+    @Test
+    public void testResumeGame_Success() {
+        // 1. Setup: Testdaten vorbereiten
+        Long sessionId = 42L;
+        
+        // Mock-Session erstellen und konfigurieren
+        Session mockSession = org.mockito.Mockito.mock(Session.class);
+        org.mockito.Mockito.when(mockSession.isEnded()).thenReturn(false); // Session ist NICHT beendet
+        
+        // Spieler-IDs mit simulierten Punkteständen in die Session packen
+        Map<Long, Integer> totalScores = new HashMap<>();
+        totalScores.put(100L, 10);
+        totalScores.put(200L, 15);
+        org.mockito.Mockito.when(mockSession.getTotalScoreByUserId()).thenReturn(totalScores);
+
+        // Mocking für die Repositories und den internen Game-Start
+        org.mockito.Mockito.when(sessionRepository.findById(sessionId))
+            .thenReturn(Optional.of(mockSession));
+
+        Game mockResumedGame = new Game();
+        // Hier simulieren wir das Verhalten von startGame(playerIds)
+        // Falls deine startGame-Methode Mocks benötigt, greift das Spring Boot Mock-Setup
+        org.mockito.Mockito.when(gameRepository.save(org.mockito.Mockito.any(Game.class)))
+            .thenAnswer(invocation -> invocation.getArgument(0));
+
+        // 2. Ausführung der resumeGame Methode
+        Game result = gameService.resumeGame(sessionId);
+
+        // 3. Assertions: Überprüfen, ob das Spiel korrekt re-initialisiert wurde
+        assertNotNull(result, "Das wiederaufgenommene Spiel darf nicht null sein.");
+        assertEquals(sessionId, result.getResumedFromSessionId(), "Die resumedFromSessionId wurde nicht korrekt gesetzt.");
+        
+        // Verifizieren, dass die Session aus der DB abgefragt wurde
+        org.mockito.Mockito.verify(sessionRepository, org.mockito.Mockito.times(1)).findById(sessionId);
+    }
 }
+

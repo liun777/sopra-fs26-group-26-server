@@ -47,6 +47,10 @@ public abstract class SessionHistoryBase {
     @Column(nullable = false, unique = false)
     private Map<Long, Boolean> hundredReductionAppliedByUserId = new HashMap<>();
 
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(nullable = true, unique = false)
+    private List<Long> winnerIds = new ArrayList<>();
+
     public Long getId() {
         return id;
     }
@@ -111,5 +115,13 @@ public abstract class SessionHistoryBase {
         this.hundredReductionAppliedByUserId = hundredReductionAppliedByUserId != null
                 ? hundredReductionAppliedByUserId
                 : new HashMap<>();
+    }
+
+    public List<Long> getWinnerIds() {
+        return winnerIds;
+    }
+
+    public void setWinnerIds(List<Long> winnerIds) {
+        this.winnerIds = winnerIds != null ? winnerIds : new ArrayList<>();
     }
 }
