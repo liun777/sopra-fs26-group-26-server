@@ -5,6 +5,8 @@ import ch.uzh.ifi.hase.soprafs26.entity.Card;
 import ch.uzh.ifi.hase.soprafs26.entity.Game;
 import ch.uzh.ifi.hase.soprafs26.entity.GameMoveEvent;
 import ch.uzh.ifi.hase.soprafs26.entity.GameMoveStep;
+import ch.uzh.ifi.hase.soprafs26.entity.User;
+import ch.uzh.ifi.hase.soprafs26.repository.UserRepository;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.CardViewDTO;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.DiscardTopDTO;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.GameStateBroadcastDTO;
@@ -24,9 +26,11 @@ import java.util.Map;
 @Component
 public class GameStateBroadcastMapper {
     private final LobbyService lobbyService;
+    private final UserRepository userRepository;
 
-    public GameStateBroadcastMapper(@Lazy LobbyService lobbyService) {
+    public GameStateBroadcastMapper(@Lazy LobbyService lobbyService, UserRepository userRepository) {
         this.lobbyService = lobbyService;
+        this.userRepository = userRepository;
     }
 
     public GameStateBroadcastDTO toBroadcastForViewer(Game game, Long viewerUserId) {
@@ -95,11 +99,31 @@ public class GameStateBroadcastMapper {
                         .filter(id -> id != null && lobbyService != null && lobbyService.isPlayerTimedOutInPlaying(id))
                         .toList()
         );
+        Map<Long, String> assignedCharacterColorByUserId = Map.of();
+        if (lobbyService != null) {
+            Map<Long, String> resolvedAssignedColors = lobbyService.resolvePlayingAssignedCharacterColorsForPlayers(ordered);
+            assignedCharacterColorByUserId = resolvedAssignedColors == null ? Map.of() : resolvedAssignedColors;
+        }
+        Map<Long, User> usersById = new java.util.HashMap<>();
+        if (userRepository != null) {
+            Iterable<User> resolvedUsers = userRepository.findAllById(ordered);
+            if (resolvedUsers != null) {
+                for (User user : resolvedUsers) {
+                    if (user != null && user.getId() != null) {
+                        usersById.put(user.getId(), user);
+                    }
+                }
+            }
+        }
 
         List<PlayerHandViewDTO> playerHands = new ArrayList<>();
         for (Long ownerId : ordered) {
             PlayerHandViewDTO handView = new PlayerHandViewDTO();
             handView.setUserId(ownerId);
+            User owner = usersById.get(ownerId);
+            handView.setUsername(owner == null ? null : owner.getUsername());
+            handView.setProfileCharacterId(owner == null ? null : owner.getProfileCharacterId());
+            handView.setCharacterColorId(assignedCharacterColorByUserId.get(ownerId));
             // if hands is empty map or no key in map for this player -> empty list of cards
             List<Card> hand = hands.getOrDefault(ownerId, List.of());
             List<CardViewDTO> views = new ArrayList<>();

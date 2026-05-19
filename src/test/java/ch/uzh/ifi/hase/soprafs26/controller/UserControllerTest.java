@@ -408,7 +408,7 @@ public class UserControllerTest {
                
         // Verify the service was called exactly once with the correct ID and mapped entity
         Mockito.verify(userService, Mockito.times(1))
-               .updateUser(Mockito.eq(1L), Mockito.any(User.class));
+               .updateUser(Mockito.eq(1L), Mockito.any(ch.uzh.ifi.hase.soprafs26.rest.dto.UserPutDTO.class));
     }
 
     @Test
@@ -422,14 +422,14 @@ public class UserControllerTest {
 
         // Verify the service was entirely protected from the bad request
         Mockito.verify(userService, Mockito.never())
-               .updateUser(Mockito.anyLong(), Mockito.any());
+               .updateUser(Mockito.anyLong(), Mockito.any(ch.uzh.ifi.hase.soprafs26.rest.dto.UserPutDTO.class));
     }
 
     @Test
     void updateUser_userNotFound_throwsNotFound() throws Exception {
         // 1. Setup: Tell Mockito to throw an error when the void method is called for user 99
         Mockito.doThrow(new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"))
-               .when(userService).updateUser(Mockito.eq(99L), Mockito.any(User.class));
+               .when(userService).updateUser(Mockito.eq(99L), Mockito.any(ch.uzh.ifi.hase.soprafs26.rest.dto.UserPutDTO.class));
 
         String jsonBody = """
                 {

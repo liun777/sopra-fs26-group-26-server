@@ -34,6 +34,7 @@ blog/bin/
 hs_err_pid*
 
 /build
+/build-*
 /build_tmp
 *.DS_STORE
 .direnv

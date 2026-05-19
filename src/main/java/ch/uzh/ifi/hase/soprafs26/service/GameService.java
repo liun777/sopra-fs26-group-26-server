@@ -1412,12 +1412,9 @@ public class GameService {
             return;
         }
         List<Map<Long, Integer>> perRound = session.getUserScoresPerRound();
-        if (perRound == null || perRound.isEmpty()) {
-            return;
-        }
-        Map<Long, Integer> latestRound = perRound.get(perRound.size() - 1);
-        if (latestRound == null) {
-            return;
+        if (perRound == null) {
+            perRound = new ArrayList<>();
+            session.setUserScoresPerRound(perRound);
         }
         Map<Long, Integer> totalScoreByUserId = session.getTotalScoreByUserId();
         if (totalScoreByUserId == null) {
@@ -1449,8 +1446,6 @@ public class GameService {
             }
             int totalScore = totalScoreObj;
             if (totalScore == 100) {
-                int latestScore = latestRound.getOrDefault(playerId, 0);
-                latestRound.put(playerId, latestScore - 50);
                 totalScoreByUserId.put(playerId, 50);
                 alreadyApplied.put(playerId, true);
                 changed = true;
@@ -2077,20 +2072,19 @@ public class GameService {
         }
     
         // First check: Does anyone have the Kamikaze combination (2×12 and 2×13)?
-        Long kamikazePlayer = null;
+        Set<Long> kamikazePlayers = new LinkedHashSet<>();
     
         for (Long playerId : players) {
             List<Card> hand = playerHands.get(playerId);
             if (hand != null && hasKamikazeCombination(hand)) {
-                kamikazePlayer = playerId;
-                break; // Only one player can trigger this per round
+                kamikazePlayers.add(playerId);
             }
         }
     
-        // If Kamikaze rule applies: winner gets 0, everyone else gets 50
-        if (kamikazePlayer != null) {
+        // If Kamikaze rule applies: all Kamikaze holders get 0, everyone else gets 50
+        if (!kamikazePlayers.isEmpty()) {
             for (Long playerId : players) {
-                if (playerId.equals(kamikazePlayer)) {
+                if (kamikazePlayers.contains(playerId)) {
                     roundScores.put(playerId, 0);
                 } else {
                     roundScores.put(playerId, 50);

@@ -3,6 +3,8 @@ package ch.uzh.ifi.hase.soprafs26.rest.mapper;
 import ch.uzh.ifi.hase.soprafs26.constant.GameStatus;
 import ch.uzh.ifi.hase.soprafs26.entity.Card;
 import ch.uzh.ifi.hase.soprafs26.entity.Game;
+import ch.uzh.ifi.hase.soprafs26.entity.User;
+import ch.uzh.ifi.hase.soprafs26.repository.UserRepository;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.CardViewDTO;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.DiscardTopDTO;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.GameStateBroadcastDTO;
@@ -30,13 +32,26 @@ class GameStateBroadcastMapperTest {
 
     private GameStateBroadcastMapper mapper;
     private LobbyService lobbyService;
+    private UserRepository userRepository;
 
     @BeforeEach
     void setUp() {
         lobbyService = mock(LobbyService.class);
+        userRepository = mock(UserRepository.class);
         when(lobbyService.isPlayerTimedOutInPlaying(anyLong())).thenReturn(false);
         when(lobbyService.findPlayingSessionIdForPlayers(anyList())).thenReturn("ABCD1234");
-        mapper = new GameStateBroadcastMapper(lobbyService);
+        when(lobbyService.resolvePlayingAssignedCharacterColorsForPlayers(anyList()))
+                .thenReturn(Map.of(1L, "navy_blue", 2L, "light_blue"));
+        User user1 = new User();
+        user1.setId(1L);
+        user1.setUsername("user1");
+        user1.setProfileCharacterId("char01");
+        User user2 = new User();
+        user2.setId(2L);
+        user2.setUsername("user2");
+        user2.setProfileCharacterId("char02");
+        when(userRepository.findAllById(anyList())).thenReturn(List.of(user1, user2));
+        mapper = new GameStateBroadcastMapper(lobbyService, userRepository);
     }
 
     @Test

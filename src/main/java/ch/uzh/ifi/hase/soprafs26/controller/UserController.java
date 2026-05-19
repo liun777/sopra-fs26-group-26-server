@@ -133,8 +133,7 @@ public class UserController {
     @PutMapping("/users/{userId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void updateUser(@PathVariable Long userId, @Valid @RequestBody UserPutDTO userPutDTO) {
-        User userInput = DTOMapper.INSTANCE.convertUserPutDTOtoEntity(userPutDTO);
-        userService.updateUser(userId, userInput);
+        userService.updateUser(userId, userPutDTO);
     }
 
     @PostMapping("/login")

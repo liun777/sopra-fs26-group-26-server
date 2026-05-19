@@ -166,7 +166,14 @@ public abstract class UserProfileResponseBase implements Serializable {
     }
 
     public void setPreferredColorPriority(List<String> preferredColorPriority) {
-        this.preferredColorPriority = preferredColorPriority;
+        if (this.preferredColorPriority == null) {
+            this.preferredColorPriority = new ArrayList<>();
+        } else {
+            this.preferredColorPriority.clear();
+        }
+        if (preferredColorPriority != null) {
+            this.preferredColorPriority.addAll(preferredColorPriority);
+        }
     }
 
     public String getMenuBackgroundId() {
@@ -230,7 +237,14 @@ public abstract class UserProfileResponseBase implements Serializable {
     }
 
     public void setMusicBlacklist(List<String> musicBlacklist) {
-        this.musicBlacklist = musicBlacklist;
+        if (this.musicBlacklist == null) {
+            this.musicBlacklist = new ArrayList<>();
+        } else {
+            this.musicBlacklist.clear();
+        }
+        if (musicBlacklist != null) {
+            this.musicBlacklist.addAll(musicBlacklist);
+        }
     }
 
     public Integer getGamesWon() {

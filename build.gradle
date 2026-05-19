@@ -73,6 +73,11 @@ jacocoTestReport {
 
 test {
     useJUnitPlatform()
+    if (!(project.hasProperty('includeLiveTests') && project.property('includeLiveTests').toString().toBoolean())) {
+        useJUnitPlatform {
+            excludeTags 'live'
+        }
+    }
     testLogging.showStandardStreams = true
     maxParallelForks = 1
 }

@@ -107,6 +107,8 @@ public class GameServiceTest {
         Mockito.when(gameSettings.getCaboRevealSeconds()).thenReturn(30L);
         Mockito.when(gameSettings.getRematchDecisionSeconds()).thenReturn(60L);
         Mockito.when(lobbyService.isPlayerTimedOutInPlaying(Mockito.anyLong())).thenReturn(false);
+        Mockito.when(lobbyService.resolvePlayingAssignedCharacterColorsForPlayers(anyList())).thenReturn(Map.of());
+        Mockito.when(userRepository.findAllById(any())).thenReturn(List.of());
         // mock timer without waiting for it
         Mockito.when(scheduler.schedule(Mockito.any(Runnable.class), Mockito.anyLong(), Mockito.any(TimeUnit.class)))
                 .thenAnswer(invocation -> Mockito.mock(ScheduledFuture.class));
@@ -786,7 +788,7 @@ public class GameServiceTest {
 
         gameService.moveSwapWithDiscardPile("g-swap-broadcast-chain", "token", 0);
 
-        GameStateBroadcastMapper broadcastMapper = new GameStateBroadcastMapper(lobbyService);
+        GameStateBroadcastMapper broadcastMapper = new GameStateBroadcastMapper(lobbyService, userRepository);
         for (Long viewerId : List.of(1L, 2L)) {
             GameStateBroadcastDTO dto = broadcastMapper.toBroadcastForViewer(game, viewerId);
             assertNotNull(dto.getDiscardPileTop());
@@ -843,7 +845,7 @@ public class GameServiceTest {
         gameService.moveDrawFromDiscardPile("g-draw-swap-broadcast-chain", "token");
         gameService.moveSwapDrawnCard("g-draw-swap-broadcast-chain", "token", 0);
 
-        GameStateBroadcastMapper broadcastMapper = new GameStateBroadcastMapper(lobbyService);
+        GameStateBroadcastMapper broadcastMapper = new GameStateBroadcastMapper(lobbyService, userRepository);
         for (Long viewerId : List.of(1L, 2L)) {
             GameStateBroadcastDTO dto = broadcastMapper.toBroadcastForViewer(game, viewerId);
             assertNotNull(dto.getDiscardPileTop());
@@ -1514,7 +1516,7 @@ public class GameServiceTest {
         // verify publishFilteredState for game was called 
         Mockito.verify(gameEventPublisher, Mockito.times(1)).publishFilteredState(game);
 
-        GameStateBroadcastMapper broadcastMapper = new GameStateBroadcastMapper(lobbyService);
+        GameStateBroadcastMapper broadcastMapper = new GameStateBroadcastMapper(lobbyService, userRepository);
         GameStateBroadcastDTO asPlayer1 = broadcastMapper.toBroadcastForViewer(game, 1L);
         // verify player 1 sees game status as ROUND_ENDED
         assertEquals(GameStatus.ROUND_ENDED, asPlayer1.getStatus());
@@ -1564,8 +1566,8 @@ public class GameServiceTest {
         resolve.invoke(gameService, "g-91", game, null);
 
         // round counts start from 0, so at index 1 we have second round
-        // last round's score is reduced by 50 to compensate (40 -> -10)
-        assertEquals(-10, session.getUserScoresPerRound().get(1).get(1L));
+        // latest round score must stay unchanged (reduction now affects only total score)
+        assertEquals(40, session.getUserScoresPerRound().get(1).get(1L));
         // second user's score from last round unaffected
         assertEquals(5, session.getUserScoresPerRound().get(1).get(2L));
         // first user's score 50 instead of 100
@@ -1645,9 +1647,8 @@ public class GameServiceTest {
         resolve.setAccessible(true);
         // code not triggered by timer, so last argument null
         resolve.invoke(gameService, "g-91-once", game, null);
-        // resolve subtracted 50 from last rounds score to compensate (40 -> -10)
-        // and set the total score from 100 to 50
-        assertEquals(-10, session.getUserScoresPerRound().get(1).get(1L));
+        // latest round score stays untouched, but total score is reduced from 100 to 50 once
+        assertEquals(40, session.getUserScoresPerRound().get(1).get(1L));
         assertEquals(50, session.getTotalScoreByUserId().get(1L));
 
         // resolve changed the status, but to check to logic that the "100 -> 50" rule does not run again,
@@ -2409,6 +2410,52 @@ public class GameServiceTest {
     }
 
     @Test
+    public void testCalculatedRoundScores_WithTwoKamikazePlayers_AllKamikazeGetZero() throws Exception {
+        Long firstKamikazePlayerId = 1L;
+        Long secondKamikazePlayerId = 2L;
+        Long normalPlayerId = 3L;
+        List<Long> orderedPlayers = Arrays.asList(firstKamikazePlayerId, secondKamikazePlayerId, normalPlayerId);
+
+        List<Card> kamikazeHandA = new ArrayList<>();
+        Card a1 = new Card(); a1.setValue(12); kamikazeHandA.add(a1);
+        Card a2 = new Card(); a2.setValue(12); kamikazeHandA.add(a2);
+        Card a3 = new Card(); a3.setValue(13); kamikazeHandA.add(a3);
+        Card a4 = new Card(); a4.setValue(13); kamikazeHandA.add(a4);
+
+        List<Card> kamikazeHandB = new ArrayList<>();
+        Card b1 = new Card(); b1.setValue(12); kamikazeHandB.add(b1);
+        Card b2 = new Card(); b2.setValue(12); kamikazeHandB.add(b2);
+        Card b3 = new Card(); b3.setValue(13); kamikazeHandB.add(b3);
+        Card b4 = new Card(); b4.setValue(13); kamikazeHandB.add(b4);
+
+        List<Card> normalHand = new ArrayList<>();
+        Card n1 = new Card(); n1.setValue(1); normalHand.add(n1);
+        Card n2 = new Card(); n2.setValue(1); normalHand.add(n2);
+        Card n3 = new Card(); n3.setValue(2); normalHand.add(n3);
+        Card n4 = new Card(); n4.setValue(2); normalHand.add(n4);
+
+        Map<Long, List<Card>> playerHands = new HashMap<>();
+        playerHands.put(firstKamikazePlayerId, kamikazeHandA);
+        playerHands.put(secondKamikazePlayerId, kamikazeHandB);
+        playerHands.put(normalPlayerId, normalHand);
+
+        Game mockGame = org.mockito.Mockito.mock(Game.class);
+        org.mockito.Mockito.when(mockGame.getOrderedPlayerIds()).thenReturn(orderedPlayers);
+        org.mockito.Mockito.when(mockGame.getPlayerHands()).thenReturn(playerHands);
+        org.mockito.Mockito.when(mockGame.getCaboCalledByUserId()).thenReturn(null);
+
+        java.lang.reflect.Method method = GameService.class.getDeclaredMethod("calculatedRoundScores", Game.class);
+        method.setAccessible(true);
+
+        @SuppressWarnings("unchecked")
+        Map<Long, Integer> scores = (Map<Long, Integer>) method.invoke(gameService, mockGame);
+
+        assertEquals(0, scores.get(firstKamikazePlayerId), "Erster Kamikaze-Spieler sollte 0 Punkte erhalten.");
+        assertEquals(0, scores.get(secondKamikazePlayerId), "Zweiter Kamikaze-Spieler sollte 0 Punkte erhalten.");
+        assertEquals(50, scores.get(normalPlayerId), "Nicht-Kamikaze-Spieler sollte 50 Strafpunkte erhalten.");
+    }
+
+    @Test
     public void testResumeGame_Success() {
         // 1. Setup: Testdaten vorbereiten
         Long sessionId = 42L;
@@ -2981,4 +3028,3 @@ public class GameServiceTest {
         assertEquals(1, savedAlice.getGamesWon());
     }
 }
-

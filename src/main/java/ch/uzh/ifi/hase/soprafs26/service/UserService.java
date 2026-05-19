@@ -15,6 +15,7 @@ import ch.uzh.ifi.hase.soprafs26.entity.Session;
 import ch.uzh.ifi.hase.soprafs26.entity.User;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.FriendOnlineSummaryDTO;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.FriendRequestIncomingDTO;
+import ch.uzh.ifi.hase.soprafs26.rest.dto.UserPutDTO;
 import ch.uzh.ifi.hase.soprafs26.repository.LobbyRepository;
 import ch.uzh.ifi.hase.soprafs26.repository.SessionRepository;
 import ch.uzh.ifi.hase.soprafs26.repository.UserRepository;
@@ -76,6 +77,66 @@ public class UserService {
             Map.entry("indigo", "navy_blue"),
             Map.entry("plum", "purple"),
             Map.entry("amber", "yellow"));
+
+    private record UserUpdatePatch(
+            String password,
+            UserStatus status,
+            Boolean isPublicLog,
+            String bio,
+            String profileCharacterId,
+            List<String> preferredColorPriority,
+            String menuBackgroundId,
+            String gameBackgroundId,
+            String primaryColorId,
+            String appearanceMode,
+            Boolean tutorialsEnabled,
+            Integer musicVolume,
+            Integer soundEffectsVolume,
+            List<String> musicBlacklist) {
+        static UserUpdatePatch fromEntity(User userInput) {
+            if (userInput == null) {
+                return new UserUpdatePatch(
+                        null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+            }
+            return new UserUpdatePatch(
+                    userInput.getPassword(),
+                    userInput.getStatus(),
+                    userInput.getIsPublicLog(),
+                    userInput.getBio(),
+                    userInput.getProfileCharacterId(),
+                    userInput.getPreferredColorPriority(),
+                    userInput.getMenuBackgroundId(),
+                    userInput.getGameBackgroundId(),
+                    userInput.getPrimaryColorId(),
+                    userInput.getAppearanceMode(),
+                    userInput.getTutorialsEnabled(),
+                    userInput.getMusicVolume(),
+                    userInput.getSoundEffectsVolume(),
+                    userInput.getMusicBlacklist());
+        }
+
+        static UserUpdatePatch fromDto(UserPutDTO userInput) {
+            if (userInput == null) {
+                return new UserUpdatePatch(
+                        null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+            }
+            return new UserUpdatePatch(
+                    userInput.getPassword(),
+                    userInput.getStatus(),
+                    userInput.getIsPublicLog(),
+                    userInput.getBio(),
+                    userInput.getProfileCharacterId(),
+                    userInput.getPreferredColorPriority(),
+                    userInput.getMenuBackgroundId(),
+                    userInput.getGameBackgroundId(),
+                    userInput.getPrimaryColorId(),
+                    userInput.getAppearanceMode(),
+                    userInput.getTutorialsEnabled(),
+                    userInput.getMusicVolume(),
+                    userInput.getSoundEffectsVolume(),
+                    userInput.getMusicBlacklist());
+        }
+    }
 
 	private final Logger log = LoggerFactory.getLogger(UserService.class);
 
@@ -675,75 +736,82 @@ public class UserService {
     }
 // änderung des PW in datenbank
     public void updateUser(Long userId, User userInput) {
+        applyUserUpdatePatch(userId, UserUpdatePatch.fromEntity(userInput));
+    }
+
+    public void updateUser(Long userId, UserPutDTO userInput) {
+        applyUserUpdatePatch(userId, UserUpdatePatch.fromDto(userInput));
+    }
+
+    private void applyUserUpdatePatch(Long userId, UserUpdatePatch patch) {
         User user = getUserById(userId);
         boolean shouldRefreshLobbyPresentation = false;
-        if (userInput.getPassword() != null) {
-            validatePassword(userInput.getPassword());
-            user.setPassword(userInput.getPassword());
+        if (patch.password() != null) {
+            validatePassword(patch.password());
+            user.setPassword(patch.password());
         }
-        if (userInput.getBio() != null) {
-            String normalizedBio = userInput.getBio().trim();
+        if (patch.bio() != null) {
+            String normalizedBio = patch.bio().trim();
             if (normalizedBio.length() > MAX_BIO_LENGTH) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Bio must be 180 characters or fewer.");
             }
             user.setBio(normalizedBio);
         }
-        if (userInput.getStatus() != null) {
-            user.setStatus(userInput.getStatus());
+        if (patch.status() != null) {
+            user.setStatus(patch.status());
         }
-        if (userInput.getIsPublicLog() != null) {
-            user.setIsPublicLog(userInput.getIsPublicLog());
+        if (patch.isPublicLog() != null) {
+            user.setIsPublicLog(patch.isPublicLog());
         }
-        if (userInput.getProfileCharacterId() != null) {
-            String nextCharacterId = userInput.getProfileCharacterId().trim();
+        if (patch.profileCharacterId() != null) {
+            String nextCharacterId = patch.profileCharacterId().trim();
             if (!nextCharacterId.isEmpty()) {
                 user.setProfileCharacterId(nextCharacterId);
             }
         }
-        if (userInput.getPreferredColorPriority() != null) {
-            List<String> sanitizedPriority = sanitizePreferredColorPriority(userInput.getPreferredColorPriority());
+        if (patch.preferredColorPriority() != null) {
+            List<String> sanitizedPriority = sanitizePreferredColorPriority(patch.preferredColorPriority());
             user.setPreferredColorPriority(sanitizedPriority);
             shouldRefreshLobbyPresentation = true;
         }
-        if (userInput.getMenuBackgroundId() != null) {
-            String nextMenuBackgroundId = userInput.getMenuBackgroundId().trim();
+        if (patch.menuBackgroundId() != null) {
+            String nextMenuBackgroundId = patch.menuBackgroundId().trim();
             if (!nextMenuBackgroundId.isEmpty()) {
                 user.setMenuBackgroundId(nextMenuBackgroundId);
             }
         }
-        if (userInput.getGameBackgroundId() != null) {
-            String nextGameBackgroundId = userInput.getGameBackgroundId().trim();
+        if (patch.gameBackgroundId() != null) {
+            String nextGameBackgroundId = patch.gameBackgroundId().trim();
             if (!nextGameBackgroundId.isEmpty()) {
                 user.setGameBackgroundId(nextGameBackgroundId);
             }
         }
-        if (userInput.getPrimaryColorId() != null) {
-            String nextPrimaryColorId = normalizeCharacterColorId(userInput.getPrimaryColorId());
+        if (patch.primaryColorId() != null) {
+            String nextPrimaryColorId = normalizeCharacterColorId(patch.primaryColorId());
             if (!nextPrimaryColorId.isEmpty()) {
                 user.setPrimaryColorId(nextPrimaryColorId);
-                shouldRefreshLobbyPresentation = true;
             }
         }
-        if (userInput.getAppearanceMode() != null) {
-            String nextAppearanceMode = normalizeAppearanceMode(userInput.getAppearanceMode());
+        if (patch.appearanceMode() != null) {
+            String nextAppearanceMode = normalizeAppearanceMode(patch.appearanceMode());
             if (!nextAppearanceMode.isEmpty()) {
                 user.setAppearanceMode(nextAppearanceMode);
             }
         }
-        if (userInput.getTutorialsEnabled() != null) {
-            user.setTutorialsEnabled(userInput.getTutorialsEnabled());
+        if (patch.tutorialsEnabled() != null) {
+            user.setTutorialsEnabled(patch.tutorialsEnabled());
         }
-        if (userInput.getMusicVolume() != null) {
-            int clampedMusicVolume = Math.max(0, Math.min(100, userInput.getMusicVolume()));
+        if (patch.musicVolume() != null) {
+            int clampedMusicVolume = Math.max(0, Math.min(100, patch.musicVolume()));
             user.setMusicVolume(clampedMusicVolume);
         }
-        if (userInput.getSoundEffectsVolume() != null) {
-            int clampedEffectsVolume = Math.max(0, Math.min(100, userInput.getSoundEffectsVolume()));
+        if (patch.soundEffectsVolume() != null) {
+            int clampedEffectsVolume = Math.max(0, Math.min(100, patch.soundEffectsVolume()));
             user.setSoundEffectsVolume(clampedEffectsVolume);
         }
-        if (userInput.getMusicBlacklist() != null) {
+        if (patch.musicBlacklist() != null) {
             List<String> sanitizedBlacklist = new ArrayList<>();
-            for (String tag : userInput.getMusicBlacklist()) {
+            for (String tag : patch.musicBlacklist()) {
                 String normalized = tag == null ? "" : tag.trim();
                 if (!normalized.isEmpty()) {
                     sanitizedBlacklist.add(normalized);

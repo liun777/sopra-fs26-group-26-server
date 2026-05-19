@@ -151,4 +151,21 @@ public class UserServiceIntegrationTest {
         assertEquals(List.of(), userService.getAcceptedFriendIds(alice.getToken()));
         assertEquals(List.of(), userService.getAcceptedFriendIds(bob.getToken()));
     }
+
+    @Test
+    public void updateUser_preferredColorPriority_consecutiveUpdates_doNotCreateDuplicatePriorityRows() {
+        User user = createUser("prefcoloruser");
+        List<String> nextPriority = List.of("orange", "red", "yellow", "pink");
+
+        User firstUpdate = new User();
+        firstUpdate.setPreferredColorPriority(nextPriority);
+        assertDoesNotThrow(() -> userService.updateUser(user.getId(), firstUpdate));
+
+        User secondUpdate = new User();
+        secondUpdate.setPreferredColorPriority(nextPriority);
+        assertDoesNotThrow(() -> userService.updateUser(user.getId(), secondUpdate));
+
+        User persisted = userService.getUserById(user.getId());
+        assertEquals(nextPriority, persisted.getPreferredColorPriority());
+    }
 }

@@ -10,6 +10,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.util.Arrays;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -18,6 +19,8 @@ import java.util.Set;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -35,6 +38,7 @@ class DisconnectServiceTest {
     private GameService gameService;
 
     private DisconnectService disconnectService;
+    private static final String AUTO_LOGOUT_TOKEN = "keep-token";
 
     @BeforeEach
     void setUp() {
@@ -58,10 +62,7 @@ class DisconnectServiceTest {
 
     @Test
     void checkIdleUsers_spectator_isSkipped() {
-        User spectator = new User();
-        spectator.setId(7L);
-        spectator.setStatus(UserStatus.SPECTATING);
-        spectator.setLastHeartbeat(Instant.now().minusSeconds(9999));
+        User spectator = createUser(7L, UserStatus.SPECTATING, AUTO_LOGOUT_TOKEN, Instant.now().minusSeconds(9999));
 
         when(userRepository.findByStatusNot(UserStatus.OFFLINE)).thenReturn(List.of(spectator));
         when(lobbyService.getPlayingLobbyPlayerIdsSnapshot()).thenReturn(Set.of());
@@ -73,21 +74,66 @@ class DisconnectServiceTest {
     }
 
     @Test
-    void checkAutoLogoutUsers_spectator_isLoggedOut() {
-        User spectator = new User();
-        spectator.setId(99L);
-        spectator.setStatus(UserStatus.SPECTATING);
-        spectator.setToken("keep-token");
+    void checkIdleUsers_staleOnlineUser_triggersPermanentDisconnect() {
+        User onlineUser = createUser(8L, UserStatus.ONLINE, "online-token", Instant.now().minusSeconds(9999));
 
-        when(userRepository.findByLastHeartbeatBeforeAndStatusNot(
-                org.mockito.ArgumentMatchers.any(Instant.class),
-                org.mockito.ArgumentMatchers.eq(UserStatus.PLAYING)
-        )).thenReturn(List.of(spectator));
+        when(userRepository.findByStatusNot(UserStatus.OFFLINE)).thenReturn(List.of(onlineUser));
+        when(lobbyService.getPlayingLobbyPlayerIdsSnapshot()).thenReturn(Set.of());
+        when(userRepository.findById(8L)).thenReturn(Optional.of(onlineUser));
+        when(lobbyService.isPlayerTimedOutInPlaying(8L)).thenReturn(false);
+
+        disconnectService.checkIdleUsers();
+
+        verify(lobbyService).handlePermanentDisconnect(8L);
+    }
+
+    @Test
+    void checkAutoLogoutUsers_spectator_isLoggedOut() {
+        User spectator = createUser(99L, UserStatus.SPECTATING, AUTO_LOGOUT_TOKEN, Instant.now().minusSeconds(9999));
+        stubAutoLogoutCandidates(List.of(spectator));
 
         disconnectService.checkAutoLogoutUsers();
 
-        assertEquals(UserStatus.OFFLINE, spectator.getStatus());
-        assertNotEquals("keep-token", spectator.getToken());
+        assertUserLoggedOutAndTokenRotated(spectator, AUTO_LOGOUT_TOKEN);
         verify(userRepository).save(spectator);
+    }
+
+    @Test
+    void checkAutoLogoutUsers_onlineUser_isLoggedOut() {
+        User onlineUser = createUser(100L, UserStatus.ONLINE, AUTO_LOGOUT_TOKEN, Instant.now().minusSeconds(9999));
+        stubAutoLogoutCandidates(List.of(onlineUser));
+
+        disconnectService.checkAutoLogoutUsers();
+
+        assertUserLoggedOutAndTokenRotated(onlineUser, AUTO_LOGOUT_TOKEN);
+        verify(userRepository).save(onlineUser);
+    }
+
+    @Test
+    void checkAutoLogoutUsers_nullCandidate_isIgnored() {
+        stubAutoLogoutCandidates(Arrays.asList((User) null));
+
+        disconnectService.checkAutoLogoutUsers();
+
+        verify(userRepository, never()).save(any(User.class));
+    }
+
+    private void stubAutoLogoutCandidates(List<User> candidates) {
+        when(userRepository.findByLastHeartbeatBeforeAndStatusNot(any(Instant.class), eq(UserStatus.PLAYING)))
+                .thenReturn(candidates);
+    }
+
+    private User createUser(Long id, UserStatus status, String token, Instant lastHeartbeat) {
+        User user = new User();
+        user.setId(id);
+        user.setStatus(status);
+        user.setToken(token);
+        user.setLastHeartbeat(lastHeartbeat);
+        return user;
+    }
+
+    private void assertUserLoggedOutAndTokenRotated(User user, String previousToken) {
+        assertEquals(UserStatus.OFFLINE, user.getStatus());
+        assertNotEquals(previousToken, user.getToken());
     }
 }

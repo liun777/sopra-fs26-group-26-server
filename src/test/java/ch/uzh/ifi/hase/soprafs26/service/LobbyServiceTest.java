@@ -23,6 +23,7 @@ import org.springframework.web.server.ResponseStatusException;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.WaitingLobbyPlayerRowDTO;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Optional;
 
@@ -218,6 +219,39 @@ public class LobbyServiceTest {
 		assertFalse(dto.getIsPublic());
 		assertEquals("SID1", dto.getSessionId());
 		assertEquals(2, dto.getPlayers().size());
+	}
+
+	@Test
+	public void getWaitingLobbyView_preferredColorConflict_assignsUniqueColorsHostFirst() {
+		User host = new User();
+		host.setId(1L);
+		host.setUsername("host");
+		host.setPreferredColorPriority(new ArrayList<>(List.of("red", "orange", "pink", "purple")));
+		Mockito.when(userRepository.findByToken("host-token")).thenReturn(host);
+
+		User playerTwo = new User();
+		playerTwo.setId(2L);
+		playerTwo.setUsername("p2");
+		playerTwo.setPreferredColorPriority(new ArrayList<>(List.of("red", "orange", "yellow", "purple")));
+
+		Lobby lobby = new Lobby();
+		lobby.setId(10L);
+		lobby.setSessionId("SID-COLOR");
+		lobby.setSessionHostUserId(1L);
+		lobby.setStatus("WAITING");
+		lobby.setPlayerIds(new ArrayList<>(List.of(1L, 2L)));
+		lobby.setAssignedCharacterColorByUserId(new HashMap<>());
+		Mockito.when(lobbyRepository.findBySessionId("SID-COLOR")).thenReturn(lobby);
+		Mockito.when(lobbyRepository.save(Mockito.any(Lobby.class))).thenAnswer(inv -> inv.getArgument(0));
+		Mockito.when(userRepository.findAllById(Mockito.anyIterable())).thenReturn(List.of(host, playerTwo));
+
+		WaitingLobbyViewDTO dto = lobbyService.getWaitingLobbyView("host-token", "SID-COLOR");
+
+		assertEquals(2, dto.getPlayers().size());
+		assertEquals("red", dto.getPlayers().get(0).getCharacterColorId());
+		assertEquals("orange", dto.getPlayers().get(1).getCharacterColorId());
+		assertEquals("red", lobby.getAssignedCharacterColorByUserId().get(1L));
+		assertEquals("orange", lobby.getAssignedCharacterColorByUserId().get(2L));
 	}
 
 	@Test

@@ -8,6 +8,9 @@ import java.util.List;
 public class PlayerHandViewDTO {
 
     private Long userId;
+    private String username;
+    private String profileCharacterId;
+    private String characterColorId;
     private List<CardViewDTO> cards = new ArrayList<>();
 
     public Long getUserId() {
@@ -16,6 +19,30 @@ public class PlayerHandViewDTO {
 
     public void setUserId(Long userId) {
         this.userId = userId;
+    }
+
+    public String getUsername() {
+        return username;
+    }
+
+    public void setUsername(String username) {
+        this.username = username;
+    }
+
+    public String getProfileCharacterId() {
+        return profileCharacterId;
+    }
+
+    public void setProfileCharacterId(String profileCharacterId) {
+        this.profileCharacterId = profileCharacterId;
+    }
+
+    public String getCharacterColorId() {
+        return characterColorId;
+    }
+
+    public void setCharacterColorId(String characterColorId) {
+        this.characterColorId = characterColorId;
     }
 
     public List<CardViewDTO> getCards() {

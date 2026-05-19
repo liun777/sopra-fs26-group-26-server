@@ -183,10 +183,6 @@ public class LobbyService {
         if (!sanitizedPreferred.isEmpty()) {
             return sanitizedPreferred;
         }
-        String normalizedPrimary = normalizeCharacterColorId(user.getPrimaryColorId());
-        if (!normalizedPrimary.isEmpty()) {
-            return List.of(normalizedPrimary);
-        }
         return List.of(CHARACTER_COLOR_ORDER.get(0));
     }
 
@@ -297,6 +293,52 @@ public class LobbyService {
         }
         lobby.setAssignedCharacterColorByUserId(nextAssignedColors);
         return true;
+    }
+
+    private Map<Long, String> resolveEffectiveAssignedColorsForOrderedPlayers(
+            List<Long> orderedPlayerIds,
+            Map<Long, User> usersById,
+            Map<Long, String> existingAssignedColors) {
+        if (orderedPlayerIds == null || orderedPlayerIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<Long, String> safeExisting = existingAssignedColors == null
+                ? Map.of()
+                : existingAssignedColors;
+
+        Map<Long, String> resolvedColors = new HashMap<>();
+        Set<String> alreadyUsedColors = new LinkedHashSet<>();
+        for (Long playerId : orderedPlayerIds) {
+            String selectedColor = "";
+            String existingColor = normalizeCharacterColorId(safeExisting.get(playerId));
+            if (!existingColor.isEmpty() && !alreadyUsedColors.contains(existingColor)) {
+                selectedColor = existingColor;
+            }
+            if (selectedColor.isEmpty()) {
+                User user = usersById.get(playerId);
+                List<String> preferredColors = getPlayerColorPreferences(user);
+                for (String preferred : preferredColors) {
+                    if (!alreadyUsedColors.contains(preferred)) {
+                        selectedColor = preferred;
+                        break;
+                    }
+                }
+            }
+            if (selectedColor.isEmpty()) {
+                for (String fallbackColor : CHARACTER_COLOR_ORDER) {
+                    if (!alreadyUsedColors.contains(fallbackColor)) {
+                        selectedColor = fallbackColor;
+                        break;
+                    }
+                }
+            }
+            if (selectedColor.isEmpty()) {
+                selectedColor = CHARACTER_COLOR_ORDER.get(0);
+            }
+            resolvedColors.put(playerId, selectedColor);
+            alreadyUsedColors.add(selectedColor);
+        }
+        return resolvedColors;
     }
 
     private boolean normalizeLobbyPlayerStateInPlace(Lobby lobby) {
@@ -942,6 +984,24 @@ public class LobbyService {
         Map<Long, String> assignedCharacterColorByUserId = lobby.getAssignedCharacterColorByUserId() == null
                 ? new HashMap<>()
                 : lobby.getAssignedCharacterColorByUserId();
+        Map<Long, String> effectiveAssignedCharacterColorByUserId = resolveEffectiveAssignedColorsForOrderedPlayers(
+                orderedIds,
+                usersById,
+                assignedCharacterColorByUserId);
+        if (!effectiveAssignedCharacterColorByUserId.equals(assignedCharacterColorByUserId)) {
+            lobby.setAssignedCharacterColorByUserId(new HashMap<>(effectiveAssignedCharacterColorByUserId));
+            Lobby persistedLobby = lobbyRepository.save(lobby);
+            if (persistedLobby != null) {
+                lobby = persistedLobby;
+            }
+            assignedCharacterColorByUserId = lobby.getAssignedCharacterColorByUserId() == null
+                    ? new HashMap<>()
+                    : lobby.getAssignedCharacterColorByUserId();
+            effectiveAssignedCharacterColorByUserId = resolveEffectiveAssignedColorsForOrderedPlayers(
+                    orderedIds,
+                    usersById,
+                    assignedCharacterColorByUserId);
+        }
         Map<Long, Boolean> readyStateByUserId = lobby.getPlayerReadyByUserId() == null
                 ? new HashMap<>()
                 : lobby.getPlayerReadyByUserId();
@@ -955,12 +1015,7 @@ public class LobbyService {
             row.setUserId(pid);
             row.setUsername(u.getUsername());
             row.setProfileCharacterId(u.getProfileCharacterId());
-            List<String> playerColorPreferences = getPlayerColorPreferences(u);
-            String fallbackColor = playerColorPreferences.isEmpty()
-                    ? CHARACTER_COLOR_ORDER.get(0)
-                    : playerColorPreferences.get(0);
-            row.setCharacterColorId(assignedCharacterColorByUserId.getOrDefault(
-                    pid, fallbackColor));
+            row.setCharacterColorId(effectiveAssignedCharacterColorByUserId.get(pid));
             row.setReady(Objects.equals(pid, hostId) || Boolean.TRUE.equals(readyStateByUserId.get(pid)));
 
             // --- THIS IS THE CRITICAL LOGIC FOR THE START BUTTON ---
@@ -1259,6 +1314,7 @@ public class LobbyService {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Session could not be found");
         }
 
+        normalizeLobbyPlayerStateInPlace(lobby);
         lobby.setStatus("PLAYING");
         lobbyRepository.save(lobby);
         clearTimedOutPlayingFlags(lobby.getPlayerIds());
@@ -1458,6 +1514,67 @@ public class LobbyService {
     public String findPlayingSessionIdForPlayers(List<Long> gamePlayerIds) {
         Lobby matchingLobby = findBestPlayingLobbyForPlayers(gamePlayerIds);
         return matchingLobby == null ? null : matchingLobby.getSessionId();
+    }
+
+    public Map<Long, String> resolvePlayingAssignedCharacterColorsForPlayers(List<Long> gamePlayerIds) {
+        Lobby matchingLobby = findBestPlayingLobbyForPlayers(gamePlayerIds);
+        if (matchingLobby == null || matchingLobby.getPlayerIds() == null || matchingLobby.getPlayerIds().isEmpty()) {
+            return Map.of();
+        }
+
+        List<Long> orderedPlayerIds = getOrderedLobbyPlayerIdsHostFirst(matchingLobby);
+        if (orderedPlayerIds.isEmpty()) {
+            return Map.of();
+        }
+
+        Map<Long, String> existingAssignedColors = matchingLobby.getAssignedCharacterColorByUserId() == null
+                ? new HashMap<>()
+                : new HashMap<>(matchingLobby.getAssignedCharacterColorByUserId());
+        Map<Long, User> usersById = new HashMap<>();
+        for (User user : userRepository.findAllById(orderedPlayerIds)) {
+            if (user != null && user.getId() != null) {
+                usersById.put(user.getId(), user);
+            }
+        }
+
+        Map<Long, String> nextAssignedColors = new HashMap<>();
+        Set<String> alreadyUsedColors = new LinkedHashSet<>();
+        for (Long playerId : orderedPlayerIds) {
+            String existingColor = normalizeCharacterColorId(existingAssignedColors.get(playerId));
+            String selectedColor = "";
+            if (!existingColor.isEmpty() && !alreadyUsedColors.contains(existingColor)) {
+                selectedColor = existingColor;
+            }
+            if (selectedColor.isEmpty()) {
+                User user = usersById.get(playerId);
+                List<String> preferredColors = getPlayerColorPreferences(user);
+                for (String preferred : preferredColors) {
+                    if (!alreadyUsedColors.contains(preferred)) {
+                        selectedColor = preferred;
+                        break;
+                    }
+                }
+            }
+            if (selectedColor.isEmpty()) {
+                for (String fallbackColor : CHARACTER_COLOR_ORDER) {
+                    if (!alreadyUsedColors.contains(fallbackColor)) {
+                        selectedColor = fallbackColor;
+                        break;
+                    }
+                }
+            }
+            if (selectedColor.isEmpty()) {
+                selectedColor = CHARACTER_COLOR_ORDER.get(0);
+            }
+            nextAssignedColors.put(playerId, selectedColor);
+            alreadyUsedColors.add(selectedColor);
+        }
+
+        if (!nextAssignedColors.equals(existingAssignedColors)) {
+            matchingLobby.setAssignedCharacterColorByUserId(nextAssignedColors);
+            lobbyRepository.save(matchingLobby);
+        }
+        return nextAssignedColors;
     }
 
     public List<Long> findPlayingSpectatorIdsForPlayers(List<Long> gamePlayerIds) {
