@@ -1,47 +1,49 @@
 package ch.uzh.ifi.hase.soprafs26.controller;
 
-import tools.jackson.core.JacksonException;
-import tools.jackson.databind.ObjectMapper;
-
-
 import ch.uzh.ifi.hase.soprafs26.constant.UserStatus;
-import ch.uzh.ifi.hase.soprafs26.entity.Game;
 import ch.uzh.ifi.hase.soprafs26.entity.Session;
 import ch.uzh.ifi.hase.soprafs26.entity.User;
 import ch.uzh.ifi.hase.soprafs26.repository.UserRepository;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.FriendOnlineSummaryDTO;
 import ch.uzh.ifi.hase.soprafs26.rest.dto.FriendRequestIncomingDTO;
-import ch.uzh.ifi.hase.soprafs26.rest.dto.UserPostDTO;
-import ch.uzh.ifi.hase.soprafs26.service.GameService;
 import ch.uzh.ifi.hase.soprafs26.service.HistoryService;
 import ch.uzh.ifi.hase.soprafs26.service.LobbyService;
 import ch.uzh.ifi.hase.soprafs26.service.UserService;
-import ch.uzh.ifi.hase.soprafs26.util.AuthValidationRules;
-
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
-import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 
-import static org.hamcrest.Matchers.hasSize;
-import static org.hamcrest.Matchers.is;
-import static org.mockito.BDDMockito.given;
-import static org.mockito.Mockito.verify;
+// These static imports are critical for the mockMvc.perform() calls
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.hamcrest.Matchers.is;
+
+// Add these to fix the Mockito errors!
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+import static org.mockito.BDDMockito.given; 
+
+// Add this to fix the hasSize() error!
+import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.is;
+
+import java.util.Collections;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
+import ch.uzh.ifi.hase.soprafs26.rest.dto.UserPostDTO;
+import ch.uzh.ifi.hase.soprafs26.util.AuthValidationRules;
 
 /**
  * UserControllerTest
@@ -49,26 +51,34 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * request without actually sending them over the network.
  * This tests if the UserController works.
  */
-@WebMvcTest(UserController.class)
+
 public class UserControllerTest {
 
-	@Autowired
 	private MockMvc mockMvc;
+    private UserService userService;
+    private HistoryService historyService;
+    private LobbyService lobbyService;
+    private UserRepository userRepository;
 
-	@MockitoBean
-	private UserService userService;
+    @BeforeEach
+    void setup() {
+        // 1. Mock all four required dependencies
+        userService = Mockito.mock(UserService.class);
+        historyService = Mockito.mock(HistoryService.class);
+        lobbyService = Mockito.mock(LobbyService.class);
+        userRepository = Mockito.mock(UserRepository.class);
 
-	@MockitoBean
-	private GameService gameService;
+        // 2. Pass them all into the constructor in the EXACT order defined in UserController.java
+        UserController userController = new UserController(
+                userService, 
+                historyService, 
+                lobbyService, 
+                userRepository
+        );
 
-	@MockitoBean
-	private HistoryService historyService;
-
-	@MockitoBean
-	private LobbyService lobbyService;
-
-	@MockitoBean
-	private UserRepository userRepository;
+        // 3. Build the standalone setup
+        mockMvc = MockMvcBuilders.standaloneSetup(userController).build();
+    }
 
 	@Test
 	public void givenUsers_whenGetUsers_thenReturnJsonArray() throws Exception {
@@ -115,7 +125,7 @@ public class UserControllerTest {
 		// when/then -> do the request + validate the result
 		MockHttpServletRequestBuilder postRequest = post("/users")
 				.contentType(MediaType.APPLICATION_JSON)
-				.content(asJsonString(userPostDTO));
+				.content("{\"username\":\"testUser123\", \"password\":\"ValidPass1!\"}");
 
 		// then
 		mockMvc.perform(postRequest)
@@ -135,7 +145,7 @@ public class UserControllerTest {
 
         MockHttpServletRequestBuilder postRequest = post("/users")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(asJsonString(userPostDTO));
+                .content("{\"username\":\"testUsername\", \"password\":\"testPassword\"}");
 
         mockMvc.perform(postRequest).andExpect(status().isBadRequest());
 
@@ -279,23 +289,6 @@ public class UserControllerTest {
         verify(userService).removeFriendOrRequest("valid-token", 23L);
     }
 
-	/**
-	 * Helper Method to convert userPostDTO into a JSON string such that the input
-	 * can be processed
-	 * Input will look like this: {"name": "Test User", "username": "testUsername"}
-	 * 
-	 * @param object
-	 * @return string
-	 */
-	private String asJsonString(final Object object) {
-		try {
-			return new ObjectMapper().writeValueAsString(object);
-		} catch (JacksonException e) {
-			throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-					String.format("The request body could not be created.%s", e.toString()));
-		}
-	}
-
     @Test
     public void getUserHistory_validTokenAndId_returnsHistory() throws Exception {
         // 1. Arrange
@@ -336,5 +329,349 @@ public class UserControllerTest {
                 .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isNotFound()); 
     }
+
+    @Test
+    void getUserById_validUserWithId_returnsUserAndFetchesLobbyStatus() throws Exception {
+        // 1. Setup: Create a mock user with a valid ID
+        User mockUser = new User();
+        mockUser.setId(1L);
+        mockUser.setUsername("testUsername");
+        mockUser.setToken("secret-token"); // We will verify this gets stripped!
+        
+        // If your User entity requires a status to avoid NullPointerExceptions in normalizeVisibleStatus:
+        // mockUser.setStatus(UserStatus.ONLINE); 
+
+        Mockito.when(userService.getUserById(1L)).thenReturn(mockUser);
+        Mockito.when(lobbyService.resolveJoinableSessionIdForUser(1L)).thenReturn("session-123");
+        
+        // Assuming resolveLobbyPresenceStatusForUser returns an enum value
+        // Mockito.when(lobbyService.resolveLobbyPresenceStatusForUser(1L)).thenReturn(UserStatus.ONLINE);
+
+        // 2. Action & 3. Assertion
+        mockMvc.perform(get("/users/1"))
+               .andExpect(status().isOk()) // 200 OK
+               .andExpect(jsonPath("$.username", is("testUsername")))
+               .andExpect(jsonPath("$.joinableSessionId", is("session-123")))
+               .andExpect(jsonPath("$.token").doesNotExist()); // Verifies the token was successfully nullified
+               
+        // Verify the lobby service was called to fetch the session ID
+        Mockito.verify(lobbyService, Mockito.times(1)).resolveJoinableSessionIdForUser(1L);
+    }
+
+    @Test
+    void getUserById_userWithoutId_skipsLobbyStatusAndReturnsUser() throws Exception {
+        // 1. Setup: Create a mock user where ID is explicitly null to trigger the 'else' block
+        User mockUser = new User();
+        mockUser.setId(null);
+        mockUser.setUsername("ghostUser");
+
+        // The controller gets called with "2", but the returned user has no ID
+        Mockito.when(userService.getUserById(2L)).thenReturn(mockUser);
+
+        // 2. Action & 3. Assertion
+        mockMvc.perform(get("/users/2"))
+               .andExpect(status().isOk()) // 200 OK
+               .andExpect(jsonPath("$.username", is("ghostUser")))
+               .andExpect(jsonPath("$.joinableSessionId").doesNotExist()); // Or is(nullValue()) depending on Jackson settings
+
+        // Verify that because the ID was null, the controller safely skipped calling the lobbyService
+        Mockito.verify(lobbyService, Mockito.never()).resolveJoinableSessionIdForUser(Mockito.anyLong());
+    }
+
+    @Test
+    void getUserById_userNotFound_throwsNotFound() throws Exception {
+        // 1. Setup: The user service cannot find the user
+        Mockito.when(userService.getUserById(99L))
+               .thenThrow(new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
+
+        // 2. Action & 3. Assertion
+        mockMvc.perform(get("/users/99"))
+               .andExpect(status().isNotFound()); // 404 NOT FOUND
+    }
+
+    @Test
+    void updateUser_validRequest_returnsNoContent() throws Exception {
+        // 1. Setup: Since the service method returns void, Mockito does nothing by default.
+        // We just provide a valid JSON payload to simulate the UserPutDTO.
+        String jsonBody = """
+                {
+                    "username": "newUsername",
+                    "birthday": "1999-12-31"
+                }
+                """;
+
+        // 2. Action & 3. Assertion
+        mockMvc.perform(put("/users/1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(jsonBody))
+               .andExpect(status().isNoContent()); // 204 NO CONTENT
+               
+        // Verify the service was called exactly once with the correct ID and mapped entity
+        Mockito.verify(userService, Mockito.times(1))
+               .updateUser(Mockito.eq(1L), Mockito.any(User.class));
+    }
+
+    @Test
+    void updateUser_missingBody_returnsBadRequest() throws Exception {
+        // 1. Setup: No mock setup needed because Spring blocks this before the controller runs!
+
+        // 2. Action & 3. Assertion
+        mockMvc.perform(put("/users/1")
+                .contentType(MediaType.APPLICATION_JSON)) // Notice: No .content()!
+               .andExpect(status().isBadRequest()); // 400 BAD REQUEST
+
+        // Verify the service was entirely protected from the bad request
+        Mockito.verify(userService, Mockito.never())
+               .updateUser(Mockito.anyLong(), Mockito.any());
+    }
+
+    @Test
+    void updateUser_userNotFound_throwsNotFound() throws Exception {
+        // 1. Setup: Tell Mockito to throw an error when the void method is called for user 99
+        Mockito.doThrow(new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"))
+               .when(userService).updateUser(Mockito.eq(99L), Mockito.any(User.class));
+
+        String jsonBody = """
+                {
+                    "username": "newUsername"
+                }
+                """;
+
+        // 2. Action & 3. Assertion
+        mockMvc.perform(put("/users/99")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(jsonBody))
+               .andExpect(status().isNotFound()); // 404 NOT FOUND
+    }
+
+    @Test
+    void loginUser_validCredentials_returnsUser() throws Exception {
+        // 1. Setup: Create a mock user that the service will return upon successful login
+        User mockUser = new User();
+        mockUser.setId(1L);
+        mockUser.setUsername("testUsername");
+        mockUser.setToken("new-login-token"); // Note: We expect the token to be returned upon login!
+
+        Mockito.when(userService.loginUser("testUsername", "correctPassword"))
+               .thenReturn(mockUser);
+
+        // A basic JSON payload simulating the UserLoginDTO
+        String jsonBody = """
+                {
+                    "username": "testUsername",
+                    "password": "correctPassword"
+                }
+                """;
+
+        // 2. Action & 3. Assertion
+        mockMvc.perform(post("/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(jsonBody))
+               .andExpect(status().isOk()) // 200 OK
+               .andExpect(jsonPath("$.username", is("testUsername")))
+               .andExpect(jsonPath("$.token", is("new-login-token"))); 
+               
+        // Verify the service was called with exactly the strings provided in the JSON
+        Mockito.verify(userService, Mockito.times(1)).loginUser("testUsername", "correctPassword");
+    }
+
+    @Test
+    void loginUser_missingBody_returnsBadRequest() throws Exception {
+        // 1. Setup: No mock setup needed; Spring blocks it.
+
+        // 2. Action & 3. Assertion
+        mockMvc.perform(post("/login")
+                .contentType(MediaType.APPLICATION_JSON)) // Notice: No .content()!
+               .andExpect(status().isBadRequest()); // 400 BAD REQUEST
+
+        // Verify the service is never touched if the request is malformed
+        Mockito.verify(userService, Mockito.never()).loginUser(Mockito.anyString(), Mockito.anyString());
+    }
+
+    @Test
+    void loginUser_invalidCredentials_throwsUnauthorized() throws Exception {
+        // 1. Setup: Tell the service to reject these specific credentials
+        Mockito.when(userService.loginUser("testUsername", "wrongPassword"))
+               .thenThrow(new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials"));
+
+        String jsonBody = """
+                {
+                    "username": "testUsername",
+                    "password": "wrongPassword"
+                }
+                """;
+
+        // 2. Action & 3. Assertion
+        mockMvc.perform(post("/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(jsonBody))
+               .andExpect(status().isUnauthorized()); // 401 UNAUTHORIZED
+    }
+
+    @Test
+    void logoutUser_validToken_returnsOk() throws Exception {
+        // 1. Setup: Since the service method returns void, Mockito does nothing by default!
+        // We just let it run smoothly.
+
+        // 2. Action & 3. Assertion
+        mockMvc.perform(post("/auth/logout")
+                .header("Authorization", "valid-token"))
+               .andExpect(status().isOk()); // 200 OK
+               
+        // Verify the service was actually told to log the user out
+        Mockito.verify(userService, Mockito.times(1)).logoutUser("valid-token");
+    }
+
+    @Test
+    void logoutUser_missingHeader_returnsBadRequest() throws Exception {
+        // 1. Setup: No mock setup needed because Spring catches the missing header before the controller runs!
+
+        // 2. Action & 3. Assertion
+        mockMvc.perform(post("/auth/logout")) // Notice: No .header(...) included!
+               .andExpect(status().isBadRequest()); // 400 BAD REQUEST
+
+        // Verify the service was entirely protected from the bad request
+        Mockito.verify(userService, Mockito.never()).logoutUser(Mockito.anyString());
+    }
+
+    @Test
+    void logoutUser_invalidToken_throwsUnauthorized() throws Exception {
+        // 1. Setup: Tell Mockito to throw an error when the void method is called with a bad token
+        Mockito.doThrow(new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid token"))
+               .when(userService).logoutUser("bad-token");
+
+        // 2. Action & 3. Assertion
+        mockMvc.perform(post("/auth/logout")
+                .header("Authorization", "bad-token"))
+               .andExpect(status().isUnauthorized()); // 401 UNAUTHORIZED
+    }
+
+    @Test
+    void logoutUserBeacon_nullOrBlankBody_doesNothing() throws Exception {
+        // 1. Action & Assertion for Null body
+        mockMvc.perform(post("/auth/logout/beacon"))
+               .andExpect(status().isOk());
+
+        // Action & Assertion for Blank body
+        mockMvc.perform(post("/auth/logout/beacon")
+                .content("   "))
+               .andExpect(status().isOk());
+
+        // Verify the service was entirely skipped
+        Mockito.verify(userService, Mockito.never()).logoutUser(Mockito.anyString());
+    }
+
+    @Test
+    void logoutUserBeacon_jsonFormatBody_extractsTokenAndLogsOut() throws Exception {
+        // 1. Setup: A raw string resembling a JSON payload
+        String jsonBody = "{\"token\":\"json-token-123\"}";
+
+        // 2. Action & 3. Assertion
+        mockMvc.perform(post("/auth/logout/beacon")
+                .content(jsonBody))
+               .andExpect(status().isOk());
+
+        // Verify your custom string parser stripped the JSON syntax and found the token
+        Mockito.verify(userService, Mockito.times(1)).logoutUser("json-token-123");
+    }
+
+    @Test
+    void logoutUserBeacon_formUrlEncodedBody_extractsAndDecodesToken() throws Exception {
+        // 1. Setup: A raw string resembling form-data, including URL-encoded spaces (%20)
+        String formBody = "token=url%20encoded%20token";
+
+        // 2. Action & 3. Assertion
+        mockMvc.perform(post("/auth/logout/beacon")
+                .content(formBody))
+               .andExpect(status().isOk());
+
+        // Verify your parser stripped "token=" and properly decoded the spaces
+        Mockito.verify(userService, Mockito.times(1)).logoutUser("url encoded token");
+    }
+
+    @Test
+    void logoutUserBeacon_plainTextBody_usesBodyAsToken() throws Exception {
+        // 1. Setup: A raw string that is just the token itself
+        String plainBody = "plain-text-token";
+
+        // 2. Action & 3. Assertion
+        mockMvc.perform(post("/auth/logout/beacon")
+                .content(plainBody))
+               .andExpect(status().isOk());
+
+        // Verify the parser recognized it as plain text and passed it directly
+        Mockito.verify(userService, Mockito.times(1)).logoutUser("plain-text-token");
+    }
+
+    @Test
+    void logoutUserBeacon_extractedTokenIsBlank_doesNotLogOut() throws Exception {
+        // 1. Setup: Send formats where the actual token part is empty
+        String emptyJsonBody = "{\"token\":\"   \"}";
+        String emptyFormBody = "token=";
+
+        // 2. Action & 3. Assertion
+        mockMvc.perform(post("/auth/logout/beacon")
+                .content(emptyJsonBody))
+               .andExpect(status().isOk());
+
+        mockMvc.perform(post("/auth/logout/beacon")
+                .content(emptyFormBody))
+               .andExpect(status().isOk());
+
+        // Verify the final `!token.isBlank()` block successfully stopped the service call
+        Mockito.verify(userService, Mockito.never()).logoutUser(Mockito.anyString());
+    }
+
+    @Test
+    void handleHeartbeat_validToken_returnsNoContent() throws Exception {
+        // 1. Setup: The service method returns void, so Mockito will just let it execute normally.
+
+        // 2. Action & 3. Assertion
+        mockMvc.perform(post("/heartbeat")
+                .header("Authorization", "valid-token"))
+               .andExpect(status().isNoContent()); // 204 NO CONTENT
+               
+        // Verify the heartbeat service was called exactly once with the provided token
+        Mockito.verify(userService, Mockito.times(1)).heartbeat("valid-token");
+    }
+
+    @Test
+    void handleHeartbeat_missingHeader_returnsBadRequest() throws Exception {
+        // 1. Setup: Spring handles the missing header, so no mock setup is needed.
+
+        // 2. Action & 3. Assertion
+        mockMvc.perform(post("/heartbeat")) // Notice: No .header() provided!
+               .andExpect(status().isBadRequest()); // 400 BAD REQUEST
+
+        // Verify the service was protected and never called
+        Mockito.verify(userService, Mockito.never()).heartbeat(Mockito.anyString());
+    }
+
+    @Test
+    void handleHeartbeat_invalidToken_throwsUnauthorized() throws Exception {
+        // 1. Setup: Tell Mockito to throw an error when a bad token is used
+        Mockito.doThrow(new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid token"))
+               .when(userService).heartbeat("bad-token");
+
+        // 2. Action & 3. Assertion
+        mockMvc.perform(post("/heartbeat")
+                .header("Authorization", "bad-token"))
+               .andExpect(status().isUnauthorized()); // 401 UNAUTHORIZED
+    }
+
+    @Test
+    void getUserHistory_invalidToken_throwsUnauthorized() throws Exception {
+        // 1. Setup: Simulate an invalid token where the repository cannot find a user
+        Mockito.when(userRepository.findByToken("bad-token")).thenReturn(null);
+
+        // 2. Action & 3. Assertion
+        mockMvc.perform(get("/users/1/history")
+                .header("Authorization", "bad-token"))
+               .andExpect(status().isUnauthorized()); // 401 UNAUTHORIZED
+
+        // Verify that the history service is entirely protected and never called
+        Mockito.verify(historyService, Mockito.never()).getUserSessionHistory(Mockito.anyLong());
+    }
+
 
 }
