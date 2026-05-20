@@ -6,6 +6,7 @@ import ch.uzh.ifi.hase.soprafs26.entity.Card;
 import ch.uzh.ifi.hase.soprafs26.entity.Game;
 import ch.uzh.ifi.hase.soprafs26.entity.Session;
 import ch.uzh.ifi.hase.soprafs26.entity.User;
+import ch.uzh.ifi.hase.soprafs26.entity.Lobby;
 import ch.uzh.ifi.hase.soprafs26.repository.GameRepository;
 import ch.uzh.ifi.hase.soprafs26.repository.SessionRepository;
 import ch.uzh.ifi.hase.soprafs26.repository.UserRepository;
@@ -49,6 +50,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.verify;
@@ -71,6 +73,9 @@ public class GameServiceTest {
 
     @Mock
     private GameEventPublisher gameEventPublisher;
+
+    @Mock 
+private org.springframework.context.ApplicationEventPublisher eventPublisher;
 
     @Mock
     private ScheduledExecutorService scheduler;
@@ -3026,5 +3031,530 @@ public class GameServiceTest {
         User savedAlice = savedUsers.stream().filter(u -> u.getId().equals(1L)).findFirst().orElse(null);
         assertNotNull(savedAlice);
         assertEquals(1, savedAlice.getGamesWon());
+    }
+
+    @Test
+    void constructorWithSixArguments_initializesSuccessfully() {
+        // Act: Manually call the specific 6-argument constructor that has the coverage gap
+        GameService customGameService = new GameService(
+            gameRepository, 
+            deckOfCardsAPIService, 
+            userRepository, 
+            gameEventPublisher, 
+            scheduler, 
+            gameSettings
+        );
+
+        // Assert: Verify it sets up a non-null instance without throwing exceptions
+        assertNotNull(customGameService, "GameService should be successfully instantiated via the overloaded constructor");
+    }
+
+    @Test
+    void applySpecialPeek_selfPeek_publishesPlayerActionEvent() {
+        User user = new User();
+        user.setId(1L);
+        Mockito.when(userRepository.findByToken("token")).thenReturn(user);
+
+        List<Card> hand1 = new ArrayList<>();
+        Card targetCard = new Card();
+        targetCard.setVisibility(false);
+        hand1.add(targetCard);
+
+        Map<Long, List<Card>> hands = new HashMap<>();
+        hands.put(1L, hand1);
+
+        Game game = new Game();
+        game.setId("g-pub-peek");
+        game.setStatus(GameStatus.ABILITY_PEEK_SELF);
+        game.setPlayerHands(hands);
+        game.setOrderedPlayerIds(List.of(1L, 2L));
+        game.setCurrentPlayerId(1L);
+
+        Mockito.when(gameRepository.findById("g-pub-peek")).thenReturn(Optional.of(game));
+        Mockito.when(gameRepository.save(any(Game.class))).thenAnswer(inv -> inv.getArgument(0));
+        Mockito.when(lobbyService.findPlayingSessionIdForPlayers(game.getOrderedPlayerIds())).thenReturn("session-abc");
+
+        PeekSelectionDTO body = new PeekSelectionDTO();
+        body.setPeekType(PeekType.SPECIAL);
+        body.setIndices(List.of(0));
+
+        // Act
+        gameService.applyPeek("g-pub-peek", "token", body);
+
+        // Assert
+        ArgumentCaptor<PlayerActionEvent> eventCaptor = ArgumentCaptor.forClass(PlayerActionEvent.class);
+        Mockito.verify(eventPublisher, Mockito.times(1)).publishEvent(eventCaptor.capture());
+
+        PlayerActionEvent capturedEvent = eventCaptor.getValue();
+        assertEquals("session-abc", capturedEvent.getSessionId());
+        assertEquals(1L, capturedEvent.getUserId());
+        assertEquals("ABILITY PEEK", capturedEvent.getActionType());
+        assertEquals("Player peeked at their own card", capturedEvent.getDetails());
+    }
+
+    @Test
+    void applySpecialPeek_opponentSpy_publishesPlayerActionSpyEvent() {
+        User user = new User();
+        user.setId(1L);
+        Mockito.when(userRepository.findByToken("token")).thenReturn(user);
+
+        List<Card> hand2 = new ArrayList<>();
+        Card targetCard = new Card();
+        targetCard.setVisibility(false);
+        hand2.add(targetCard);
+
+        Map<Long, List<Card>> hands = new HashMap<>();
+        hands.put(2L, hand2);
+
+        Game game = new Game();
+        game.setId("g-pub-spy");
+        game.setStatus(GameStatus.ABILITY_PEEK_OPPONENT);
+        game.setPlayerHands(hands);
+        game.setOrderedPlayerIds(List.of(1L, 2L));
+        game.setCurrentPlayerId(1L);
+
+        Mockito.when(gameRepository.findById("g-pub-spy")).thenReturn(Optional.of(game));
+        Mockito.when(gameRepository.save(any(Game.class))).thenAnswer(inv -> inv.getArgument(0));
+        Mockito.when(lobbyService.findPlayingSessionIdForPlayers(game.getOrderedPlayerIds())).thenReturn("session-xyz");
+
+        PeekSelectionDTO body = new PeekSelectionDTO();
+        body.setPeekType(PeekType.SPECIAL);
+        body.setHandUserId(2L);
+        body.setIndices(List.of(0));
+
+        // Act
+        gameService.applyPeek("g-pub-spy", "token", body);
+
+        // Assert
+        ArgumentCaptor<PlayerActionEvent> eventCaptor = ArgumentCaptor.forClass(PlayerActionEvent.class);
+        Mockito.verify(eventPublisher, Mockito.times(1)).publishEvent(eventCaptor.capture());
+
+        PlayerActionEvent capturedEvent = eventCaptor.getValue();
+        assertEquals("session-xyz", capturedEvent.getSessionId());
+        assertEquals(1L, capturedEvent.getUserId());
+        assertEquals("ABILITY SPY", capturedEvent.getActionType());
+        assertEquals("Player spied on an opponent's card", capturedEvent.getDetails());
+    }
+
+    @Test
+    void applySpecialPeek_alreadyUsed_throwsForbidden() {
+        User user = new User();
+        user.setId(1L);
+        Mockito.when(userRepository.findByToken("token")).thenReturn(user);
+
+        Game game = new Game();
+        game.setId("g-peek-used");
+        game.setStatus(GameStatus.ABILITY_PEEK_SELF);
+        game.setCurrentPlayerId(1L);
+        game.setSpecialPeekUsed(true); // Triggers the exception branch
+
+        Mockito.when(gameRepository.findById("g-peek-used")).thenReturn(Optional.of(game));
+
+        PeekSelectionDTO body = new PeekSelectionDTO();
+        body.setPeekType(PeekType.SPECIAL);
+        body.setIndices(List.of(0));
+
+        ResponseStatusException ex = assertThrows(ResponseStatusException.class,
+                () -> gameService.applyPeek("g-peek-used", "token", body));
+        assertEquals(HttpStatus.FORBIDDEN, ex.getStatusCode());
+        assertEquals("Peek ability already used", ex.getReason());
+    }
+
+    @Test
+    void applySpecialPeek_invalidIndicesSize_throwsBadRequest() {
+        User user = new User();
+        user.setId(1L);
+        Mockito.when(userRepository.findByToken("token")).thenReturn(user);
+
+        Game game = new Game();
+        game.setId("g-peek-indices");
+        game.setStatus(GameStatus.ABILITY_PEEK_SELF);
+        game.setCurrentPlayerId(1L);
+
+        Mockito.when(gameRepository.findById("g-peek-indices")).thenReturn(Optional.of(game));
+
+        PeekSelectionDTO body = new PeekSelectionDTO();
+        body.setPeekType(PeekType.SPECIAL);
+        body.setIndices(List.of(0, 1)); // Triggers size != 1 condition
+
+        ResponseStatusException ex = assertThrows(ResponseStatusException.class,
+                () -> gameService.applyPeek("g-peek-indices", "token", body));
+        assertEquals(HttpStatus.BAD_REQUEST, ex.getStatusCode());
+        assertEquals("Exactly one card index required", ex.getReason());
+    }
+
+    @Test
+    void applySpecialPeek_selfPeek_targetForeignHand_throwsForbidden() {
+        User user = new User();
+        user.setId(1L);
+        Mockito.when(userRepository.findByToken("token")).thenReturn(user);
+
+        Game game = new Game();
+        game.setId("g-peek-wrong-hand");
+        game.setStatus(GameStatus.ABILITY_PEEK_SELF);
+        game.setCurrentPlayerId(1L);
+
+        Mockito.when(gameRepository.findById("g-peek-wrong-hand")).thenReturn(Optional.of(game));
+
+        PeekSelectionDTO body = new PeekSelectionDTO();
+        body.setPeekType(PeekType.SPECIAL);
+        body.setHandUserId(2L); // Trying to peek opponent during ABILITY_PEEK_SELF phase
+        body.setIndices(List.of(0));
+
+        ResponseStatusException ex = assertThrows(ResponseStatusException.class,
+                () -> gameService.applyPeek("g-peek-wrong-hand", "token", body));
+        assertEquals(HttpStatus.FORBIDDEN, ex.getStatusCode());
+        assertEquals("Can only peek your own hand", ex.getReason());
+    }
+
+    @Test
+    void applySpecialPeek_opponentPeek_missingHandUserId_throwsBadRequest() {
+        User user = new User();
+        user.setId(1L);
+        Mockito.when(userRepository.findByToken("token")).thenReturn(user);
+
+        Game game = new Game();
+        game.setId("g-spy-no-id");
+        game.setStatus(GameStatus.ABILITY_PEEK_OPPONENT);
+        game.setCurrentPlayerId(1L);
+
+        Mockito.when(gameRepository.findById("g-spy-no-id")).thenReturn(Optional.of(game));
+
+        PeekSelectionDTO body = new PeekSelectionDTO();
+        body.setPeekType(PeekType.SPECIAL);
+        body.setHandUserId(null); // Missing target player ID
+        body.setIndices(List.of(0));
+
+        ResponseStatusException ex = assertThrows(ResponseStatusException.class,
+                () -> gameService.applyPeek("g-spy-no-id", "token", body));
+        assertEquals(HttpStatus.BAD_REQUEST, ex.getStatusCode());
+        assertEquals("handUserId required for opponent peek", ex.getReason());
+    }
+
+    @Test
+    void moveDrawFromDiscardPile_success_publishesEventAndSaves() {
+        // Given
+        String gameId = "game-draw-discard";
+        String token = "valid-player-token";
+        Long playerId = 44L;
+
+        User user = new User();
+        user.setId(playerId);
+        user.setToken(token);
+        Mockito.when(userRepository.findByToken(token)).thenReturn(user);
+
+        // Prepare a discard pile with one card
+        List<Card> discardPile = new ArrayList<>();
+        Card topCard = new Card();
+        topCard.setValue(7); // Setting just the value is enough
+        discardPile.add(topCard);
+
+        Game game = new Game();
+        game.setId(gameId);
+        game.setCurrentPlayerId(playerId);
+        game.setStatus(GameStatus.ROUND_ACTIVE);
+        game.setDiscardPile(discardPile);
+        game.setDrawnCard(null);
+        game.setOrderedPlayerIds(List.of(playerId, 99L));
+
+        Mockito.when(gameRepository.findById(gameId)).thenReturn(Optional.of(game));
+        Mockito.when(gameRepository.save(any(Game.class))).thenAnswer(inv -> inv.getArgument(0));
+        Mockito.when(lobbyService.findPlayingSessionIdForPlayers(game.getOrderedPlayerIds())).thenReturn("session-discard-123");
+
+        // Act
+        gameService.moveDrawFromDiscardPile(gameId, token);
+
+        // Assert - Verify the card was popped and moved
+        assertTrue(discardPile.isEmpty(), "Discard pile should now be empty");
+        assertNotNull(game.getDrawnCard(), "Drawn card field should be populated");
+        assertEquals(7, game.getDrawnCard().getValue());
+
+        // Assert - Verify ApplicationEventPublisher captured the DRAW event
+        ArgumentCaptor<PlayerActionEvent> eventCaptor = ArgumentCaptor.forClass(PlayerActionEvent.class);
+        Mockito.verify(eventPublisher, Mockito.times(1)).publishEvent(eventCaptor.capture());
+
+        PlayerActionEvent capturedEvent = eventCaptor.getValue();
+        assertEquals("session-discard-123", capturedEvent.getSessionId());
+        assertEquals(playerId, capturedEvent.getUserId());
+        assertEquals("DRAW", capturedEvent.getActionType());
+        assertEquals("player drew card from discard pile", capturedEvent.getDetails());
+
+        // Assert - Verify game was saved
+        Mockito.verify(gameRepository, Mockito.times(1)).save(game);
+    }
+
+    @Test
+    void moveDrawFromDiscardPile_roundNotActive_throwsConflict() {
+        String gameId = "game-inactive";
+        String token = "token-1";
+        Long playerId = 1L;
+
+        User user = new User();
+        user.setId(playerId);
+        Mockito.when(userRepository.findByToken(token)).thenReturn(user);
+
+        Game game = new Game();
+        game.setId(gameId);
+        game.setCurrentPlayerId(playerId);
+        game.setStatus(GameStatus.INITIAL_PEEK); // Triggers Round is not active
+
+        Mockito.when(gameRepository.findById(gameId)).thenReturn(Optional.of(game));
+
+        ResponseStatusException ex = assertThrows(ResponseStatusException.class,
+                () -> gameService.moveDrawFromDiscardPile(gameId, token));
+        assertEquals(HttpStatus.CONFLICT, ex.getStatusCode());
+        assertEquals("Round is not active.", ex.getReason());
+    }
+
+    @Test
+    void moveDrawFromDiscardPile_alreadyDrawn_throwsConflict() {
+        String gameId = "game-already-drawn";
+        String token = "token-2";
+        Long playerId = 2L;
+
+        User user = new User();
+        user.setId(playerId);
+        Mockito.when(userRepository.findByToken(token)).thenReturn(user);
+
+        Game game = new Game();
+        game.setId(gameId);
+        game.setCurrentPlayerId(playerId);
+        game.setStatus(GameStatus.ROUND_ACTIVE);
+        game.setDrawnCard(new Card()); // Triggers You have already drawn a card!
+
+        Mockito.when(gameRepository.findById(gameId)).thenReturn(Optional.of(game));
+
+        ResponseStatusException ex = assertThrows(ResponseStatusException.class,
+                () -> gameService.moveDrawFromDiscardPile(gameId, token));
+        assertEquals(HttpStatus.CONFLICT, ex.getStatusCode());
+        assertEquals("You have already drawn a card!", ex.getReason());
+    }
+
+    @Test
+    void moveDrawFromDiscardPile_discardPileEmpty_throwsConflict() {
+        String gameId = "game-empty-discard";
+        String token = "token-3";
+        Long playerId = 3L;
+
+        User user = new User();
+        user.setId(playerId);
+        Mockito.when(userRepository.findByToken(token)).thenReturn(user);
+
+        Game game = new Game();
+        game.setId(gameId);
+        game.setCurrentPlayerId(playerId);
+        game.setStatus(GameStatus.ROUND_ACTIVE);
+        game.setDrawnCard(null);
+        game.setDiscardPile(new ArrayList<>()); // Triggers Discard pile is empty.
+
+        Mockito.when(gameRepository.findById(gameId)).thenReturn(Optional.of(game));
+
+        ResponseStatusException ex = assertThrows(ResponseStatusException.class,
+                () -> gameService.moveDrawFromDiscardPile(gameId, token));
+        assertEquals(HttpStatus.CONFLICT, ex.getStatusCode());
+        assertEquals("Discard pile is empty.", ex.getReason());
+    }
+
+    @Test
+    void ensureSessionExists_whenSessionExistsWithNullFields_initializesAndBackfillsPlayers() throws Exception {
+        // Find the private method via reflection
+        Method method = GameService.class.getDeclaredMethod("ensureSessionExistsForLobbyIfNeeded", Lobby.class, List.class);
+        method.setAccessible(true);
+
+        List<Long> playerIds = Arrays.asList(101L, null, 103L);
+        Lobby lobbyConfig = new Lobby();
+        lobbyConfig.setSessionId("existing-session-id");
+        lobbyConfig.setAbsentRoundPoints(15L); // Used 'L' for Long literal matching your entity
+
+        Session existingSession = new Session();
+        existingSession.setSessionId("existing-session-id");
+        existingSession.setAbsentRoundPoints(null);
+        existingSession.setUserScoresPerRound(null);
+        existingSession.setTotalScoreByUserId(null);
+
+        Mockito.when(sessionRepository.findBySessionId("existing-session-id")).thenReturn(existingSession);
+
+        // Act
+        method.invoke(gameService, lobbyConfig, playerIds);
+
+        // Assert
+        ArgumentCaptor<Session> sessionCaptor = ArgumentCaptor.forClass(Session.class);
+        Mockito.verify(sessionRepository, Mockito.times(1)).save(sessionCaptor.capture());
+
+        Session updatedSession = sessionCaptor.getValue();
+        assertEquals(15L, updatedSession.getAbsentRoundPoints());
+        assertNotNull(updatedSession.getUserScoresPerRound());
+        assertTrue(updatedSession.getTotalScoreByUserId().containsKey(101L));
+        assertTrue(updatedSession.getTotalScoreByUserId().containsKey(103L));
+    }
+
+    @Test
+    void ensureSessionExists_whenSessionDoesNotExist_createsAndSavesNewSession() throws Exception {
+        // Find the private method via reflection
+        Method method = GameService.class.getDeclaredMethod("ensureSessionExistsForLobbyIfNeeded", Lobby.class, List.class);
+        method.setAccessible(true);
+
+        List<Long> playerIds = List.of(101L, 102L);
+        Lobby lobbyConfig = new Lobby();
+        lobbyConfig.setSessionId("new-session-id");
+        lobbyConfig.setAbsentRoundPoints(25L); // Used 'L' for Long literal matching your entity
+
+        Mockito.when(sessionRepository.findBySessionId("new-session-id")).thenReturn(null);
+
+        // Act
+        method.invoke(gameService, lobbyConfig, playerIds);
+
+        // Assert
+        ArgumentCaptor<Session> sessionCaptor = ArgumentCaptor.forClass(Session.class);
+        Mockito.verify(sessionRepository, Mockito.times(1)).save(sessionCaptor.capture());
+
+        Session savedSession = sessionCaptor.getValue();
+        assertEquals("new-session-id", savedSession.getSessionId());
+        assertFalse(savedSession.isEnded());
+        assertNotNull(savedSession.getTotalScoreByUserId());
+        assertEquals(0, savedSession.getTotalScoreByUserId().get(101L));
+    }
+
+    @Test
+    void ensureSessionExists_whenSessionIdIsBlankOrNull_returnsEarly() throws Exception {
+        // Find the private method via reflection
+        Method method = GameService.class.getDeclaredMethod("ensureSessionExistsForLobbyIfNeeded", Lobby.class, List.class);
+        method.setAccessible(true);
+
+        Lobby lobbyConfig = new Lobby();
+        lobbyConfig.setSessionId("   "); // Blank session ID triggers early exit
+
+        // Act
+        method.invoke(gameService, lobbyConfig, List.of(202L));
+
+        // Assert: Verify database infrastructure was never queried
+        Mockito.verify(sessionRepository, Mockito.never()).findBySessionId(anyString());
+        Mockito.verify(sessionRepository, Mockito.never()).save(any(Session.class));
+    }
+    
+    @Test
+    void getActiveGameForToken_whenTokenInvalidOrUserNotFound_throwsUnauthorized() {
+        // Assert Guard 1: Token is null or blank
+        ResponseStatusException exBlank = assertThrows(ResponseStatusException.class, 
+            () -> gameService.getActiveGameForToken("   "));
+        assertEquals(HttpStatus.UNAUTHORIZED, exBlank.getStatusCode());
+
+        // Assert Guard 2: Token doesn't match any user
+        Mockito.when(userRepository.findByToken("invalid-token")).thenReturn(null);
+        ResponseStatusException exNotFound = assertThrows(ResponseStatusException.class, 
+            () -> gameService.getActiveGameForToken("invalid-token"));
+        assertEquals(HttpStatus.UNAUTHORIZED, exNotFound.getStatusCode());
+    }
+
+    @Test
+    void getActiveGameForToken_whenUserIsPlayerInActiveGame_returnsGame() {
+        String token = "player-token";
+        Long userId = 77L;
+
+        User user = new User();
+        user.setId(userId);
+        Mockito.when(userRepository.findByToken(token)).thenReturn(user);
+
+        // Prepare an active candidate game matching user
+        Game activeGame = new Game();
+        activeGame.setStatus(GameStatus.ROUND_ACTIVE); // Triggers isActiveGame -> true
+        activeGame.setOrderedPlayerIds(List.of(userId, 88L));
+
+        Mockito.when(gameRepository.findGamesByPlayerId(userId)).thenReturn(List.of(activeGame));
+
+        // Act
+        Optional<Game> result = gameService.getActiveGameForToken(token);
+
+        // Assert
+        assertTrue(result.isPresent());
+        assertEquals(activeGame, result.get());
+    }
+
+    @Test
+    void getActiveGameForToken_whenUserIsSpectatorWithExactMatch_returnsGame() {
+        String token = "spectator-token";
+        Long spectatorId = 99L;
+        Long playerId = 11L;
+
+        User user = new User();
+        user.setId(spectatorId);
+        Mockito.when(userRepository.findByToken(token)).thenReturn(user);
+
+        // 1. Spectator has no active game as a player
+        Mockito.when(gameRepository.findGamesByPlayerId(spectatorId)).thenReturn(new ArrayList<>());
+
+        // 2. Spectator is observing a lobby with players
+        Lobby lobby = new Lobby();
+        lobby.setPlayerIds(Arrays.asList(playerId, null, 22L)); // Embedded null checks toPlayerSet() safety
+        Mockito.when(lobbyService.findLatestPlayingLobbyForSpectator(spectatorId)).thenReturn(Optional.of(lobby));
+
+        // 3. Prepare the matching active game for the anchor player
+        Game activeGame = new Game();
+        activeGame.setStatus(GameStatus.ROUND_ACTIVE);
+        activeGame.setOrderedPlayerIds(List.of(playerId, 22L)); // Exact match to lobby player set
+
+        Mockito.when(gameRepository.findGamesByPlayerId(playerId)).thenReturn(List.of(activeGame));
+
+        // Act
+        Optional<Game> result = gameService.getActiveGameForToken(token);
+
+        // Assert
+        assertTrue(result.isPresent());
+        assertEquals(activeGame, result.get());
+    }
+
+    @Test
+    void getActiveGameForToken_whenUserIsSpectatorWithOverlappingPartialMatch_returnsBestOverlap() {
+        String token = "spectator-token-overlap";
+        Long spectatorId = 999L;
+        Long anchorId = 11L;
+
+        User user = new User();
+        user.setId(spectatorId);
+        Mockito.when(userRepository.findByToken(token)).thenReturn(user);
+
+        // No playing games for spectator
+        Mockito.when(gameRepository.findGamesByPlayerId(spectatorId)).thenReturn(new ArrayList<>());
+
+        // Lobby expectations: 11, 22, 33
+        Lobby lobby = new Lobby();
+        lobby.setPlayerIds(List.of(anchorId, 22L, 33L));
+        Mockito.when(lobbyService.findLatestPlayingLobbyForSpectator(spectatorId)).thenReturn(Optional.of(lobby));
+
+        // Candidate 1: Inactive game (ROUND_ENDED) -> skipped
+        Game inactiveGame = new Game();
+        inactiveGame.setStatus(GameStatus.ROUND_ENDED);
+        inactiveGame.setOrderedPlayerIds(List.of(anchorId, 22L, 33L));
+
+        // Candidate 2: Active but different ordered player set overlap (e.g. 11, 22, 44 -> overlap count = 2)
+        Game overlappingGame = new Game();
+        overlappingGame.setStatus(GameStatus.ROUND_ACTIVE);
+        overlappingGame.setOrderedPlayerIds(List.of(anchorId, 22L, 44L));
+
+        Mockito.when(gameRepository.findGamesByPlayerId(anchorId)).thenReturn(Arrays.asList(inactiveGame, overlappingGame));
+
+        // Act
+        Optional<Game> result = gameService.getActiveGameForToken(token);
+
+        // Assert
+        assertTrue(result.isPresent());
+        assertEquals(overlappingGame, result.get());
+    }
+
+    @Test
+    void getActiveGameForToken_whenNoLobbyOrNoCandidatesFound_returnsEmpty() {
+        String token = "lonely-token";
+        Long userId = 500L;
+
+        User user = new User();
+        user.setId(userId);
+        Mockito.when(userRepository.findByToken(token)).thenReturn(user);
+
+        Mockito.when(gameRepository.findGamesByPlayerId(userId)).thenReturn(new ArrayList<>());
+        Mockito.when(lobbyService.findLatestPlayingLobbyForSpectator(userId)).thenReturn(Optional.empty());
+
+        Optional<Game> result = gameService.getActiveGameForToken(token);
+
+        assertTrue(result.isEmpty());
     }
 }
